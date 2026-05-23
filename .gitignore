@@ -1,0 +1,5 @@
+.reasonforge/
+bin/
+dist/
+coverage.out
+*.test
