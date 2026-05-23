@@ -90,6 +90,52 @@ func TestFileReadSensitiveFile(t *testing.T) {
 	}
 }
 
+func TestFileReadRejectsGitDir(t *testing.T) {
+	root := t.TempDir()
+	tool := &FileReadTool{}
+
+	// .git/config
+	resp, _ := tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".git/config"},
+	})
+	if resp.Success {
+		t.Fatal("file_read should reject .git/config")
+	}
+
+	// .git itself
+	resp, _ = tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".git"},
+	})
+	if resp.Success {
+		t.Fatal("file_read should reject .git")
+	}
+}
+
+func TestFileReadRejectsReasonforgeDir(t *testing.T) {
+	root := t.TempDir()
+	tool := &FileReadTool{}
+
+	// .reasonforge/logs/tools.jsonl
+	resp, _ := tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".reasonforge/logs/tools.jsonl"},
+	})
+	if resp.Success {
+		t.Fatal("file_read should reject .reasonforge/logs/tools.jsonl")
+	}
+
+	// .reasonforge itself
+	resp, _ = tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".reasonforge"},
+	})
+	if resp.Success {
+		t.Fatal("file_read should reject .reasonforge")
+	}
+}
+
 func TestFileReadTruncation(t *testing.T) {
 	root := t.TempDir()
 	largeContent := strings.Repeat("x", 300*1024) // 300KB
@@ -383,6 +429,59 @@ func TestGitDiffPathTraversal(t *testing.T) {
 	})
 	if resp.Success {
 		t.Fatal("git_diff should reject path traversal")
+	}
+}
+
+func TestGitDiffPathFilterSuccess(t *testing.T) {
+	root := t.TempDir()
+	tool := &GitDiffTool{}
+
+	// Initialize git repo
+	initGitRepo(t, root)
+
+	// Create two files
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello from a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.txt"), []byte("hello from b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// git diff without path filter
+	resp, _ := tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{},
+	})
+	if !resp.Success {
+		t.Fatalf("git_diff without path filter failed: %q", resp.Error)
+	}
+
+	// git diff with path filter for a.txt only
+	resp, _ = tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": "a.txt"},
+	})
+	if !resp.Success {
+		t.Fatalf("git_diff with path filter failed: %q", resp.Error)
+	}
+
+	// Output should contain a.txt reference and should NOT contain b.txt
+	if resp.Stdout != "" {
+		if !strings.Contains(resp.Stdout, "a.txt") {
+			t.Fatalf("git_diff --path a.txt output should mention a.txt, got: %q", resp.Stdout)
+		}
+		if strings.Contains(resp.Stdout, "b.txt") {
+			t.Fatalf("git_diff --path a.txt output should not mention b.txt, got: %q", resp.Stdout)
+		}
+	}
+
+	// Path traversal via path filter should still fail
+	resp, _ = tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": "../../etc/passwd"},
+	})
+	if resp.Success {
+		t.Fatal("git_diff should reject path traversal in path filter")
 	}
 }
 

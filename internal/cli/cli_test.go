@@ -445,3 +445,53 @@ func TestToolRunReportsMissingConfig(t *testing.T) {
 		t.Fatalf("Run(tool-run missing config) code = %d, want 1", code)
 	}
 }
+
+func TestToolRunFileWriteDryRun(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"tool-run", "--dir", root, "--dry-run", "file_write", "--path", "dry_output.txt", "--content", "secret data"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(tool-run file_write --dry-run) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+
+	// Output should mention dry-run
+	if !strings.Contains(output, "dry-run") {
+		t.Fatalf("tool-run dry-run output should mention dry-run, got %q", output)
+	}
+
+	// File should NOT exist on disk
+	if _, err := os.Stat(filepath.Join(root, "dry_output.txt")); !os.IsNotExist(err) {
+		t.Fatal("dry-run should not create the file on disk")
+	}
+
+	// Output should NOT contain the content value
+	if strings.Contains(output, "secret data") {
+		t.Fatalf("dry-run output should not leak content: %q", output)
+	}
+
+	// Verify audit log was written with dry_run=true
+	auditPath := filepath.Join(root, ".reasonforge", "logs", "tools.jsonl")
+	auditData, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatalf("audit log should exist at %q: %v", auditPath, err)
+	}
+	auditStr := string(auditData)
+	if !strings.Contains(auditStr, `"dry_run":true`) {
+		t.Fatalf("audit log should record dry_run=true, got: %s", auditStr)
+	}
+	// Audit log should NOT contain the content value
+	if strings.Contains(auditStr, "secret data") {
+		t.Fatalf("audit log should not leak content value: %s", auditStr)
+	}
+}

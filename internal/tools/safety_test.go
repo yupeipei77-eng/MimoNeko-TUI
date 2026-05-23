@@ -115,8 +115,10 @@ func TestIsReadDenied(t *testing.T) {
 		{"private.key", true},
 		{"id_rsa", true},
 		{"id_ed25519", true},
+		{".git", true},
+		{".reasonforge", true},
 		{"README.md", false},
-		{".git", false}, // .git is not in deny-read by default
+		{"src/main.go", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

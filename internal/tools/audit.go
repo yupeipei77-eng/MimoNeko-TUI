@@ -90,20 +90,32 @@ func generateAuditID() (string, error) {
 }
 
 // redactArgs returns a copy of args with sensitive values replaced.
-// The "content" key is always redacted; other keys are preserved.
+// Only safe metadata keys (path, command_name, max_bytes, create_dirs) are
+// preserved in cleartext. All other keys are redacted because they may
+// contain file content, patch text, or other sensitive material.
 func redactArgs(args map[string]string) map[string]string {
 	if args == nil {
 		return nil
 	}
 	result := make(map[string]string, len(args))
 	for k, v := range args {
-		if k == "content" {
-			result[k] = "<redacted>"
-		} else {
+		if isSafeAuditKey(k) {
 			result[k] = v
+		} else {
+			result[k] = "<redacted>"
 		}
 	}
 	return result
+}
+
+// isSafeAuditKey returns true if the argument key is safe to log in cleartext.
+func isSafeAuditKey(key string) bool {
+	switch key {
+	case "path", "command_name", "max_bytes", "create_dirs":
+		return true
+	default:
+		return false
+	}
 }
 
 // DefaultAuditLogPath returns the default audit log path under repoRoot.

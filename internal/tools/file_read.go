@@ -34,6 +34,11 @@ func (t *FileReadTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, 
 		return toolError("file_read", fmt.Sprintf("path %q is a sensitive file, reading is denied", path)), nil
 	}
 
+	// Check protected directories (.git, .reasonforge)
+	if IsUnderProtectedDir(path) {
+		return toolError("file_read", fmt.Sprintf("path %q is under a protected directory, reading is denied", path)), nil
+	}
+
 	// Resolve safe path
 	absPath, err := guard.SafePath(req.RepoRoot, path)
 	if err != nil {
