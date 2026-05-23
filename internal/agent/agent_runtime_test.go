@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -129,10 +130,10 @@ func TestExtractModelText(t *testing.T) {
 		t.Error("ExtractModelText() returned empty string")
 	}
 	// Should contain the reasoning text but not the tool_call JSON
-	if containsSubstring(modelText, "tool_call") {
+	if strings.Contains(modelText, "tool_call") {
 		t.Errorf("ExtractModelText() should not contain tool_call, got: %q", modelText)
 	}
-	if !containsSubstring(modelText, "I need to check the README.") {
+	if !strings.Contains(modelText, "I need to check the README.") {
 		t.Errorf("ExtractModelText() should contain reasoning text, got: %q", modelText)
 	}
 }
@@ -143,15 +144,6 @@ func TestExtractModelText_NoToolCall(t *testing.T) {
 	if modelText != text {
 		t.Errorf("ExtractModelText() = %q, want %q", modelText, text)
 	}
-}
-
-func containsSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 func TestAgentStateIsTerminal(t *testing.T) {
