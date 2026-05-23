@@ -42,7 +42,14 @@ type ModelConfig struct {
 }
 
 type RoutingConfig struct {
-	DefaultModel string `yaml:"default_model"`
+	DefaultModel  string           `yaml:"default_model"`
+	FallbackChain []FallbackEntry  `yaml:"fallback_chain,omitempty"`
+}
+
+// FallbackEntry is a single entry in the routing fallback chain.
+type FallbackEntry struct {
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
 }
 
 type ToolsConfig struct {
@@ -189,6 +196,31 @@ func (cfg *Root) Validate() error {
 	if cfg.Models.Routing.DefaultModel != "" && len(cfg.Models.Providers) > 0 && !defaultModelFound {
 		issues = append(issues, fmt.Sprintf("models.yaml default model %q is not defined by any provider", cfg.Models.Routing.DefaultModel))
 	}
+
+	// Validate fallback chain entries reference existing providers and models
+	for i, entry := range cfg.Models.Routing.FallbackChain {
+		providerFound := false
+		for _, provider := range cfg.Models.Providers {
+			if provider.Name == entry.Provider {
+				providerFound = true
+				modelFound := false
+				for _, model := range provider.Models {
+					if model.Name == entry.Model {
+						modelFound = true
+						break
+					}
+				}
+				if !modelFound {
+					issues = append(issues, fmt.Sprintf("models.yaml fallback_chain[%d]: model %q not found in provider %q", i, entry.Model, entry.Provider))
+				}
+				break
+			}
+		}
+		if !providerFound {
+			issues = append(issues, fmt.Sprintf("models.yaml fallback_chain[%d]: provider %q not found", i, entry.Provider))
+		}
+	}
+
 	if cfg.Security.Sandbox.DefaultMode == "" {
 		issues = append(issues, "security.yaml sandbox.default_mode is required")
 	}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"os"
+
 	"github.com/reasonforge/reasonforge/internal/config"
 	"github.com/reasonforge/reasonforge/internal/version"
 )
@@ -42,6 +44,8 @@ func Run(args []string, env Env) int {
 		return runDoctor(args[1:], env)
 	case "cache-report":
 		return runCacheReport(args[1:], env)
+	case "models":
+		return runModels(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -218,6 +222,88 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  init         Create local .reasonforge config files")
 	fmt.Fprintln(w, "  doctor       Validate local ReasonForge configuration")
 	fmt.Fprintln(w, "  cache-report Show prefix cache statistics")
+	fmt.Fprintln(w, "  models       Show model provider configuration")
+}
+
+func runModels(args []string, env Env) int {
+	fs := flag.NewFlagSet("models", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "models failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintln(env.Stdout, "ReasonForge Models")
+	fmt.Fprintf(env.Stdout, "default_model=%s\n", cfg.Models.Routing.DefaultModel)
+	fmt.Fprintln(env.Stdout)
+
+	for _, provider := range cfg.Models.Providers {
+		fmt.Fprintf(env.Stdout, "provider=%s\n", provider.Name)
+		fmt.Fprintf(env.Stdout, "type=%s\n", provider.Type)
+		fmt.Fprintf(env.Stdout, "base_url=%s\n", provider.BaseURL)
+		fmt.Fprintf(env.Stdout, "api_key_env=%s\n", provider.APIKeyEnv)
+		fmt.Fprintf(env.Stdout, "api_key_status=%s\n", apiKeyStatus(provider.APIKeyEnv))
+
+		modelNames := make([]string, 0, len(provider.Models))
+		for _, m := range provider.Models {
+			modelNames = append(modelNames, m.Name)
+		}
+		fmt.Fprintf(env.Stdout, "models=%s\n", strings.Join(modelNames, ","))
+		fmt.Fprintln(env.Stdout)
+	}
+
+	if len(cfg.Models.Routing.FallbackChain) > 0 {
+		fmt.Fprintln(env.Stdout, "fallback_chain:")
+		for i, entry := range cfg.Models.Routing.FallbackChain {
+			fmt.Fprintf(env.Stdout, "%d. %s/%s\n", i+1, entry.Provider, entry.Model)
+		}
+	} else {
+		fmt.Fprintln(env.Stdout, "fallback_chain:")
+		fmt.Fprintf(env.Stdout, "1. %s/%s\n", findProviderForDefaultModel(cfg), cfg.Models.Routing.DefaultModel)
+	}
+
+	return 0
+}
+
+// apiKeyStatus checks whether an API key environment variable is configured.
+// It returns "configured" if the env var has a non-empty value, "missing" otherwise.
+// It never reveals the actual key value.
+func apiKeyStatus(envVar string) string {
+	if envVar == "" {
+		return "missing"
+	}
+	val := os.Getenv(envVar)
+	if strings.TrimSpace(val) == "" {
+		return "missing"
+	}
+	return "configured"
+}
+
+// findProviderForDefaultModel returns the provider name for the default model.
+func findProviderForDefaultModel(cfg *config.Root) string {
+	for _, provider := range cfg.Models.Providers {
+		for _, model := range provider.Models {
+			if model.Name == cfg.Models.Routing.DefaultModel {
+				return provider.Name
+			}
+		}
+	}
+	return "unknown"
 }
 
 func rejectExtraArgs(fs *flag.FlagSet, env Env) bool {

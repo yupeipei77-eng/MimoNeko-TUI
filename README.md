@@ -10,6 +10,8 @@ The current repository is intentionally an MVP skeleton. It defines stable contr
 reasonforge version
 reasonforge init
 reasonforge doctor
+reasonforge models
+reasonforge cache-report
 ```
 
 ## Design Constraints
@@ -24,4 +26,4 @@ reasonforge doctor
 
 ## Status
 
-This is the foundation pass. Complex features are represented as interfaces and TODOs, not hidden partial implementations.
+Phase 1 (Context Engine + Cache Engine) and Phase 2 (Model Router + Usage Accounting) are implemented. The model router supports OpenAI-compatible providers with fallback chain, Bundle-to-messages conversion, and usage accounting with CacheRegistry writeback.
