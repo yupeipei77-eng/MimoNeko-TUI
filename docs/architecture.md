@@ -30,6 +30,7 @@ internal/scratchpad/          Volatile context contract
 internal/memory/              Local durable memory contract
 internal/repoindex/           Local repository index contract
 internal/model/               OpenAI-compatible model router contract
+internal/modelrouter/         Model router implementation with fallback chain
 internal/toolruntime/         Tool schema and execution contract
 internal/task/                Task contract and worktree policy
 internal/agent/               Agent runtime orchestration contract
@@ -55,6 +56,9 @@ flowchart TD
   Ctx --> ConvTail["Conversation tail"]
   Scratch --> Memory["MemoryStore search results"]
   Scratch --> Repo["RepoIndexer results"]
+  Model --> |"BundleToMessages"| Provider["Provider (OpenAI-compatible)"]
+  Model --> |"Fallback chain"| Provider
+  Provider --> |"UsageToObservation"| Cache
 ```
 
 ## Context Model
@@ -95,6 +99,27 @@ TODO:
 - ~~Add schema sorting and canonical JSON generation for tool schemas.~~ (Done in Phase 1)
 - ~~Add provider cache hit/miss metrics.~~ (Done in Phase 1)
 - ~~Add local JSONL cache registry storage.~~ (Done in Phase 1)
+
+## Model Router
+
+The Model Router (`internal/modelrouter/`) is responsible for converting a `ContextEngine.Bundle` into an OpenAI-compatible completion request, selecting a provider via fallback chain, calling the provider, and recording usage into the CacheRegistry.
+
+Key components:
+
+- **ModelRouter interface**: `Complete(ctx, CompletionRequest) (CompletionResponse, error)` — the main entry point.
+- **Provider interface**: `Complete`, `Name`, `Supports` — implemented by `OpenAICompatibleProvider` and `MockProvider`.
+- **BundleToMessages**: Converts `Bundle.Layers` into OpenAI-compatible messages with stable ordering (immutable_prefix → conversation_log → scratchpad → current_input).
+- **DefaultModelRouter**: Implements fallback chain logic. Tries providers in configured order; returns `FallbackError` on all-fail.
+- **UsageToObservation**: Converts `Usage` + `Bundle` into `cache.Observation` for CacheRegistry writeback.
+- **OpenAICompatibleProvider**: HTTP-based provider using `net/http`. Reads API keys from environment variables. Never logs or exposes keys.
+
+The router does NOT read project files directly or bypass `ContextEngine.Bundle`.
+
+Fallback chain configuration lives in `models.yaml` under `routing.fallback_chain`. If missing, a single-entry chain is derived from `default_model`.
+
+API key security: keys are read from environment variables, never logged, never included in error messages, and the `reasonforge models` command only shows `configured`/`missing` status.
+
+See `docs/phase-2-model-router.md` for full documentation.
 
 ## Append-only Log
 

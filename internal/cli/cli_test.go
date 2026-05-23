@@ -192,3 +192,118 @@ func TestCacheReportReportsMissingConfig(t *testing.T) {
 		t.Fatalf("stderr = %q, want cache-report failure", stderr.String())
 	}
 }
+
+func TestModelsCommand(t *testing.T) {
+	root := t.TempDir()
+
+	// Init first
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"models", "--dir", root}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(models) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "ReasonForge Models") {
+		t.Fatalf("models output = %q, want ReasonForge Models header", output)
+	}
+	if !strings.Contains(output, "default_model=local-coder") {
+		t.Fatalf("models output = %q, want default_model line", output)
+	}
+	if !strings.Contains(output, "provider=local-openai-compatible") {
+		t.Fatalf("models output = %q, want provider line", output)
+	}
+	if !strings.Contains(output, "type=openai-compatible") {
+		t.Fatalf("models output = %q, want type line", output)
+	}
+	if !strings.Contains(output, "base_url=http://127.0.0.1:11434/v1") {
+		t.Fatalf("models output = %q, want base_url line", output)
+	}
+	if !strings.Contains(output, "api_key_env=REASONFORGE_API_KEY") {
+		t.Fatalf("models output = %q, want api_key_env line", output)
+	}
+	if !strings.Contains(output, "api_key_status=") {
+		t.Fatalf("models output = %q, want api_key_status line", output)
+	}
+	if !strings.Contains(output, "models=local-coder") {
+		t.Fatalf("models output = %q, want models line", output)
+	}
+	if !strings.Contains(output, "fallback_chain:") {
+		t.Fatalf("models output = %q, want fallback_chain section", output)
+	}
+
+	// Verify no API key values leaked
+	if strings.Contains(output, "Bearer ") {
+		t.Fatalf("models output contains Authorization header, possible key leak")
+	}
+}
+
+func TestModelsCommandDoesNotLeakAPIKey(t *testing.T) {
+	root := t.TempDir()
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	code = Run([]string{"models", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(models) code = %d", code)
+	}
+
+	output := stdout.String()
+	// Should show "configured" or "missing", never the actual key value
+	if strings.Contains(output, "sk-") {
+		t.Fatalf("models output contains possible API key: %q", output)
+	}
+}
+
+func TestModelsCommandRejectsExtraArgs(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"models", "extra"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(models extra) code = %d, want 2", code)
+	}
+}
+
+func TestModelsCommandReportsMissingConfig(t *testing.T) {
+	root := t.TempDir()
+	var stderr bytes.Buffer
+	code := Run([]string{"models", "--dir", root}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(models) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "models failed") {
+		t.Fatalf("stderr = %q, want models failure", stderr.String())
+	}
+}
+
+func TestAPIKeyStatusFunction(t *testing.T) {
+	tests := []struct {
+		name   string
+		envVar string
+		want   string
+		setEnv bool
+	}{
+		{name: "empty env var", envVar: "", want: "missing"},
+		{name: "unset env var", envVar: "NONEXISTENT_VAR_XYZ_999", want: "missing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := apiKeyStatus(tt.envVar)
+			if got != tt.want {
+				t.Errorf("apiKeyStatus(%q) = %q, want %q", tt.envVar, got, tt.want)
+			}
+		})
+	}
+}

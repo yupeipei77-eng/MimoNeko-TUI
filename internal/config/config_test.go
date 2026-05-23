@@ -295,3 +295,152 @@ func validRootConfig() *Root {
 		},
 	}
 }
+
+func TestLoadFallbackChain(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	modelsPath := filepath.Join(ConfigDir(root), "models.yaml")
+	content := []byte(`providers:
+  - name: deepseek
+    type: openai-compatible
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    models:
+      - name: deepseek-chat
+        purpose: coding
+        max_output_tokens: 4096
+        supports_prefix_cache: true
+  - name: local-openai-compatible
+    type: openai-compatible
+    base_url: http://127.0.0.1:11434/v1
+    api_key_env: REASONFORGE_API_KEY
+    models:
+      - name: local-coder
+        purpose: coding
+        max_output_tokens: 4096
+        supports_prefix_cache: false
+routing:
+  default_model: deepseek-chat
+  fallback_chain:
+    - provider: deepseek
+      model: deepseek-chat
+    - provider: local-openai-compatible
+      model: local-coder
+`)
+	if err := os.WriteFile(modelsPath, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Models.Routing.FallbackChain) != 2 {
+		t.Fatalf("FallbackChain length = %d, want 2", len(cfg.Models.Routing.FallbackChain))
+	}
+	if cfg.Models.Routing.FallbackChain[0].Provider != "deepseek" {
+		t.Errorf("FallbackChain[0].Provider = %q, want deepseek", cfg.Models.Routing.FallbackChain[0].Provider)
+	}
+	if cfg.Models.Routing.FallbackChain[0].Model != "deepseek-chat" {
+		t.Errorf("FallbackChain[0].Model = %q, want deepseek-chat", cfg.Models.Routing.FallbackChain[0].Model)
+	}
+	if cfg.Models.Routing.FallbackChain[1].Provider != "local-openai-compatible" {
+		t.Errorf("FallbackChain[1].Provider = %q, want local-openai-compatible", cfg.Models.Routing.FallbackChain[1].Provider)
+	}
+	if cfg.Models.Routing.FallbackChain[1].Model != "local-coder" {
+		t.Errorf("FallbackChain[1].Model = %q, want local-coder", cfg.Models.Routing.FallbackChain[1].Model)
+	}
+}
+
+func TestLoadRejectsInvalidFallbackChainProvider(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	modelsPath := filepath.Join(ConfigDir(root), "models.yaml")
+	content := []byte(`providers:
+  - name: local-openai-compatible
+    type: openai-compatible
+    base_url: http://127.0.0.1:11434/v1
+    api_key_env: REASONFORGE_API_KEY
+    models:
+      - name: local-coder
+        purpose: coding
+        max_output_tokens: 4096
+        supports_prefix_cache: false
+routing:
+  default_model: local-coder
+  fallback_chain:
+    - provider: nonexistent
+      model: local-coder
+`)
+	if err := os.WriteFile(modelsPath, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(root)
+	if err == nil {
+		t.Fatal("Load() succeeded, want error for invalid fallback_chain provider")
+	}
+	if !strings.Contains(err.Error(), "provider") || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("Load() error = %v, want provider not found failure", err)
+	}
+}
+
+func TestLoadRejectsInvalidFallbackChainModel(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	modelsPath := filepath.Join(ConfigDir(root), "models.yaml")
+	content := []byte(`providers:
+  - name: local-openai-compatible
+    type: openai-compatible
+    base_url: http://127.0.0.1:11434/v1
+    api_key_env: REASONFORGE_API_KEY
+    models:
+      - name: local-coder
+        purpose: coding
+        max_output_tokens: 4096
+        supports_prefix_cache: false
+routing:
+  default_model: local-coder
+  fallback_chain:
+    - provider: local-openai-compatible
+      model: nonexistent-model
+`)
+	if err := os.WriteFile(modelsPath, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(root)
+	if err == nil {
+		t.Fatal("Load() succeeded, want error for invalid fallback_chain model")
+	}
+	if !strings.Contains(err.Error(), "not found in provider") {
+		t.Fatalf("Load() error = %v, want model not found failure", err)
+	}
+}
+
+func TestLoadDefaultConfigWithoutFallbackChain(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	// Default config has no fallback_chain, which is valid
+	if len(cfg.Models.Routing.FallbackChain) != 0 {
+		t.Errorf("FallbackChain length = %d, want 0 (not configured)", len(cfg.Models.Routing.FallbackChain))
+	}
+}
