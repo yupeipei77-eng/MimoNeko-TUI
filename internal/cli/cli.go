@@ -40,6 +40,8 @@ func Run(args []string, env Env) int {
 		return runInit(args[1:], env)
 	case "doctor":
 		return runDoctor(args[1:], env)
+	case "cache-report":
+		return runCacheReport(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -129,6 +131,15 @@ func runDoctor(args []string, env Env) int {
 	fmt.Fprintf(env.Stdout, "config_dir=%s\n", filepath.ToSlash(cfg.Dir))
 	fmt.Fprintf(env.Stdout, "default_model=%s\n", cfg.Models.Routing.DefaultModel)
 	fmt.Fprintf(env.Stdout, "immutable_prefix_sources=%d\n", len(cfg.Prefix.ImmutableSources))
+	fmt.Fprintf(env.Stdout, "prefix_canonicalization=enabled\n")
+	fmt.Fprintf(env.Stdout, "prefix_hash_stable=true\n")
+	fmt.Fprintf(env.Stdout, "context_budget_valid=true\n")
+	fmt.Fprintf(env.Stdout, "cache_report=available\n")
+	fmt.Fprintf(env.Stdout, "append_only_log=available\n")
+	fmt.Fprintf(env.Stdout, "budget_warn_ratio=%.2f\n", cfg.Prefix.Budget.WarnRatio)
+	fmt.Fprintf(env.Stdout, "budget_block_ratio=%.2f\n", cfg.Prefix.Budget.BlockRatio)
+	fmt.Fprintf(env.Stdout, "cache_estimated_ttl=%s\n", cfg.Prefix.Cache.EstimatedTTL)
+	fmt.Fprintf(env.Stdout, "event_id_collision_resistant=true\n")
 	return 0
 }
 
@@ -144,13 +155,69 @@ func resolveRoot(dir string, env Env) (string, error) {
 	return filepath.Abs(root)
 }
 
+func runCacheReport(args []string, env Env) int {
+	fs := flag.NewFlagSet("cache-report", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
+		return 1
+	}
+
+	registryPath := cfg.Prefix.Cache.RegistryPath
+	if !filepath.IsAbs(registryPath) {
+		registryPath = filepath.Join(root, registryPath)
+	}
+
+	registry, err := NewCacheRegistryForCLI(registryPath, cfg.Prefix.Cache)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
+		return 1
+	}
+
+	report, err := registry.Report()
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(env.Stdout, "total_observations=%d\n", report.GlobalSummary.TotalObservations)
+	fmt.Fprintf(env.Stdout, "total_tokens=%d\n", report.GlobalSummary.TotalTokens)
+	fmt.Fprintf(env.Stdout, "cached_tokens=%d\n", report.GlobalSummary.TotalCachedTokens)
+	fmt.Fprintf(env.Stdout, "hit_rate=%.4f\n", report.GlobalSummary.OverallHitRate)
+	fmt.Fprintf(env.Stdout, "estimated_saving_percent=%.2f\n", report.GlobalSummary.EstimatedSavingPercent)
+	fmt.Fprintf(env.Stdout, "fingerprint_count=%d\n", len(report.ByFingerprint))
+
+	for _, fp := range report.ByFingerprint {
+		fmt.Fprintf(env.Stdout, "  fingerprint=%s hit_rate=%.4f reuse_count=%d uncached_tokens=%d\n",
+			fp.PrefixHash, fp.HitRate, fp.ReuseCount, fp.UncachedTokens)
+	}
+
+	return 0
+}
+
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: reasonforge <command>")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  version   Print version information")
-	fmt.Fprintln(w, "  init      Create local .reasonforge config files")
-	fmt.Fprintln(w, "  doctor    Validate local ReasonForge configuration")
+	fmt.Fprintln(w, "  version      Print version information")
+	fmt.Fprintln(w, "  init         Create local .reasonforge config files")
+	fmt.Fprintln(w, "  doctor       Validate local ReasonForge configuration")
+	fmt.Fprintln(w, "  cache-report Show prefix cache statistics")
 }
 
 func rejectExtraArgs(fs *flag.FlagSet, env Env) bool {

@@ -288,6 +288,10 @@ func validRootConfig() *Root {
 			Cache: PrefixCacheConfig{
 				RegistryPath: ".reasonforge/cache/prefixes.jsonl",
 			},
+			Budget: BudgetConfig{
+				WarnRatio:  0.8,
+				BlockRatio: 1.0,
+			},
 		},
 	}
 }

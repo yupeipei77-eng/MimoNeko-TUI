@@ -79,6 +79,7 @@ type PrefixConfig struct {
 	ImmutableSources []PrefixSourceConfig `yaml:"immutable_sources"`
 	ByteStable      ByteStableConfig     `yaml:"byte_stable"`
 	Cache           PrefixCacheConfig    `yaml:"cache"`
+	Budget          BudgetConfig         `yaml:"budget"`
 }
 
 type PrefixSourceConfig struct {
@@ -96,6 +97,12 @@ type ByteStableConfig struct {
 
 type PrefixCacheConfig struct {
 	RegistryPath string `yaml:"registry_path"`
+	EstimatedTTL string `yaml:"estimated_ttl"`
+}
+
+type BudgetConfig struct {
+	WarnRatio  float64 `yaml:"warn_ratio"`
+	BlockRatio float64 `yaml:"block_ratio"`
 }
 
 func ConfigDir(root string) string {
@@ -199,6 +206,12 @@ func (cfg *Root) Validate() error {
 	}
 	if strings.TrimSpace(cfg.Prefix.Cache.RegistryPath) == "" {
 		issues = append(issues, "prefix.yaml cache.registry_path is required")
+	}
+	if cfg.Prefix.Budget.WarnRatio <= 0 {
+		issues = append(issues, "prefix.yaml budget.warn_ratio must be positive")
+	}
+	if cfg.Prefix.Budget.BlockRatio <= cfg.Prefix.Budget.WarnRatio {
+		issues = append(issues, "prefix.yaml budget.block_ratio must be greater than warn_ratio")
 	}
 
 	for _, source := range cfg.Prefix.ImmutableSources {
@@ -307,6 +320,10 @@ byte_stable:
   disallow_dynamic_content: true
 cache:
   registry_path: .reasonforge/cache/prefixes.jsonl
+  estimated_ttl: 1h
+budget:
+  warn_ratio: 0.8
+  block_ratio: 1.0
 `,
 	},
 }

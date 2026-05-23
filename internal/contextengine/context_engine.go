@@ -21,6 +21,7 @@ type BuildRequest struct {
 	ConversationID string
 	RepoRoot       string
 	Budget         TokenBudget
+	CurrentInput   []byte
 }
 
 type VolatileContext struct {
@@ -28,10 +29,30 @@ type VolatileContext struct {
 	Scratchpad       scratchpad.Snapshot
 }
 
+type ContextReport struct {
+	PrefixTokens       int
+	ConversationTokens int
+	ScratchpadTokens   int
+	CurrentInputTokens int
+	TotalTokens        int
+	BudgetStatus       BudgetStatus
+}
+
+// ContextLayer represents a single layer in the assembled context.
+// Layers are ordered: ImmutablePrefix → ConversationLog → Scratchpad → CurrentInput.
+type ContextLayer struct {
+	Name   string
+	Bytes  []byte
+	Tokens int
+}
+
 type Bundle struct {
 	ImmutablePrefix  prefix.Document
 	Volatile         VolatileContext
+	CurrentInput     []byte
+	Layers           []ContextLayer
 	CacheFingerprint prefix.Fingerprint
+	Report           ContextReport
 }
 
 type ContextEngine interface {
