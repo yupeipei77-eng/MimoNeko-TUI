@@ -3,6 +3,8 @@ package conversation
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -36,7 +38,11 @@ func (l *JSONLConversationLog) Append(ctx context.Context, event Event) error {
 	defer l.mu.Unlock()
 
 	if event.ID == "" {
-		event.ID = fmt.Sprintf("evt_%d_%d", time.Now().UnixMilli(), time.Now().Nanosecond())
+		id, err := generateEventID()
+		if err != nil {
+			return fmt.Errorf("generate event id: %w", err)
+		}
+		event.ID = id
 	}
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now().UTC()
@@ -48,11 +54,11 @@ func (l *JSONLConversationLog) Append(ctx context.Context, event Event) error {
 	}
 
 	path := l.conversationPath(event.ConversationID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create conversation dir: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open conversation file: %w", err)
 	}
@@ -65,19 +71,30 @@ func (l *JSONLConversationLog) Append(ctx context.Context, event Event) error {
 	return f.Sync()
 }
 
+// ReadStats contains statistics about a JSONL read operation.
+type ReadStats struct {
+	CorruptLineCount int
+}
+
+// ReadWithStats returns events matching the query along with read statistics.
+func (l *JSONLConversationLog) ReadWithStats(ctx context.Context, query Query) ([]Event, ReadStats, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, ReadStats{}, err
+	}
+
+	events, stats, err := l.readAllWithStats(query.ConversationID)
+	if err != nil {
+		return nil, ReadStats{}, err
+	}
+
+	return l.filterEvents(events, query), stats, nil
+}
+
 // Read returns events matching the query. Events are returned in append order.
 // Archived events are excluded unless IncludeArchived is true.
 func (l *JSONLConversationLog) Read(ctx context.Context, query Query) ([]Event, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	events, err := l.readAll(query.ConversationID)
-	if err != nil {
-		return nil, err
-	}
-
-	return l.filterEvents(events, query), nil
+	events, _, err := l.ReadWithStats(ctx, query)
+	return events, err
 }
 
 // Tail returns the last N events matching the query.
@@ -86,7 +103,7 @@ func (l *JSONLConversationLog) Tail(ctx context.Context, query Query) ([]Event, 
 		return nil, err
 	}
 
-	events, err := l.readAll(query.ConversationID)
+	events, _, err := l.readAllWithStats(query.ConversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -105,28 +122,39 @@ func (l *JSONLConversationLog) conversationPath(conversationID string) string {
 }
 
 func (l *JSONLConversationLog) readAll(conversationID string) ([]Event, error) {
+	events, _, err := l.readAllWithStats(conversationID)
+	return events, err
+}
+
+func (l *JSONLConversationLog) readAllWithStats(conversationID string) ([]Event, ReadStats, error) {
 	path := l.conversationPath(conversationID)
 
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, ReadStats{}, nil
 		}
-		return nil, fmt.Errorf("open conversation file: %w", err)
+		return nil, ReadStats{}, fmt.Errorf("open conversation file: %w", err)
 	}
 	defer f.Close()
 
 	var events []Event
+	var corruptCount int
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		var event Event
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			continue // skip malformed lines
+			corruptCount++
+			continue
 		}
 		events = append(events, event)
 	}
 
-	return events, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, ReadStats{}, err
+	}
+
+	return events, ReadStats{CorruptLineCount: corruptCount}, nil
 }
 
 func (l *JSONLConversationLog) filterEvents(events []Event, query Query) []Event {
@@ -156,4 +184,14 @@ func (l *JSONLConversationLog) filterEvents(events []Event, query Query) []Event
 	}
 
 	return result
+}
+
+// generateEventID creates a collision-resistant event ID using crypto/rand.
+// Format: evt_<32 hex chars> (16 random bytes encoded as hex).
+func generateEventID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("read random bytes: %w", err)
+	}
+	return "evt_" + hex.EncodeToString(b), nil
 }

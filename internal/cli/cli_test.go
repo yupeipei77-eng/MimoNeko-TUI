@@ -60,6 +60,12 @@ func TestInitThenDoctor(t *testing.T) {
 	if !strings.Contains(doctorOut.String(), "budget_block_ratio=") {
 		t.Fatalf("doctor output = %q, want budget_block_ratio line", doctorOut.String())
 	}
+	if !strings.Contains(doctorOut.String(), "cache_estimated_ttl=") {
+		t.Fatalf("doctor output = %q, want cache_estimated_ttl line", doctorOut.String())
+	}
+	if !strings.Contains(doctorOut.String(), "event_id_collision_resistant=true") {
+		t.Fatalf("doctor output = %q, want event_id_collision_resistant line", doctorOut.String())
+	}
 }
 
 func TestNoArgsReturnsUsageError(t *testing.T) {

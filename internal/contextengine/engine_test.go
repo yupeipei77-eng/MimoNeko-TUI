@@ -3,6 +3,8 @@ package contextengine
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -76,7 +78,16 @@ func (s *stubCacheRegistry) Record(ctx context.Context, obs cache.Observation) e
 	return nil
 }
 
-func testPrefixConfig() config.PrefixConfig {
+// testPrefixConfigWithDir creates a PrefixConfig that points to files under rootDir.
+// It also creates the actual source files on disk.
+func testPrefixConfigWithDir(rootDir string) config.PrefixConfig {
+	// Create source files on disk
+	os.MkdirAll(filepath.Join(rootDir, "prompts"), 0o755)
+	os.MkdirAll(filepath.Join(rootDir, "schemas"), 0o755)
+	os.WriteFile(filepath.Join(rootDir, "prompts", "system.md"), []byte("You are a coding assistant."), 0o644)
+	os.WriteFile(filepath.Join(rootDir, "prompts", "coding_rules.md"), []byte("Use tabs for indentation."), 0o644)
+	os.WriteFile(filepath.Join(rootDir, "schemas", "tools.json"), []byte(`{"tools":[{"name":"read_file"}]}`), 0o644)
+
 	return config.PrefixConfig{
 		Version: 1,
 		ImmutableSources: []config.PrefixSourceConfig{
@@ -99,24 +110,27 @@ func testPrefixConfig() config.PrefixConfig {
 	}
 }
 
-func newTestEngine() (*DefaultContextEngine, *stubCacheRegistry) {
+func newTestEngine(t *testing.T) (*DefaultContextEngine, *stubCacheRegistry) {
+	t.Helper()
+	rootDir := t.TempDir()
+	cfg := testPrefixConfigWithDir(rootDir)
+
 	pb := &stubPrefixBuilder{}
 	cl := &stubConversationLog{}
 	sp := scratchpad.NewVolatileScratchpad()
 	cr := &stubCacheRegistry{}
 	bg, _ := NewBudgetGuard(BudgetThresholds{WarnRatio: 0.8, BlockRatio: 1.0})
 
-	engine := NewDefaultContextEngine(pb, cl, sp, cr, bg, "/tmp/test", testPrefixConfig())
+	engine := NewDefaultContextEngine(pb, cl, sp, cr, bg, rootDir, cfg)
 	return engine, cr
 }
 
 func TestBuildAssemblesAllLayers(t *testing.T) {
-	engine, _ := newTestEngine()
+	engine, _ := newTestEngine(t)
 
 	req := BuildRequest{
 		TaskID:         "t1",
 		ConversationID: "c1",
-		RepoRoot:       "/tmp/test",
 		Budget:         TokenBudget{ImmutablePrefix: 10000, Conversation: 5000, Scratchpad: 2000},
 		CurrentInput:   []byte("Please fix the bug in main.go"),
 	}
@@ -135,7 +149,7 @@ func TestBuildAssemblesAllLayers(t *testing.T) {
 }
 
 func TestBuildContextReportPopulated(t *testing.T) {
-	engine, _ := newTestEngine()
+	engine, _ := newTestEngine(t)
 
 	req := BuildRequest{
 		TaskID:         "t1",
@@ -158,7 +172,7 @@ func TestBuildContextReportPopulated(t *testing.T) {
 }
 
 func TestBuildBudgetOK(t *testing.T) {
-	engine, _ := newTestEngine()
+	engine, _ := newTestEngine(t)
 
 	req := BuildRequest{
 		TaskID:       "t1",
@@ -173,7 +187,7 @@ func TestBuildBudgetOK(t *testing.T) {
 }
 
 func TestBuildBudgetBLOCK(t *testing.T) {
-	engine, _ := newTestEngine()
+	engine, _ := newTestEngine(t)
 
 	req := BuildRequest{
 		TaskID:       "t1",
@@ -188,7 +202,7 @@ func TestBuildBudgetBLOCK(t *testing.T) {
 }
 
 func TestBuildCacheFingerprintSet(t *testing.T) {
-	engine, _ := newTestEngine()
+	engine, _ := newTestEngine(t)
 
 	req := BuildRequest{TaskID: "t1", Budget: TokenBudget{ImmutablePrefix: 10000}}
 	bundle, _ := engine.Build(context.Background(), req)
@@ -199,7 +213,7 @@ func TestBuildCacheFingerprintSet(t *testing.T) {
 }
 
 func TestRecordModelCallDelegates(t *testing.T) {
-	engine, cr := newTestEngine()
+	engine, cr := newTestEngine(t)
 
 	obs := cache.Observation{
 		Fingerprint:  prefix.Fingerprint{SHA256: "test", Version: 1},
@@ -224,7 +238,7 @@ func TestRecordModelCallDelegates(t *testing.T) {
 func TestBuildAssemblyOrder(t *testing.T) {
 	// Verify the token breakdown respects the layer ordering:
 	// Prefix → Conversation → Scratchpad → CurrentInput
-	engine, _ := newTestEngine()
+	engine, _ := newTestEngine(t)
 
 	// Add conversation events
 	cl := engine.conversationLog.(*stubConversationLog)
@@ -270,5 +284,128 @@ func TestBuildAssemblyOrder(t *testing.T) {
 	expectedTotal := bundle.Report.PrefixTokens + bundle.Report.ConversationTokens + bundle.Report.ScratchpadTokens + bundle.Report.CurrentInputTokens
 	if bundle.Report.TotalTokens != expectedTotal {
 		t.Errorf("TotalTokens = %d, want sum = %d", bundle.Report.TotalTokens, expectedTotal)
+	}
+}
+
+// --- Hardening tests ---
+
+// Test 1: CurrentInput is placed in Bundle and is last in context order
+func TestCurrentInputInBundleLastLayer(t *testing.T) {
+	engine, _ := newTestEngine(t)
+
+	req := BuildRequest{
+		TaskID:       "t1",
+		Budget:       TokenBudget{ImmutablePrefix: 10000},
+		CurrentInput: []byte("user question here"),
+	}
+
+	bundle, err := engine.Build(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	if string(bundle.CurrentInput) != "user question here" {
+		t.Errorf("Bundle.CurrentInput = %q, want %q", string(bundle.CurrentInput), "user question here")
+	}
+
+	if len(bundle.Layers) != 4 {
+		t.Fatalf("Bundle.Layers count = %d, want 4", len(bundle.Layers))
+	}
+
+	lastLayer := bundle.Layers[len(bundle.Layers)-1]
+	if lastLayer.Name != "current_input" {
+		t.Errorf("Last layer name = %q, want %q", lastLayer.Name, "current_input")
+	}
+}
+
+// Test 2: readSource reads files from repoRoot
+func TestReadSourceFromRepoRoot(t *testing.T) {
+	engine, _ := newTestEngine(t)
+
+	req := BuildRequest{
+		TaskID: "t1",
+		Budget: TokenBudget{ImmutablePrefix: 10000},
+	}
+
+	bundle, err := engine.Build(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	// The stub builder should receive the actual file content
+	// Since the stub assembles SystemPrompt + CodingRules, content should be present
+	if bundle.Report.PrefixTokens == 0 {
+		t.Error("PrefixTokens = 0, want > 0 (readSource should have read files)")
+	}
+}
+
+// Test 3: Required source missing returns error
+func TestRequiredSourceMissingReturnsError(t *testing.T) {
+	rootDir := t.TempDir()
+	// Only create system_prompt, NOT coding_rules or tool_schema
+	os.MkdirAll(filepath.Join(rootDir, "prompts"), 0o755)
+	os.WriteFile(filepath.Join(rootDir, "prompts", "system.md"), []byte("system"), 0o644)
+
+	cfg := config.PrefixConfig{
+		Version: 1,
+		ImmutableSources: []config.PrefixSourceConfig{
+			{Name: "system_prompt", Kind: "static_file", Path: "prompts/system.md", Required: true},
+			{Name: "coding_rules", Kind: "static_file", Path: "prompts/coding_rules.md", Required: true},
+		},
+		ByteStable: config.ByteStableConfig{
+			NormalizeLineEndings:   "lf",
+			SortToolSchemas:        true,
+			DisallowDynamicContent: true,
+		},
+		Cache:  config.PrefixCacheConfig{RegistryPath: ".reasonforge/cache/prefixes.jsonl"},
+		Budget: config.BudgetConfig{WarnRatio: 0.8, BlockRatio: 1.0},
+	}
+
+	pb := &stubPrefixBuilder{}
+	cl := &stubConversationLog{}
+	sp := scratchpad.NewVolatileScratchpad()
+	cr := &stubCacheRegistry{}
+	bg, _ := NewBudgetGuard(BudgetThresholds{WarnRatio: 0.8, BlockRatio: 1.0})
+
+	engine := NewDefaultContextEngine(pb, cl, sp, cr, bg, rootDir, cfg)
+
+	_, err := engine.Build(context.Background(), BuildRequest{
+		TaskID: "t1",
+		Budget: TokenBudget{ImmutablePrefix: 10000},
+	})
+	if err == nil {
+		t.Fatal("Build() should return error when required source is missing")
+	}
+}
+
+// Test 4: Path traversal is rejected
+func TestPathTraversalRejected(t *testing.T) {
+	_, err := safePath("/safe/root", "../../../etc/passwd")
+	if err == nil {
+		t.Error("safePath() should reject path traversal")
+	}
+}
+
+func TestPathTraversalDotDot(t *testing.T) {
+	_, err := safePath("/safe/root", "sub/../../etc/passwd")
+	if err == nil {
+		t.Error("safePath() should reject path traversal with sub+dotdot")
+	}
+}
+
+func TestPathTraversalAbsolute(t *testing.T) {
+	_, err := safePath("/safe/root", "/etc/passwd")
+	if err == nil {
+		t.Error("safePath() should reject absolute paths outside root")
+	}
+}
+
+func TestSafePathValid(t *testing.T) {
+	path, err := safePath("/safe/root", "prompts/system.md")
+	if err != nil {
+		t.Errorf("safePath() should accept valid relative paths: %v", err)
+	}
+	if path == "" {
+		t.Error("safePath() should return resolved path for valid input")
 	}
 }

@@ -2,6 +2,7 @@ package prefix
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/reasonforge/reasonforge/internal/config"
@@ -211,4 +212,65 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// Test 12: Empty CodingRules + non-empty ToolSchemas concatenation behavior
+func TestBuildEmptyCodingRulesWithToolSchemas(t *testing.T) {
+	bs := testByteStableConfig()
+	builder := NewImmutablePrefixBuilder(bs)
+
+	req := BuildRequest{
+		Version:      1,
+		SystemPrompt: []byte("system prompt"),
+		CodingRules:  nil, // empty
+		ToolSchemas: []ToolSchema{
+			{Name: "tool_a", Bytes: []byte(`{"name":"tool_a"}`)},
+			{Name: "tool_b", Bytes: []byte(`{"name":"tool_b"}`)},
+		},
+	}
+
+	doc, err := builder.Build(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	// The output should have system_prompt content followed by a newline
+	// separator and then tool schemas (no double newline from empty coding_rules)
+	content := string(doc.Bytes)
+
+	// System prompt should be at the start
+	if !strings.HasPrefix(content, "system prompt") {
+		t.Errorf("Output should start with system prompt, got: %q", content[:min(30, len(content))])
+	}
+
+	// Tool schemas should appear after system prompt with exactly one \n separator
+	sysEnd := len("system prompt")
+	if content[sysEnd] != '\n' {
+		t.Errorf("Expected newline after system prompt, got %q", content[sysEnd:sysEnd+1])
+	}
+
+	// tool_a should appear before tool_b (sorted)
+	toolAIdx := indexOf(content, "tool_a")
+	toolBIdx := indexOf(content, "tool_b")
+	if toolAIdx >= toolBIdx {
+		t.Errorf("tool_a (idx=%d) should appear before tool_b (idx=%d)", toolAIdx, toolBIdx)
+	}
+
+	// No double newline from empty CodingRules section
+	if strings.Contains(content, "\n\n") {
+		t.Errorf("Output should not contain double newlines from empty CodingRules: %q", content)
+	}
+
+	// Hash should be deterministic
+	doc2, _ := builder.Build(context.Background(), req)
+	if doc.SHA256 != doc2.SHA256 {
+		t.Error("Build() not deterministic for empty CodingRules + ToolSchemas")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

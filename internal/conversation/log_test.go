@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -128,6 +130,12 @@ func TestEventIDGeneration(t *testing.T) {
 		t.Errorf("Generated ID = %q, want evt_ prefix", result[0].ID)
 	}
 
+	// crypto/rand IDs should be 32 hex chars after evt_ prefix
+	idSuffix := strings.TrimPrefix(result[0].ID, "evt_")
+	if len(idSuffix) != 32 {
+		t.Errorf("Generated ID suffix length = %d, want 32 (16 bytes hex)", len(idSuffix))
+	}
+
 	// ID provided — should be preserved
 	_ = log.Append(context.Background(), Event{ID: "custom_id", ConversationID: "c2", Type: EventUserMessage, Payload: json.RawMessage(`"b"`)})
 
@@ -137,5 +145,90 @@ func TestEventIDGeneration(t *testing.T) {
 	}
 	if result2[0].ID != "custom_id" {
 		t.Errorf("Preserved ID = %q, want custom_id", result2[0].ID)
+	}
+}
+
+// Test 5: Event IDs are unique under concurrent generation
+func TestEventIDConcurrentUniqueness(t *testing.T) {
+	log := NewJSONLConversationLog(t.TempDir())
+
+	var wg sync.WaitGroup
+	const n = 100
+	wg.Add(n)
+
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			_ = log.Append(context.Background(), Event{
+				ConversationID: "c1",
+				Type:           EventUserMessage,
+				Payload:        json.RawMessage(`"concurrent"`),
+			})
+		}()
+	}
+	wg.Wait()
+
+	result, _ := log.Read(context.Background(), Query{ConversationID: "c1", IncludeArchived: true})
+	if len(result) != n {
+		t.Fatalf("Read() returned %d events, want %d", len(result), n)
+	}
+
+	// Check uniqueness
+	ids := make(map[string]bool)
+	for _, e := range result {
+		if ids[e.ID] {
+			t.Errorf("Duplicate event ID: %q", e.ID)
+		}
+		ids[e.ID] = true
+	}
+}
+
+// Test 6: JSONL file permissions are 0600
+func TestConversationFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not support Unix permission bits")
+	}
+	dir := t.TempDir()
+	log := NewJSONLConversationLog(dir)
+
+	_ = log.Append(context.Background(), Event{ConversationID: "c1", Type: EventUserMessage, Payload: json.RawMessage(`"a"`)})
+
+	path := dir + "/c1.jsonl"
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error: %v", err)
+	}
+
+	perm := info.Mode().Perm()
+	if perm != 0o600 {
+		t.Errorf("File permissions = %o, want 0600", perm)
+	}
+}
+
+// Test 7: Malformed JSONL lines are counted in ReadStats
+func TestMalformedJSONLCounted(t *testing.T) {
+	dir := t.TempDir()
+	log := NewJSONLConversationLog(dir)
+
+	// Write a valid event
+	_ = log.Append(context.Background(), Event{ConversationID: "c1", Type: EventUserMessage, Payload: json.RawMessage(`"valid"`)})
+
+	// Manually append a malformed line
+	path := dir + "/c1.jsonl"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile() error: %v", err)
+	}
+	f.WriteString("this is not valid json\n")
+	f.WriteString("also not json\n")
+	f.Close()
+
+	_, stats, err := log.ReadWithStats(context.Background(), Query{ConversationID: "c1"})
+	if err != nil {
+		t.Fatalf("ReadWithStats() error: %v", err)
+	}
+
+	if stats.CorruptLineCount != 2 {
+		t.Errorf("CorruptLineCount = %d, want 2", stats.CorruptLineCount)
 	}
 }
