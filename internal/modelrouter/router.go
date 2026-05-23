@@ -72,27 +72,38 @@ func BuildFallbackChainFromConfig(cfg *config.Root) ([]FallbackEntry, error) {
 // Complete resolves the provider/model, converts the Bundle, calls the provider,
 // and records usage to the CacheRegistry.
 //
-// If req.Model is set, it uses that model. Otherwise it uses the default_model.
-// It iterates through the fallback chain on provider errors.
-// If all providers fail, it returns a FallbackError.
+// Model selection semantics:
+//
+//	If req.Model is non-empty:
+//	  - The requested model is used exactly; it is never silently replaced.
+//	  - Only providers that Supports(req.Model) are attempted.
+//	  - If fallback_chain contains providers that support req.Model, they are
+//	    tried in fallback_chain order (but always with req.Model, not entry.Model).
+//	  - If no fallback_chain entry supports req.Model, the providers map is
+//	    scanned for a provider that Supports(req.Model).
+//	  - If no provider supports req.Model, a clear error is returned.
+//
+//	If req.Model is empty:
+//	  - The defaultModel is used.
+//	  - If fallback_chain is configured, it is used as-is (entry.Model applies).
+//	  - If fallback_chain is empty, it is derived from defaultModel.
 func (r *DefaultModelRouter) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
-	// Determine which model to use
+	// Track whether the caller explicitly specified a model.
+	explicitModel := req.Model != ""
+
+	// Resolve the effective model.
 	model := req.Model
 	if model == "" {
 		model = r.defaultModel
 	}
 	req.Model = model
 
-	// Build the attempt chain
-	chain := r.fallbackChain
-	if len(chain) == 0 {
-		// Try to find the provider for the requested model
-		for name, p := range r.providers {
-			if p.Supports(model) {
-				chain = []FallbackEntry{{Provider: name, Model: model}}
-				break
-			}
-		}
+	// Build the attempt chain based on model selection semantics.
+	var chain []FallbackEntry
+	if explicitModel {
+		chain = r.buildExplicitModelChain(model)
+	} else {
+		chain = r.buildDefaultModelChain(model)
 	}
 
 	if len(chain) == 0 {
@@ -111,8 +122,6 @@ func (r *DefaultModelRouter) Complete(ctx context.Context, req CompletionRequest
 			continue
 		}
 
-		// Use the model from the fallback entry if the request doesn't specify one,
-		// or if the request model matches this entry.
 		attemptReq := req
 		attemptReq.Model = entry.Model
 
@@ -136,4 +145,58 @@ func (r *DefaultModelRouter) Complete(ctx context.Context, req CompletionRequest
 	}
 
 	return CompletionResponse{}, &FallbackError{Attempts: attempts}
+}
+
+// buildExplicitModelChain builds the attempt chain when the caller explicitly
+// specified a model. The model must not be silently replaced.
+//
+// Strategy:
+//  1. Scan fallback_chain for providers that Supports(model), keeping their
+//     provider order but always using the requested model (not entry.Model).
+//  2. If fallback_chain has no supporting provider, scan the providers map
+//     for any provider that Supports(model).
+func (r *DefaultModelRouter) buildExplicitModelChain(model string) []FallbackEntry {
+	var chain []FallbackEntry
+
+	// First: try fallback_chain providers that support this model
+	for _, entry := range r.fallbackChain {
+		provider, ok := r.providers[entry.Provider]
+		if !ok {
+			continue
+		}
+		if provider.Supports(model) {
+			chain = append(chain, FallbackEntry{Provider: entry.Provider, Model: model})
+		}
+	}
+
+	// If fallback_chain yielded supporting providers, use them
+	if len(chain) > 0 {
+		return chain
+	}
+
+	// Fallback: scan all providers for one that supports this model
+	for name, provider := range r.providers {
+		if provider.Supports(model) {
+			chain = append(chain, FallbackEntry{Provider: name, Model: model})
+		}
+	}
+
+	return chain
+}
+
+// buildDefaultModelChain builds the attempt chain when no model was explicitly
+// specified. The defaultModel and fallback_chain entry models apply.
+func (r *DefaultModelRouter) buildDefaultModelChain(model string) []FallbackEntry {
+	if len(r.fallbackChain) > 0 {
+		return r.fallbackChain
+	}
+
+	// Derive from providers map
+	for name, p := range r.providers {
+		if p.Supports(model) {
+			return []FallbackEntry{{Provider: name, Model: model}}
+		}
+	}
+
+	return nil
 }
