@@ -38,9 +38,19 @@ type ContextReport struct {
 	BudgetStatus       BudgetStatus
 }
 
+// ContextLayer represents a single layer in the assembled context.
+// Layers are ordered: ImmutablePrefix → ConversationLog → Scratchpad → CurrentInput.
+type ContextLayer struct {
+	Name   string
+	Bytes  []byte
+	Tokens int
+}
+
 type Bundle struct {
 	ImmutablePrefix  prefix.Document
 	Volatile         VolatileContext
+	CurrentInput     []byte
+	Layers           []ContextLayer
 	CacheFingerprint prefix.Fingerprint
 	Report           ContextReport
 }

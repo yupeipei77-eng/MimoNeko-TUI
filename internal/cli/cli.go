@@ -138,6 +138,8 @@ func runDoctor(args []string, env Env) int {
 	fmt.Fprintf(env.Stdout, "append_only_log=available\n")
 	fmt.Fprintf(env.Stdout, "budget_warn_ratio=%.2f\n", cfg.Prefix.Budget.WarnRatio)
 	fmt.Fprintf(env.Stdout, "budget_block_ratio=%.2f\n", cfg.Prefix.Budget.BlockRatio)
+	fmt.Fprintf(env.Stdout, "cache_estimated_ttl=%s\n", cfg.Prefix.Cache.EstimatedTTL)
+	fmt.Fprintf(env.Stdout, "event_id_collision_resistant=true\n")
 	return 0
 }
 
@@ -181,7 +183,7 @@ func runCacheReport(args []string, env Env) int {
 		registryPath = filepath.Join(root, registryPath)
 	}
 
-	registry, err := NewCacheRegistryForCLI(registryPath)
+	registry, err := NewCacheRegistryForCLI(registryPath, cfg.Prefix.Cache)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
 		return 1

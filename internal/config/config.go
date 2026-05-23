@@ -97,6 +97,7 @@ type ByteStableConfig struct {
 
 type PrefixCacheConfig struct {
 	RegistryPath string `yaml:"registry_path"`
+	EstimatedTTL string `yaml:"estimated_ttl"`
 }
 
 type BudgetConfig struct {
@@ -319,6 +320,7 @@ byte_stable:
   disallow_dynamic_content: true
 cache:
   registry_path: .reasonforge/cache/prefixes.jsonl
+  estimated_ttl: 1h
 budget:
   warn_ratio: 0.8
   block_ratio: 1.0

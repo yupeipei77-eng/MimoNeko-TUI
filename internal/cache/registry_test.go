@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -121,5 +123,97 @@ func TestJSONLPersistence(t *testing.T) {
 	}
 	if entry.Fingerprint.SHA256 != "persist" {
 		t.Errorf("Fingerprint = %q, want persist", entry.Fingerprint.SHA256)
+	}
+}
+
+// Test 6 (cache): JSONL file permissions are 0600
+func TestCacheRegistryFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not support Unix permission bits")
+	}
+	path := t.TempDir() + "/cache.jsonl"
+	reg, _ := NewJSONLCacheRegistry(path)
+
+	_ = reg.Record(context.Background(), Observation{
+		Fingerprint: prefix.Fingerprint{SHA256: "test", Version: 1},
+		Provider:    "openai", InputTokens: 100, CachedTokens: 80, ObservedAt: time.Now().UTC(),
+	})
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error: %v", err)
+	}
+
+	perm := info.Mode().Perm()
+	if perm != 0o600 {
+		t.Errorf("File permissions = %o, want 0600", perm)
+	}
+}
+
+// Test 7 (cache): Malformed JSONL lines are counted in CorruptLineCount
+func TestCacheRegistryMalformedJSONLCounted(t *testing.T) {
+	path := t.TempDir() + "/cache.jsonl"
+	reg, _ := NewJSONLCacheRegistry(path)
+
+	// Write a valid observation
+	_ = reg.Record(context.Background(), Observation{
+		Fingerprint: prefix.Fingerprint{SHA256: "valid", Version: 1},
+		Provider:    "p1", InputTokens: 100, CachedTokens: 80, ObservedAt: time.Now().UTC(),
+	})
+
+	// Manually append malformed lines
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile() error: %v", err)
+	}
+	f.WriteString("not json\n")
+	f.WriteString("also not json\n")
+	f.Close()
+
+	report, err := reg.Report(context.Background())
+	if err != nil {
+		t.Fatalf("Report() error: %v", err)
+	}
+
+	if report.GlobalSummary.CorruptLineCount != 2 {
+		t.Errorf("CorruptLineCount = %d, want 2", report.GlobalSummary.CorruptLineCount)
+	}
+}
+
+// Test 8: Cache TTL is read from configuration via SetTTL
+func TestCacheTTLFromConfig(t *testing.T) {
+	path := t.TempDir() + "/cache.jsonl"
+	reg, _ := NewJSONLCacheRegistry(path)
+
+	// Default TTL should be 1 hour
+	defaultTTL := reg.estimatedTTL()
+	if defaultTTL != 1*time.Hour {
+		t.Errorf("Default TTL = %v, want 1h", defaultTTL)
+	}
+
+	// Set custom TTL
+	reg.SetTTL(30 * time.Minute)
+
+	obsTime := time.Now().UTC()
+	_ = reg.Record(context.Background(), Observation{
+		Fingerprint:     prefix.Fingerprint{SHA256: "ttl_test", Version: 1},
+		Provider:        "p1",
+		InputTokens:     100,
+		CachedTokens:    80,
+		ObservedAt:      obsTime,
+		ProviderCacheID: "cache-key",
+	})
+
+	entry, found, _ := reg.Lookup(context.Background(), prefix.Fingerprint{SHA256: "ttl_test", Version: 1})
+	if !found {
+		t.Fatal("Lookup() not found")
+	}
+
+	expectedExpiry := obsTime.Add(30 * time.Minute)
+	if len(entry.Refs) == 0 {
+		t.Fatal("Expected at least one ref")
+	}
+	if !entry.Refs[0].ExpiresAt.Equal(expectedExpiry) {
+		t.Errorf("ExpiresAt = %v, want %v (ObservedAt + 30m)", entry.Refs[0].ExpiresAt, expectedExpiry)
 	}
 }
