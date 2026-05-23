@@ -365,6 +365,8 @@ policy:
     - "id_rsa"
     - "id_ed25519"
   deny_read_paths:
+    - ".git"
+    - ".reasonforge"
     - ".env"
     - "*.pem"
     - "*.key"

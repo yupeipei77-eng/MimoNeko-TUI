@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -57,13 +58,20 @@ func TestAuditLogDirectoryPermissions(t *testing.T) {
 	}
 	audit.Close()
 
-	// Verify directory was created
 	info, err := os.Stat(logDir)
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
 	if !info.IsDir() {
 		t.Fatal("expected directory")
+	}
+
+	// On Unix-like systems, verify 0700 permissions
+	if !isWindows() {
+		perm := info.Mode().Perm()
+		if perm != 0o700 {
+			t.Fatalf("directory permissions = %04o, want 0700", perm)
+		}
 	}
 }
 
@@ -81,10 +89,19 @@ func TestAuditLogFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
-	perm := info.Mode().Perm()
-	// On Windows, file permissions may not be enforced as on Unix
-	// so we just check the file exists
-	_ = perm
+
+	// On Unix-like systems, verify 0600 permissions
+	if !isWindows() {
+		perm := info.Mode().Perm()
+		if perm != 0o600 {
+			t.Fatalf("file permissions = %04o, want 0600", perm)
+		}
+	}
+}
+
+// isWindows returns true when running on Windows.
+func isWindows() bool {
+	return os.PathSeparator == '\\'
 }
 
 func TestRedactArgs(t *testing.T) {
@@ -98,6 +115,131 @@ func TestRedactArgs(t *testing.T) {
 	}
 	if redacted["path"] != "main.go" {
 		t.Fatalf("path should not be redacted, got %q", redacted["path"])
+	}
+}
+
+func TestRedactArgsContentFields(t *testing.T) {
+	args := map[string]string{
+		"path":         "code.go",
+		"command_name": "go-test",
+		"max_bytes":    "1024",
+		"create_dirs":  "true",
+		"content":      "file content here",
+		"old":          "old text",
+		"new":          "new text",
+		"patch":        "diff content",
+		"diff":         "unified diff",
+		"stdin":        "input data",
+		"unknown_key":  "some value",
+	}
+	redacted := redactArgs(args)
+
+	// Safe keys should be preserved
+	safeKeys := []string{"path", "command_name", "max_bytes", "create_dirs"}
+	for _, key := range safeKeys {
+		if redacted[key] != args[key] {
+			t.Fatalf("key %q should be preserved, got %q want %q", key, redacted[key], args[key])
+		}
+	}
+
+	// Sensitive keys should be redacted
+	sensitiveKeys := []string{"content", "old", "new", "patch", "diff", "stdin", "unknown_key"}
+	for _, key := range sensitiveKeys {
+		if redacted[key] != "<redacted>" {
+			t.Fatalf("key %q should be redacted, got %q", key, redacted[key])
+		}
+	}
+}
+
+func TestRedactArgsFilePatchInAuditLog(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "code.go"), []byte("foo bar baz"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	auditPath := filepath.Join(root, "audit.jsonl")
+	audit, err := NewAuditLog(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry := NewMemoryRegistry()
+	_ = registry.Register(&FilePatchTool{})
+	guard := NewSafetyGuard(ToolPolicy{
+		DenyWritePaths: DefaultDenyWritePaths(),
+		DenyReadPaths:  DefaultDenyReadPaths(),
+	})
+
+	rt := NewDefaultToolRuntime(registry, guard, audit, map[string]bool{"file_patch": true})
+
+	_, err = rt.Run(context.Background(), ToolRequest{
+		ToolName: "file_patch",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "code.go", "old": "bar", "new": "BAR"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	audit.Close()
+
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify old and new are redacted in audit log
+	raw := string(data)
+	if strings.Contains(raw, `"old":"bar"`) {
+		t.Fatal("audit log contains unredacted 'old' value")
+	}
+	if strings.Contains(raw, `"new":"BAR"`) {
+		t.Fatal("audit log contains unredacted 'new' value")
+	}
+	// Verify path is still present
+	if !strings.Contains(raw, `"path":"code.go"`) {
+		t.Fatal("audit log should preserve path in cleartext")
+	}
+}
+
+func TestRedactArgsFileWriteContentInAuditLog(t *testing.T) {
+	root := t.TempDir()
+
+	auditPath := filepath.Join(root, "audit.jsonl")
+	audit, err := NewAuditLog(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry := NewMemoryRegistry()
+	_ = registry.Register(&FileWriteTool{})
+	guard := NewSafetyGuard(ToolPolicy{
+		DenyWritePaths: DefaultDenyWritePaths(),
+		DenyReadPaths:  DefaultDenyReadPaths(),
+	})
+
+	rt := NewDefaultToolRuntime(registry, guard, audit, map[string]bool{"file_write": true})
+
+	_, err = rt.Run(context.Background(), ToolRequest{
+		ToolName: "file_write",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "output.txt", "content": "secret payload"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	audit.Close()
+
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw := string(data)
+	if strings.Contains(raw, `"content":"secret payload"`) {
+		t.Fatal("audit log contains unredacted content value")
+	}
+	if !strings.Contains(raw, `"path":"output.txt"`) {
+		t.Fatal("audit log should preserve path in cleartext")
 	}
 }
 

@@ -149,6 +149,8 @@ func DefaultDenyWritePaths() []string {
 // DefaultDenyReadPaths returns the built-in deny-read patterns.
 func DefaultDenyReadPaths() []string {
 	return []string{
+		".git",
+		".reasonforge",
 		".env",
 		"*.pem",
 		"*.key",
