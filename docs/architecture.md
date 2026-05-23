@@ -91,10 +91,10 @@ The registry does not own prompt content. It stores observations such as provide
 
 TODO:
 
-- Implement a deterministic prefix builder with LF normalization.
-- Add schema sorting and canonical JSON generation for tool schemas.
-- Add provider cache hit/miss metrics.
-- Add local JSONL cache registry storage.
+- ~~Implement a deterministic prefix builder with LF normalization.~~ (Done in Phase 1)
+- ~~Add schema sorting and canonical JSON generation for tool schemas.~~ (Done in Phase 1)
+- ~~Add provider cache hit/miss metrics.~~ (Done in Phase 1)
+- ~~Add local JSONL cache registry storage.~~ (Done in Phase 1)
 
 ## Append-only Log
 
@@ -110,7 +110,7 @@ TODO:
 
 TODO:
 
-- Implement a local JSONL conversation log.
+- ~~Implement a local JSONL conversation log.~~ (Done in Phase 1)
 - Add event IDs and integrity checks.
 - Add log compaction as a separate derived artifact, never as in-place history rewrite.
 

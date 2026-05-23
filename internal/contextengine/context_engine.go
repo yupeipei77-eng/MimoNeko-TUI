@@ -21,6 +21,7 @@ type BuildRequest struct {
 	ConversationID string
 	RepoRoot       string
 	Budget         TokenBudget
+	CurrentInput   []byte
 }
 
 type VolatileContext struct {
@@ -28,10 +29,20 @@ type VolatileContext struct {
 	Scratchpad       scratchpad.Snapshot
 }
 
+type ContextReport struct {
+	PrefixTokens       int
+	ConversationTokens int
+	ScratchpadTokens   int
+	CurrentInputTokens int
+	TotalTokens        int
+	BudgetStatus       BudgetStatus
+}
+
 type Bundle struct {
 	ImmutablePrefix  prefix.Document
 	Volatile         VolatileContext
 	CacheFingerprint prefix.Fingerprint
+	Report           ContextReport
 }
 
 type ContextEngine interface {

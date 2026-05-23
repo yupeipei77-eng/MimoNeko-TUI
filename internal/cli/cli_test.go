@@ -51,6 +51,15 @@ func TestInitThenDoctor(t *testing.T) {
 	if !strings.Contains(doctorOut.String(), "immutable_prefix_sources=3") {
 		t.Fatalf("doctor output = %q, want immutable_prefix_sources line", doctorOut.String())
 	}
+	if !strings.Contains(doctorOut.String(), "prefix_canonicalization=enabled") {
+		t.Fatalf("doctor output = %q, want prefix_canonicalization line", doctorOut.String())
+	}
+	if !strings.Contains(doctorOut.String(), "budget_warn_ratio=") {
+		t.Fatalf("doctor output = %q, want budget_warn_ratio line", doctorOut.String())
+	}
+	if !strings.Contains(doctorOut.String(), "budget_block_ratio=") {
+		t.Fatalf("doctor output = %q, want budget_block_ratio line", doctorOut.String())
+	}
 }
 
 func TestNoArgsReturnsUsageError(t *testing.T) {
@@ -123,6 +132,7 @@ func TestCommandsRejectExtraPositionalArgs(t *testing.T) {
 		{name: "init", args: []string{"init", "--dir", root, "extra"}},
 		{name: "doctor", args: []string{"doctor", "--dir", root, "extra"}},
 		{name: "help", args: []string{"help", "extra"}},
+		{name: "cache-report", args: []string{"cache-report", "--dir", root, "extra"}},
 	}
 
 	for _, tt := range tests {
@@ -136,5 +146,43 @@ func TestCommandsRejectExtraPositionalArgs(t *testing.T) {
 				t.Fatalf("stderr = %q, want positional argument error", stderr.String())
 			}
 		})
+	}
+}
+
+func TestCacheReportCommand(t *testing.T) {
+	root := t.TempDir()
+
+	// Init first
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"cache-report", "--dir", root}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(cache-report) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "total_observations=") {
+		t.Fatalf("cache-report output = %q, want total_observations", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "hit_rate=") {
+		t.Fatalf("cache-report output = %q, want hit_rate", stdout.String())
+	}
+}
+
+func TestCacheReportReportsMissingConfig(t *testing.T) {
+	root := t.TempDir()
+	var stderr bytes.Buffer
+	code := Run([]string{"cache-report", "--dir", root}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(cache-report) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "cache-report failed") {
+		t.Fatalf("stderr = %q, want cache-report failure", stderr.String())
 	}
 }

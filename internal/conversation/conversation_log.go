@@ -25,6 +25,7 @@ type Event struct {
 	TaskID         string
 	Type           EventType
 	Payload        json.RawMessage
+	Archived       bool
 	CreatedAt      time.Time
 }
 
@@ -33,6 +34,7 @@ type Query struct {
 	TaskID         string
 	AfterID        string
 	Limit          int
+	IncludeArchived bool
 }
 
 type ConversationLog interface {

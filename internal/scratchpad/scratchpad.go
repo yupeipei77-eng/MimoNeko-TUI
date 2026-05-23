@@ -20,14 +20,16 @@ type Item struct {
 	Kind      ItemKind
 	Content   []byte
 	Metadata  map[string]string
+	Priority  int
 	CreatedAt time.Time
 	ExpiresAt time.Time
 }
 
 type Scope struct {
-	TaskID string
-	Kinds  []ItemKind
-	Limit  int
+	TaskID     string
+	Kinds      []ItemKind
+	Limit      int
+	TokenBudget int
 }
 
 type Snapshot struct {
