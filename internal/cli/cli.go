@@ -2,15 +2,25 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"os"
-
+	"github.com/reasonforge/reasonforge/internal/agent"
+	"github.com/reasonforge/reasonforge/internal/cache"
 	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/reasonforge/reasonforge/internal/contextengine"
+	"github.com/reasonforge/reasonforge/internal/conversation"
+	"github.com/reasonforge/reasonforge/internal/modelrouter"
+	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/reasonforge/reasonforge/internal/scratchpad"
+	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/tools"
 	"github.com/reasonforge/reasonforge/internal/version"
 )
@@ -52,6 +62,8 @@ func Run(args []string, env Env) int {
 		return runTools(args[1:], env)
 	case "tool-run":
 		return runToolRun(args[1:], env)
+	case "run":
+		return runAgent(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -231,6 +243,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  models       Show model provider configuration")
 	fmt.Fprintln(w, "  tools        List available tools and their status")
 	fmt.Fprintln(w, "  tool-run     Execute a tool with arguments")
+	fmt.Fprintln(w, "  run          Run an agent task")
 }
 
 func runModels(args []string, env Env) int {
@@ -430,11 +443,11 @@ func runToolRun(args []string, env Env) int {
 	}
 
 	req := tools.ToolRequest{
-		ToolName:  toolName,
-		RepoRoot:  root,
-		Args:      toolArgs,
-		DryRun:    *dryRun,
-		Metadata:  map[string]string{"source": "cli"},
+		ToolName: toolName,
+		RepoRoot: root,
+		Args:     toolArgs,
+		DryRun:   *dryRun,
+		Metadata: map[string]string{"source": "cli"},
 	}
 
 	resp, err := runtime.Run(context.Background(), req)
@@ -461,4 +474,195 @@ func runToolRun(args []string, env Env) int {
 		fmt.Fprint(env.Stderr, resp.Stderr)
 	}
 	return resp.ExitCode
+}
+
+func runAgent(args []string, env Env) int {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	goal := fs.String("goal", "", "task goal (required)")
+	maxSteps := fs.Int("max-steps", 0, "max agent loop steps (default: from contract)")
+	dryRun := fs.Bool("dry-run", true, "dry run mode (no side effects)")
+	autoApproveMedium := fs.Bool("auto-approve-medium", false, "auto-approve medium-risk tools without prompting")
+	taskID := fs.String("task-id", "", "task ID (auto-generated if empty)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	if strings.TrimSpace(*goal) == "" {
+		fmt.Fprintln(env.Stderr, "run requires --goal")
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		return 1
+	}
+
+	contract := task.DefaultContract(root, *goal)
+	contract.DryRun = *dryRun
+	if *maxSteps > 0 {
+		contract.MaxSteps = *maxSteps
+	}
+
+	tid := *taskID
+	if tid == "" {
+		tid = "task_cli_" + generateShortID()
+	}
+
+	cacheRegistryPath := cfg.Prefix.Cache.RegistryPath
+	if !filepath.IsAbs(cacheRegistryPath) {
+		cacheRegistryPath = filepath.Join(root, cacheRegistryPath)
+	}
+
+	cacheRegistry, err := cache.NewJSONLCacheRegistry(cacheRegistryPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: cache registry: %v\n", err)
+		return 1
+	}
+	if strings.TrimSpace(cfg.Prefix.Cache.EstimatedTTL) != "" {
+		ttl, err := time.ParseDuration(cfg.Prefix.Cache.EstimatedTTL)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "run failed: cache ttl: %v\n", err)
+			return 1
+		}
+		cacheRegistry.SetTTL(ttl)
+	}
+
+	prefixBuilder := prefix.NewImmutablePrefixBuilder(cfg.Prefix.ByteStable)
+	conversationLog := conversation.NewJSONLConversationLog(filepath.Join(root, config.DirName, "logs", "conversations"))
+	scratch := scratchpad.NewVolatileScratchpad()
+	budgetGuard, err := contextengine.NewBudgetGuard(contextengine.BudgetThresholds{
+		WarnRatio:  cfg.Prefix.Budget.WarnRatio,
+		BlockRatio: cfg.Prefix.Budget.BlockRatio,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: budget guard: %v\n", err)
+		return 1
+	}
+	contextEngine := contextengine.NewDefaultContextEngine(prefixBuilder, conversationLog, scratch, cacheRegistry, budgetGuard, root, cfg.Prefix)
+
+	providers := make(map[string]modelrouter.Provider, len(cfg.Models.Providers))
+	for _, providerCfg := range cfg.Models.Providers {
+		models := make([]string, 0, len(providerCfg.Models))
+		for _, modelCfg := range providerCfg.Models {
+			models = append(models, modelCfg.Name)
+		}
+		providers[providerCfg.Name] = modelrouter.NewOpenAICompatibleProvider(
+			providerCfg.Name,
+			providerCfg.BaseURL,
+			providerCfg.APIKeyEnv,
+			models,
+			nil,
+		)
+	}
+
+	fallbackChain, err := modelrouter.BuildFallbackChainFromConfig(cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: model routing: %v\n", err)
+		return 1
+	}
+	modelRouter := modelrouter.NewDefaultModelRouter(providers, fallbackChain, cfg.Models.Routing.DefaultModel, cacheRegistry)
+
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		return 1
+	}
+
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+	guard := tools.SafetyGuardFromConfig(cfg)
+	auditPath := tools.DefaultAuditLogPath(root)
+	auditLog, err := tools.NewAuditLog(auditPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: audit log: %v\n", err)
+		return 1
+	}
+	defer auditLog.Close()
+
+	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+
+	checkpointPath := agent.DefaultCheckpointPath(root)
+	checkpointStore, err := agent.NewJSONLCheckpointStore(checkpointPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: checkpoint store: %v\n", err)
+		return 1
+	}
+
+	deps := agent.Dependencies{
+		ContextEngine:   contextEngine,
+		ModelRouter:     modelRouter,
+		ToolRuntime:     toolRt,
+		ToolRegistry:    registry,
+		ConversationLog: conversationLog,
+		Scratchpad:      scratch,
+		CheckpointStore: checkpointStore,
+	}
+
+	rt := agent.NewSingleAgentRuntime(deps)
+	rt.SetOutput(env.Stdout)
+
+	policy := agent.InteractiveApprovalPolicy(os.Stdin)
+	policy.AutoApproveMediumRisk = *autoApproveMedium
+	rt.SetApprovalPolicy(policy)
+
+	req := agent.AgentRunRequest{
+		TaskID:   tid,
+		RepoRoot: root,
+		Goal:     *goal,
+		Contract: contract,
+		MaxSteps: *maxSteps,
+		DryRun:   *dryRun,
+	}
+
+	fmt.Fprintf(env.Stdout, "ReasonForge Agent\n")
+	fmt.Fprintf(env.Stdout, "run_id=pending goal=%q max_steps=%d dry_run=%v\n", *goal, contract.MaxSteps, contract.DryRun)
+
+	result, err := rt.Run(context.Background(), req)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintf(env.Stdout, "run_id=%s state=%s steps=%d\n", result.RunID, result.State, len(result.Steps))
+	if result.FinalMessage != "" {
+		fmt.Fprintf(env.Stdout, "message=%s\n", result.FinalMessage)
+	}
+	if result.Error != "" {
+		fmt.Fprintf(env.Stdout, "error=%s\n", result.Error)
+	}
+
+	switch result.State {
+	case agent.AgentStateSucceeded:
+		return 0
+	case agent.AgentStateFailed:
+		return 1
+	case agent.AgentStateCancelled:
+		return 130
+	case agent.AgentStateWaitingApproval:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func generateShortID() string {
+	b := make([]byte, 4)
+	// Use crypto/rand for uniqueness but fall back to timestamp
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }

@@ -141,6 +141,7 @@ func TestCommandsRejectExtraPositionalArgs(t *testing.T) {
 		{name: "doctor", args: []string{"doctor", "--dir", root, "extra"}},
 		{name: "help", args: []string{"help", "extra"}},
 		{name: "cache-report", args: []string{"cache-report", "--dir", root, "extra"}},
+		{name: "run", args: []string{"run", "--goal", "inspect repo", "extra"}},
 	}
 
 	for _, tt := range tests {
