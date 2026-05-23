@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 
 	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/reasonforge/reasonforge/internal/tools"
 	"github.com/reasonforge/reasonforge/internal/version"
 )
 
@@ -46,6 +48,10 @@ func Run(args []string, env Env) int {
 		return runCacheReport(args[1:], env)
 	case "models":
 		return runModels(args[1:], env)
+	case "tools":
+		return runTools(args[1:], env)
+	case "tool-run":
+		return runToolRun(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -223,6 +229,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  doctor       Validate local ReasonForge configuration")
 	fmt.Fprintln(w, "  cache-report Show prefix cache statistics")
 	fmt.Fprintln(w, "  models       Show model provider configuration")
+	fmt.Fprintln(w, "  tools        List available tools and their status")
+	fmt.Fprintln(w, "  tool-run     Execute a tool with arguments")
 }
 
 func runModels(args []string, env Env) int {
@@ -313,4 +321,144 @@ func rejectExtraArgs(fs *flag.FlagSet, env Env) bool {
 
 	fmt.Fprintf(env.Stderr, "%s accepts no positional arguments: %s\n", fs.Name(), strings.Join(fs.Args(), " "))
 	return true
+}
+
+func runTools(args []string, env Env) int {
+	fs := flag.NewFlagSet("tools", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "tools failed: %v\n", err)
+		return 1
+	}
+
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		fmt.Fprintf(env.Stderr, "tools failed: %v\n", err)
+		return 1
+	}
+
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+
+	fmt.Fprintln(env.Stdout, "ReasonForge Tools")
+	for _, info := range registry.List() {
+		enabled := "true"
+		if e, ok := enabledMap[info.Name]; ok && !e {
+			enabled = "false"
+		}
+		fmt.Fprintf(env.Stdout, "%-12s enabled=%-5s risk=%s\n", info.Name, enabled, info.RiskLevel)
+	}
+	return 0
+}
+
+func runToolRun(args []string, env Env) int {
+	fs := flag.NewFlagSet("tool-run", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	dryRun := fs.Bool("dry-run", false, "dry run mode (no side effects)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "tool-run requires a tool name")
+		return 2
+	}
+	toolName := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "tool-run failed: %v\n", err)
+		return 1
+	}
+
+	guard := tools.SafetyGuardFromConfig(cfg)
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		fmt.Fprintf(env.Stderr, "tool-run failed: %v\n", err)
+		return 1
+	}
+
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+	auditPath := tools.DefaultAuditLogPath(root)
+	auditLog, err := tools.NewAuditLog(auditPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "tool-run failed: audit log: %v\n", err)
+		return 1
+	}
+	defer auditLog.Close()
+
+	runtime := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+
+	// Parse tool arguments from remaining flags
+	toolArgs := make(map[string]string)
+	for i := 1; i < len(remaining); i++ {
+		if strings.HasPrefix(remaining[i], "--") {
+			key := strings.TrimPrefix(remaining[i], "--")
+			if i+1 < len(remaining) && !strings.HasPrefix(remaining[i+1], "--") {
+				toolArgs[key] = remaining[i+1]
+				i++
+			} else {
+				toolArgs[key] = "true"
+			}
+		}
+	}
+
+	req := tools.ToolRequest{
+		ToolName:  toolName,
+		RepoRoot:  root,
+		Args:      toolArgs,
+		DryRun:    *dryRun,
+		Metadata:  map[string]string{"source": "cli"},
+	}
+
+	resp, err := runtime.Run(context.Background(), req)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "tool-run failed: %v\n", err)
+		return 1
+	}
+
+	if resp.Success {
+		if resp.Stdout != "" {
+			fmt.Fprint(env.Stdout, resp.Stdout)
+		}
+		if resp.Stderr != "" {
+			fmt.Fprint(env.Stderr, resp.Stderr)
+		}
+		return resp.ExitCode
+	}
+
+	fmt.Fprintf(env.Stderr, "tool-run %s failed: %s\n", toolName, resp.Error)
+	if resp.Stdout != "" {
+		fmt.Fprint(env.Stdout, resp.Stdout)
+	}
+	if resp.Stderr != "" {
+		fmt.Fprint(env.Stderr, resp.Stderr)
+	}
+	return resp.ExitCode
 }

@@ -53,14 +53,30 @@ type FallbackEntry struct {
 }
 
 type ToolsConfig struct {
-	Tools []ToolConfig `yaml:"tools"`
+	Tools        []ToolConfig       `yaml:"tools"`
+	TestCommands []TestCommandConfig `yaml:"test_commands,omitempty"`
+	Policy       ToolPolicyConfig   `yaml:"policy,omitempty"`
 }
 
 type ToolConfig struct {
-	Name    string   `yaml:"name"`
-	Kind    string   `yaml:"kind"`
-	Enabled bool     `yaml:"enabled"`
-	Command []string `yaml:"command"`
+	Name      string `yaml:"name"`
+	Kind      string `yaml:"kind"`
+	Enabled   bool   `yaml:"enabled"`
+	RiskLevel string `yaml:"risk_level,omitempty"`
+	Command   []string `yaml:"command,omitempty"`
+}
+
+type TestCommandConfig struct {
+	Name           string   `yaml:"name"`
+	Command        []string `yaml:"command"`
+	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty"`
+}
+
+type ToolPolicyConfig struct {
+	MaxOutputBytes      int      `yaml:"max_output_bytes,omitempty"`
+	DefaultTimeoutSeconds int    `yaml:"default_timeout_seconds,omitempty"`
+	DenyWritePaths      []string `yaml:"deny_write_paths,omitempty"`
+	DenyReadPaths       []string `yaml:"deny_read_paths,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -313,10 +329,47 @@ routing:
 	{
 		Name: "tools.yaml",
 		Body: `tools:
-  - name: shell
-    kind: process
-    enabled: false
-    command: []
+  - name: file_read
+    kind: builtin
+    enabled: true
+    risk_level: low
+  - name: file_write
+    kind: builtin
+    enabled: true
+    risk_level: medium
+  - name: file_patch
+    kind: builtin
+    enabled: true
+    risk_level: medium
+  - name: git_diff
+    kind: builtin
+    enabled: true
+    risk_level: low
+  - name: test_run
+    kind: builtin
+    enabled: true
+    risk_level: medium
+test_commands:
+  - name: go-test
+    command: ["go", "test", "./..."]
+    timeout_seconds: 120
+policy:
+  max_output_bytes: 65536
+  default_timeout_seconds: 30
+  deny_write_paths:
+    - ".git"
+    - ".reasonforge"
+    - ".env"
+    - "*.pem"
+    - "*.key"
+    - "id_rsa"
+    - "id_ed25519"
+  deny_read_paths:
+    - ".env"
+    - "*.pem"
+    - "*.key"
+    - "id_rsa"
+    - "id_ed25519"
 `,
 	},
 	{

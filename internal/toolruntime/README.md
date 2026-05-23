@@ -2,17 +2,14 @@
 
 ## Responsibilities
 
-- Define the `ToolRuntime` contract.
-- Expose byte-stable tool schemas.
-- Execute allowed tool calls and return observable results.
+- Provide compatibility aliases for `internal/tools` package types.
+- Allow `internal/agent/` and other existing code to import `toolruntime.ToolRuntime` without migration.
 
 ## Boundaries
 
-- Tool schemas may feed immutable prefix if sorted and byte-stable.
-- Tool results are dynamic and belong in scratchpad or append-only events.
+- This package is a thin compatibility layer over `internal/tools`.
+- New code should import `github.com/reasonforge/reasonforge/internal/tools` directly.
 
 ## Forbidden
 
-- Do not enable dangerous tools by default.
-- Do not store tool output in immutable prefix.
-- Do not add Docker, K8s, SSH, or DB tools in the MVP.
+- Do not add new types or logic here; add them to `internal/tools` instead.

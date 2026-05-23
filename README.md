@@ -12,6 +12,8 @@ reasonforge init
 reasonforge doctor
 reasonforge models
 reasonforge cache-report
+reasonforge tools
+reasonforge tool-run <tool-name> [--key value ...]
 ```
 
 ## Design Constraints
@@ -26,4 +28,11 @@ reasonforge cache-report
 
 ## Status
 
-Phase 1 (Context Engine + Cache Engine) and Phase 2 (Model Router + Usage Accounting) are implemented. The model router supports OpenAI-compatible providers with fallback chain, Bundle-to-messages conversion, and usage accounting with CacheRegistry writeback.
+Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), and Phase 3 (Tool Runtime) are implemented.
+
+Phase 3 adds a secure local tool execution layer with:
+- ToolRuntime, ToolRegistry, SafetyGuard, and AuditLog
+- Built-in tools: file_read, file_write, file_patch, git_diff, test_run
+- Workspace root confinement, sensitive path protection, output truncation, timeout enforcement
+- JSONL audit logging with crypto/rand IDs and content redaction
+- CLI: `reasonforge tools` and `reasonforge tool-run`

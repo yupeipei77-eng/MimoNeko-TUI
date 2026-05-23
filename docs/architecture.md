@@ -31,7 +31,8 @@ internal/memory/              Local durable memory contract
 internal/repoindex/           Local repository index contract
 internal/model/               OpenAI-compatible model router contract
 internal/modelrouter/         Model router implementation with fallback chain
-internal/toolruntime/         Tool schema and execution contract
+internal/toolruntime/         Tool runtime compatibility aliases
+internal/tools/               Tool runtime, registry, safety guard, audit log, built-in tools
 internal/task/                Task contract and worktree policy
 internal/agent/               Agent runtime orchestration contract
 internal/version/             Version metadata
@@ -120,6 +121,29 @@ Fallback chain configuration lives in `models.yaml` under `routing.fallback_chai
 API key security: keys are read from environment variables, never logged, never included in error messages, and the `reasonforge models` command only shows `configured`/`missing` status.
 
 See `docs/phase-2-model-router.md` for full documentation.
+
+## Tool Runtime
+
+The Tool Runtime (`internal/tools/`) provides a secure local tool execution layer. All tool invocations must go through `ToolRuntime.Run()` — no business code calls a Tool implementation directly.
+
+Key components:
+
+- **ToolRuntime interface**: `Run(ctx, ToolRequest) (ToolResponse, error)` — the central orchestrator.
+- **Tool interface**: `Name`, `Description`, `RiskLevel`, `Run` — implemented by each built-in tool.
+- **ToolRegistry**: In-memory registry with duplicate rejection. `Register`, `Get`, `List`.
+- **SafetyGuard**: Enforces workspace root confinement, sensitive path protection, output limits, timeouts.
+- **AuditLog**: JSONL audit trail with crypto/rand IDs and content redaction.
+- **Built-in tools**: `file_read`, `file_write`, `file_patch`, `git_diff`, `test_run`.
+
+Safety boundaries:
+- All file paths must stay within RepoRoot (no `..`, no absolute paths, no Windows drive letters).
+- `.git/`, `.reasonforge/`, `.env`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519` are write-denied.
+- `.env`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519` are read-denied.
+- `test_run` only executes predefined commands from `tools.yaml`; no arbitrary shell commands.
+- Minimal environment inheritance (no API keys passed to subprocesses).
+- Audit log directory: 0700, file: 0600.
+
+See `docs/phase-3-tool-runtime.md` for full documentation.
 
 ## Append-only Log
 

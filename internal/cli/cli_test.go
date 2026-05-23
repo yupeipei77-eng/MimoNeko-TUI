@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -305,5 +307,141 @@ func TestAPIKeyStatusFunction(t *testing.T) {
 				t.Errorf("apiKeyStatus(%q) = %q, want %q", tt.envVar, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestToolsCommand(t *testing.T) {
+	root := t.TempDir()
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"tools", "--dir", root}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(tools) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "ReasonForge Tools") {
+		t.Fatalf("tools output = %q, want ReasonForge Tools header", output)
+	}
+	if !strings.Contains(output, "file_read") {
+		t.Fatalf("tools output = %q, want file_read", output)
+	}
+	if !strings.Contains(output, "file_write") {
+		t.Fatalf("tools output = %q, want file_write", output)
+	}
+	if !strings.Contains(output, "file_patch") {
+		t.Fatalf("tools output = %q, want file_patch", output)
+	}
+	if !strings.Contains(output, "git_diff") {
+		t.Fatalf("tools output = %q, want git_diff", output)
+	}
+	if !strings.Contains(output, "test_run") {
+		t.Fatalf("tools output = %q, want test_run", output)
+	}
+	if !strings.Contains(output, "risk=") {
+		t.Fatalf("tools output = %q, want risk levels", output)
+	}
+}
+
+func TestToolRunFileRead(t *testing.T) {
+	root := t.TempDir()
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a test file
+	if err := os.WriteFile(filepath.Join(root, "test.txt"), []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"tool-run", "--dir", root, "file_read", "--path", "test.txt"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(tool-run file_read) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "hello world") {
+		t.Fatalf("tool-run file_read output = %q, want 'hello world'", output)
+	}
+}
+
+func TestToolRunDoesNotLeakSensitiveContent(t *testing.T) {
+	root := t.TempDir()
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a .env file with a secret
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SECRET_KEY=supersecret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	code = Run([]string{"tool-run", "--dir", root, "file_read", "--path", ".env"}, Env{
+		Stderr: &stderr,
+	})
+	if code == 0 {
+		t.Fatal("tool-run file_read .env should fail")
+	}
+
+	// The error should not contain the secret
+	errOutput := stderr.String()
+	if strings.Contains(errOutput, "supersecret") {
+		t.Fatalf("tool-run output leaks sensitive content: %q", errOutput)
+	}
+}
+
+func TestToolsCommandRejectsExtraArgs(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stderr bytes.Buffer
+	code = Run([]string{"tools", "--dir", root, "extra"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(tools extra) code = %d, want 2", code)
+	}
+}
+
+func TestToolRunRequiresToolName(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stderr bytes.Buffer
+	code = Run([]string{"tool-run", "--dir", root}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(tool-run without name) code = %d, want 2", code)
+	}
+}
+
+func TestToolRunReportsMissingConfig(t *testing.T) {
+	root := t.TempDir()
+	var stderr bytes.Buffer
+	code := Run([]string{"tool-run", "--dir", root, "file_read"}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(tool-run missing config) code = %d, want 1", code)
 	}
 }

@@ -1,36 +1,23 @@
+// Package toolruntime provides compatibility aliases for the tools package.
+// New code should import github.com/reasonforge/reasonforge/internal/tools directly.
 package toolruntime
 
 import (
 	"context"
-	"encoding/json"
-	"time"
+
+	"github.com/reasonforge/reasonforge/internal/tools"
 )
 
-type Schema struct {
-	Name        string
-	Description string
-	JSONSchema  json.RawMessage
-}
+// ToolRuntime is an alias for tools.ToolRuntime.
+type ToolRuntime = tools.ToolRuntime
 
-type Call struct {
-	ID        string
-	TaskID    string
-	ToolName  string
-	Arguments json.RawMessage
-	Timeout   time.Duration
-}
+// ToolRequest is an alias for tools.ToolRequest.
+type ToolRequest = tools.ToolRequest
 
-type Result struct {
-	CallID    string
-	ExitCode  int
-	Stdout    []byte
-	Stderr    []byte
-	Metadata  map[string]string
-	StartedAt time.Time
-	EndedAt   time.Time
-}
+// ToolResponse is an alias for tools.ToolResponse.
+type ToolResponse = tools.ToolResponse
 
-type ToolRuntime interface {
-	Schemas(ctx context.Context) ([]Schema, error)
-	Execute(ctx context.Context, call Call) (Result, error)
+// Run calls tools.ToolRuntime.Run.
+func Run(ctx context.Context, rt ToolRuntime, req ToolRequest) (ToolResponse, error) {
+	return rt.Run(ctx, req)
 }
