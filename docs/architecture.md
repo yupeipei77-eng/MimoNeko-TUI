@@ -36,6 +36,8 @@ internal/tools/               Tool runtime, registry, safety guard, audit log, b
 internal/task/                Task contract and worktree policy
 internal/worktree/            Git worktree isolation manager
 internal/patch/               Patch preview, apply, and discard manager
+internal/review/              Patch review pipeline (rule review, risk scoring, model review)
+internal/validation/          Test validation runner
 internal/agent/               Agent runtime orchestration contract
 internal/version/             Version metadata
 docs/adr/                     Architecture decision records
@@ -175,6 +177,8 @@ TODO:
 - `prefix.yaml`
 - `worktree.yaml` (Phase 5)
 - `patch.yaml` (Phase 5)
+- `review.yaml` (Phase 6)
+- `validation.yaml` (Phase 6)
 
 `reasonforge doctor` loads all files with strict YAML parsing and validates key safety constraints. The default model provider is OpenAI-compatible and local by default.
 
@@ -215,6 +219,35 @@ CLI commands:
 - `reasonforge patch discard <id>` - Remove worktree
 
 See `docs/phase-5-worktree-patch-manager.md` for full documentation.
+
+## Patch Review and Validation
+
+`PatchReviewManager` (`internal/review/`) orchestrates the full patch review pipeline, producing a deterministic `approve / request_changes / reject` recommendation.
+
+Pipeline: PatchPreview → RuleBasedReview → RiskScoring → Optional TestValidation → Optional ModelReview → Recommendation
+
+Key components:
+- **PatchReviewManager interface**: `Review(ctx, PatchReviewRequest) (PatchReviewReport, error)`
+- **RuleBasedReviewer**: Rule-based checks (violations, diff size, file/line counts, binary files, sensitive paths, test coverage, generated files)
+- **RiskScorer**: Numeric risk score (0-100) with deterministic thresholds
+- **ValidationRunner** (`internal/validation/`): Test execution through ToolRuntime (test_run), output truncation, API key sanitization
+- **DefaultModelReviewer**: Optional AI review via ModelRouter with sensitive diff guard
+
+Safety rules (always override model suggestions):
+1. Critical findings → reject
+2. Violations → reject
+3. Validation failure → request_changes
+4. Critical risk → reject
+5. High risk → request_changes
+6. Model reject → reject
+7. Model request_changes → request_changes
+8. Otherwise → approve
+
+CLI commands:
+- `reasonforge patch validate <id>` - Rule review + test validation (no model)
+- `reasonforge patch review <id>` - Full review with optional model review
+
+See `docs/phase-6-patch-review-validation.md` for full documentation.
 
 ## Observability
 
