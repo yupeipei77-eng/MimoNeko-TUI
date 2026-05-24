@@ -16,6 +16,11 @@ reasonforge tools
 reasonforge tool-run <tool-name> [--key value ...]
 reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-approve-medium] [--worktree]
 reasonforge multi-run "fix typo in README" [--max-iterations 2] [--dry-run] [--worktree] [--model-review]
+reasonforge runs
+reasonforge run-status <run_id>
+reasonforge run-events <run_id>
+reasonforge dashboard
+reasonforge serve [--port 9000] [--open]
 reasonforge patch list
 reasonforge patch preview <worktree_id>
 reasonforge patch validate <worktree_id> [--test-command go-test]
@@ -23,6 +28,25 @@ reasonforge patch review <worktree_id> [--model-review] [--test-command go-test]
 reasonforge patch apply <worktree_id> [--dry-run]
 reasonforge patch discard <worktree_id>
 ```
+
+## Local Dashboards
+
+ReasonForge records sanitized run events in the local EventStore. You can inspect progress in the terminal or browser:
+
+```sh
+reasonforge dashboard
+reasonforge serve
+reasonforge serve --port 9000
+reasonforge serve --open
+```
+
+`reasonforge serve` starts a local read-only Web Dashboard. By default it listens on:
+
+```text
+http://127.0.0.1:8765
+```
+
+The dashboard data comes from EventStore and shows recent runs, run detail, timelines, progress state, and event lists. It does not execute tools, call models, read source file contents, auto-apply patches, commit, or push.
 
 ## Design Constraints
 
@@ -44,6 +68,7 @@ reasonforge patch discard <worktree_id>
 - Coder agent must use worktree isolation; never writes to main workspace.
 - Reviewer agent cannot override deterministic reject rules.
 - No auto-apply, auto-commit, or auto-push in multi-agent runs.
+- Local dashboards are read-only and default to `127.0.0.1`.
 
 ## Status
 

@@ -15,6 +15,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/config"
 	"github.com/reasonforge/reasonforge/internal/events"
+	webserver "github.com/reasonforge/reasonforge/internal/server"
 	"github.com/reasonforge/reasonforge/internal/worktree"
 )
 
@@ -1934,7 +1935,7 @@ func TestDashboardDoesNotLeakSensitiveData(t *testing.T) {
 	// Simulate that here by sanitizing before appending.
 	rawEvent := events.RunEvent{
 		ID: "evt_sec", RunID: "run_sec", Type: events.EventRunStarted, Status: "started",
-		Message: "Run started with API_KEY=sk-secret-12345",
+		Message:   "Run started with API_KEY=sk-secret-12345",
 		StartedAt: now,
 	}
 	sanitized := events.SanitizeEvent(rawEvent)
@@ -1991,5 +1992,99 @@ func TestDashboardLimitRuns(t *testing.T) {
 	}
 	if dataLines != 3 {
 		t.Errorf("expected 3 data lines with --limit 3, got %d\noutput:\n%s", dataLines, output)
+	}
+}
+
+// --- Web Dashboard CLI tests ---
+
+func stubServeCommand(t *testing.T) **webserver.LocalServer {
+	t.Helper()
+	var captured *webserver.LocalServer
+	old := serveCommandRun
+	serveCommandRun = func(s *webserver.LocalServer) error {
+		captured = s
+		return nil
+	}
+	t.Cleanup(func() { serveCommandRun = old })
+	return &captured
+}
+
+func TestServeCommandParsesHostPort(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	captured := stubServeCommand(t)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"serve", "--dir", root, "--host", "127.0.0.1", "--port", "9000", "--poll-interval", "5s"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
+	}
+	if *captured == nil {
+		t.Fatal("serveCommandRun was not called")
+	}
+	if (*captured).Address() != "127.0.0.1:9000" {
+		t.Fatalf("Address() = %q, want 127.0.0.1:9000", (*captured).Address())
+	}
+	if (*captured).PollInterval() != 5*time.Second {
+		t.Fatalf("PollInterval() = %v, want 5s", (*captured).PollInterval())
+	}
+	if !strings.Contains(stdout.String(), "http://127.0.0.1:9000") {
+		t.Fatalf("stdout = %q, want listen URL", stdout.String())
+	}
+}
+
+func TestServeRejectsExtraArgs(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"serve", "extra"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(serve extra) code = %d, want 2", code)
+	}
+}
+
+func TestServeDefaultPort(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	captured := stubServeCommand(t)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"serve", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
+	}
+	if *captured == nil {
+		t.Fatal("serveCommandRun was not called")
+	}
+	if (*captured).Address() != "127.0.0.1:8765" {
+		t.Fatalf("Address() = %q, want 127.0.0.1:8765", (*captured).Address())
+	}
+}
+
+func TestServeDoesNotDefaultToPublicHost(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	captured := stubServeCommand(t)
+
+	var stderr bytes.Buffer
+	code := Run([]string{"serve", "--dir", root}, Env{Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
+	}
+	if *captured == nil {
+		t.Fatal("serveCommandRun was not called")
+	}
+	if strings.HasPrefix((*captured).Address(), "0.0.0.0:") {
+		t.Fatalf("serve defaulted to public host: %s", (*captured).Address())
+	}
+	if !strings.HasPrefix((*captured).Address(), "127.0.0.1:") {
+		t.Fatalf("Address() = %q, want localhost", (*captured).Address())
 	}
 }

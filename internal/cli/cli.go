@@ -4,20 +4,24 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/cache"
 	"github.com/reasonforge/reasonforge/internal/config"
-	"github.com/reasonforge/reasonforge/internal/dashboard"
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/conversation"
+	"github.com/reasonforge/reasonforge/internal/dashboard"
 	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/multiagent"
@@ -25,6 +29,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/prefix"
 	"github.com/reasonforge/reasonforge/internal/review"
 	"github.com/reasonforge/reasonforge/internal/scratchpad"
+	webserver "github.com/reasonforge/reasonforge/internal/server"
 	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/tools"
 	"github.com/reasonforge/reasonforge/internal/validation"
@@ -83,6 +88,8 @@ func Run(args []string, env Env) int {
 		return runRunEvents(args[1:], env)
 	case "dashboard":
 		return runDashboard(args[1:], env)
+	case "serve":
+		return runServe(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -289,6 +296,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  run-status   Show detailed status for a specific run")
 	fmt.Fprintln(w, "  run-events   Show events for a specific run")
 	fmt.Fprintln(w, "  dashboard    Local TUI dashboard (list runs, view details, watch)")
+	fmt.Fprintln(w, "  serve        Start local Web Dashboard")
 }
 
 func runModels(args []string, env Env) int {
@@ -2140,4 +2148,73 @@ func runDashboardWatch(env Env, store *events.JSONLRunEventStore, runID string, 
 
 		time.Sleep(2 * time.Second)
 	}
+}
+
+var serveCommandRun = func(s *webserver.LocalServer) error {
+	return s.ListenAndServe()
+}
+
+var openBrowserURL = func(url string) error {
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
+	}
+}
+
+// runServe starts the local Web Dashboard server.
+func runServe(args []string, env Env) int {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	host := fs.String("host", webserver.DefaultHost, "host to bind (default 127.0.0.1)")
+	port := fs.Int("port", webserver.DefaultPort, "port to bind")
+	open := fs.Bool("open", false, "open the dashboard in a browser")
+	pollInterval := fs.Duration("poll-interval", webserver.DefaultPollInterval, "browser polling interval")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "serve failed: %v\n", err)
+		return 1
+	}
+
+	if *host == "0.0.0.0" {
+		fmt.Fprintln(env.Stderr, "warning: --host 0.0.0.0 exposes the local dashboard on all interfaces")
+	}
+
+	srv := webserver.NewLocalServer(root, cfg, webserver.Options{
+		Host:         *host,
+		Port:         *port,
+		PollInterval: *pollInterval,
+	})
+
+	fmt.Fprintf(env.Stdout, "ReasonForge Web Dashboard\n")
+	fmt.Fprintf(env.Stdout, "listening on %s\n", srv.URL())
+
+	if *open {
+		if err := openBrowserURL(srv.URL()); err != nil {
+			fmt.Fprintf(env.Stderr, "warning: could not open browser: %v\n", err)
+		}
+	}
+
+	if err := serveCommandRun(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintf(env.Stderr, "serve failed: %v\n", err)
+		return 1
+	}
+	return 0
 }
