@@ -130,7 +130,23 @@ func formatArgs(args map[string]string) string {
 	}
 	parts := make([]string, 0, len(args))
 	for k, v := range args {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+		parts = append(parts, fmt.Sprintf("%s=%s", k, redactArgValue(k, v)))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// safeArgKeys are the keys allowed in cleartext in approval prompts.
+var safeArgKeys = map[string]bool{
+	"path":         true,
+	"command_name": true,
+	"max_bytes":    true,
+	"create_dirs":  true,
+}
+
+// redactArgValue returns "<redacted>" for keys not in the safe list.
+func redactArgValue(key, value string) string {
+	if safeArgKeys[key] {
+		return value
+	}
+	return "<redacted>"
 }

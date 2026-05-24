@@ -82,7 +82,9 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 	}
 
 	// 3. Save initial checkpoint
-	rt.saveCheckpoint(ctx, result, req.Contract.ID)
+	if err := rt.saveCheckpoint(ctx, result, req.Contract.ID); err != nil {
+		return AgentRunResult{}, fmt.Errorf("agent: initial checkpoint failed: %w", err)
+	}
 
 	// 4. Agent loop
 	toolCallCount := 0
@@ -254,7 +256,11 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 		}
 
 		// 4f. Save checkpoint
-		rt.saveCheckpoint(ctx, result, req.Contract.ID)
+		if err := rt.saveCheckpoint(ctx, result, req.Contract.ID); err != nil {
+			result.State = AgentStateFailed
+			result.Error = fmt.Sprintf("checkpoint failed at step %d: %v", stepIndex, err)
+			break
+		}
 
 		// 4g. Prepare next iteration's input from tool output
 		if toolStep.ToolResponse != nil {
@@ -271,7 +277,14 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 	result.FinishedAt = time.Now().UTC()
 
 	// Save final checkpoint
-	rt.saveCheckpoint(ctx, result, req.Contract.ID)
+	if cpErr := rt.saveCheckpoint(ctx, result, req.Contract.ID); cpErr != nil {
+		if !result.State.IsTerminal() {
+			result.State = AgentStateFailed
+		}
+		if result.Error == "" {
+			result.Error = fmt.Sprintf("final checkpoint failed: %v", cpErr)
+		}
+	}
 
 	return result, nil
 }
@@ -392,10 +405,11 @@ func (rt *SingleAgentRuntime) injectToolResponse(ctx context.Context, taskID str
 	_ = rt.deps.Scratchpad.Put(ctx, item) // best-effort; don't fail the run
 }
 
-// saveCheckpoint persists the current run state.
-func (rt *SingleAgentRuntime) saveCheckpoint(ctx context.Context, result AgentRunResult, contractID string) {
+// saveCheckpoint persists the current run state after sanitization.
+// It returns an error if the checkpoint store is unavailable or the write fails.
+func (rt *SingleAgentRuntime) saveCheckpoint(ctx context.Context, result AgentRunResult, contractID string) error {
 	if rt.deps.CheckpointStore == nil {
-		return
+		return fmt.Errorf("agent: checkpoint store not configured")
 	}
 
 	cp := Checkpoint{
@@ -408,7 +422,13 @@ func (rt *SingleAgentRuntime) saveCheckpoint(ctx context.Context, result AgentRu
 		CreatedAt:  time.Now().UTC(),
 	}
 
-	_ = rt.deps.CheckpointStore.Save(ctx, cp) // best-effort
+	// Sanitize before persisting to prevent sensitive data leakage
+	cp = SanitizeCheckpoint(cp)
+
+	if err := rt.deps.CheckpointStore.Save(ctx, cp); err != nil {
+		return fmt.Errorf("agent: checkpoint save failed: %w", err)
+	}
+	return nil
 }
 
 func mustGenerateStepID() string {

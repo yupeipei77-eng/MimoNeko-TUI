@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/reasonforge/reasonforge/internal/cache"
@@ -699,5 +700,133 @@ func TestDefaultContractIntegration(t *testing.T) {
 	}
 	if result.State != AgentStateSucceeded {
 		t.Errorf("State = %q, want %q", result.State, AgentStateSucceeded)
+	}
+}
+
+// failCheckpointStore always returns an error on Save.
+type failCheckpointStore struct {
+	saveErr error
+	saves   int
+}
+
+func (f *failCheckpointStore) Save(ctx context.Context, cp Checkpoint) error {
+	f.saves++
+	return f.saveErr
+}
+func (f *failCheckpointStore) Load(ctx context.Context, runID string) (Checkpoint, error) {
+	return Checkpoint{}, fmt.Errorf("not found")
+}
+func (f *failCheckpointStore) List(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func TestSingleAgentRuntime_InitialCheckpointFailure(t *testing.T) {
+	deps := testDeps()
+	deps.CheckpointStore = &failCheckpointStore{
+		saveErr: fmt.Errorf("disk full"),
+	}
+
+	rt := NewSingleAgentRuntime(deps)
+	contract := task.TaskContract{
+		ID:       "tc_cp_fail",
+		Goal:     "test checkpoint failure",
+		RepoRoot: "/repo",
+		MaxSteps: 5,
+	}
+
+	_, err := rt.Run(context.Background(), AgentRunRequest{
+		TaskID:   "task_cp_init",
+		RepoRoot: "/repo",
+		Goal:     "test checkpoint failure",
+		Contract: contract,
+	})
+	if err == nil {
+		t.Error("Run() should return error when initial checkpoint fails")
+	}
+	if !strings.Contains(err.Error(), "initial checkpoint failed") {
+		t.Errorf("error should mention initial checkpoint, got: %v", err)
+	}
+}
+
+func TestSingleAgentRuntime_MidLoopCheckpointFailure(t *testing.T) {
+	deps := testDeps()
+	// Store that fails after the first save (initial checkpoint succeeds, mid-loop fails)
+	store := &failAfterFirstStore{}
+	deps.CheckpointStore = store
+	deps.ModelRouter = &mockModelRouter{
+		responses: []modelrouter.CompletionResponse{
+			{
+				Provider: "mock",
+				Model:    "mock-model",
+				Text:     `{"tool_call": {"name": "file_read", "args": {"path": "a.go"}}}`,
+			},
+		},
+	}
+
+	rt := NewSingleAgentRuntime(deps)
+	contract := task.TaskContract{
+		ID:           "tc_cp_mid",
+		Goal:         "test mid-loop checkpoint failure",
+		RepoRoot:     "/repo",
+		MaxSteps:     5,
+		MaxToolCalls: 10,
+	}
+
+	result, err := rt.Run(context.Background(), AgentRunRequest{
+		TaskID:   "task_cp_mid",
+		RepoRoot: "/repo",
+		Goal:     "test mid-loop checkpoint failure",
+		Contract: contract,
+	})
+	if err != nil {
+		t.Fatalf("Run() should not return error, got: %v", err)
+	}
+	if result.State != AgentStateFailed {
+		t.Errorf("State = %q, want %q", result.State, AgentStateFailed)
+	}
+	if !strings.Contains(result.Error, "checkpoint failed") {
+		t.Errorf("error should mention checkpoint failure, got: %s", result.Error)
+	}
+}
+
+// failAfterFirstStore succeeds on first Save, fails on subsequent ones.
+type failAfterFirstStore struct {
+	saves int
+}
+
+func (f *failAfterFirstStore) Save(ctx context.Context, cp Checkpoint) error {
+	f.saves++
+	if f.saves > 1 {
+		return fmt.Errorf("disk error after first save")
+	}
+	return nil
+}
+func (f *failAfterFirstStore) Load(ctx context.Context, runID string) (Checkpoint, error) {
+	return Checkpoint{}, fmt.Errorf("not found")
+}
+func (f *failAfterFirstStore) List(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func TestSingleAgentRuntime_CheckpointStoreNil(t *testing.T) {
+	deps := testDeps()
+	deps.CheckpointStore = nil
+
+	rt := NewSingleAgentRuntime(deps)
+	contract := task.TaskContract{
+		ID:       "tc_cp_nil",
+		Goal:     "test nil checkpoint",
+		RepoRoot: "/repo",
+		MaxSteps: 5,
+	}
+
+	_, err := rt.Run(context.Background(), AgentRunRequest{
+		TaskID:   "task_cp_nil",
+		RepoRoot: "/repo",
+		Goal:     "test nil checkpoint",
+		Contract: contract,
+	})
+	if err == nil {
+		t.Error("Run() should return error when checkpoint store is nil")
 	}
 }
