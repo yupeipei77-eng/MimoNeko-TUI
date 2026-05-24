@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -343,6 +345,414 @@ func TestAPIKeyStatusFunction(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModelSetupAddsProvider(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "setup", "--dir", root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model setup code = %d", code)
+	}
+	cfg := loadConfigForTest(t, root)
+	if _, ok := findProviderForTest(cfg, "mimo"); !ok {
+		t.Fatal("mimo provider was not added")
+	}
+}
+
+func TestModelSetupAddsModelToExistingProvider(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5")
+	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro")
+	cfg := loadConfigForTest(t, root)
+	provider, ok := findProviderForTest(cfg, "mimo")
+	if !ok {
+		t.Fatal("mimo provider was not added")
+	}
+	if !providerHasModel(provider, "mimo-v2.5") || !providerHasModel(provider, "mimo-v2.5-pro") {
+		t.Fatalf("provider models = %+v, want both configured", provider.Models)
+	}
+}
+
+func TestModelSetupSetDefault(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro", "--set-default")
+	cfg := loadConfigForTest(t, root)
+	if cfg.Models.Routing.DefaultModel != "mimo-v2.5-pro" {
+		t.Fatalf("default_model = %q, want mimo-v2.5-pro", cfg.Models.Routing.DefaultModel)
+	}
+	if len(cfg.Models.Routing.FallbackChain) == 0 || cfg.Models.Routing.FallbackChain[0].Provider != "mimo" || cfg.Models.Routing.FallbackChain[0].Model != "mimo-v2.5-pro" {
+		t.Fatalf("fallback_chain = %+v, want mimo/mimo-v2.5-pro first", cfg.Models.Routing.FallbackChain)
+	}
+}
+
+func TestModelSetupDoesNotWriteAPIKey(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-test-model-setup-secret"
+	t.Setenv("MIMO_API_KEY", secret)
+	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro")
+	content := readModelsYAMLForTest(t, root)
+	if strings.Contains(content, secret) {
+		t.Fatal("models.yaml leaked the API key value")
+	}
+	if !strings.Contains(content, "api_key_env: MIMO_API_KEY") {
+		t.Fatalf("models.yaml = %q, want api_key_env name", content)
+	}
+}
+
+func TestModelSetupMissingEnvPrintsSafeHint(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("MIMO_API_KEY", "")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "setup", "--dir", root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model setup code = %d", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, `Windows: setx MIMO_API_KEY "your-key"`) {
+		t.Fatalf("stdout = %q, want Windows safe hint", output)
+	}
+	if strings.Contains(output, "sk-") {
+		t.Fatalf("stdout leaked a possible API key: %q", output)
+	}
+}
+
+func TestModelListDoesNotLeakAPIKey(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-test-model-list-secret"
+	t.Setenv("MIMO_API_KEY", secret)
+	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "list", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model list code = %d", code)
+	}
+	output := stdout.String()
+	if strings.Contains(output, secret) {
+		t.Fatal("model list leaked API key")
+	}
+	if !strings.Contains(output, "api_key_status=configured") {
+		t.Fatalf("stdout = %q, want configured status", output)
+	}
+}
+
+func TestModelListShowsConfiguredMissing(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("MIMO_API_KEY", "sk-configured-for-status")
+	t.Setenv("REASONFORGE_API_KEY", "")
+	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "list", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model list code = %d", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "api_key_status=configured") || !strings.Contains(output, "api_key_status=missing") {
+		t.Fatalf("stdout = %q, want configured and missing statuses", output)
+	}
+}
+
+func TestModelDiscoverListsRemoteModels(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("TEST_MODEL_API_KEY", "sk-discover-secret")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %s, want /models", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-discover-secret" {
+			t.Fatalf("unexpected authorization header")
+		}
+		fmt.Fprint(w, `{"data":[{"id":"mimo-v2.5"},{"id":"mimo-v2.5-pro"}]}`)
+	}))
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "mimo-v2.5")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "discover", "--dir", root, "--provider", "test"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model discover code = %d", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "* mimo-v2.5") || !strings.Contains(output, "* mimo-v2.5-pro") {
+		t.Fatalf("stdout = %q, want remote model ids", output)
+	}
+}
+
+func TestModelDiscoverHandlesUnauthorized(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-unauthorized-secret"
+	t.Setenv("TEST_MODEL_API_KEY", secret)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "token "+secret, http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	var stderr bytes.Buffer
+	code := Run([]string{"model", "discover", "--dir", root, "--provider", "test"}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("model discover code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "API returned status 401") {
+		t.Fatalf("stderr = %q, want status 401", stderr.String())
+	}
+}
+
+func TestModelDiscoverDoesNotLeakAPIKey(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-discover-do-not-leak"
+	t.Setenv("TEST_MODEL_API_KEY", secret)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Authorization: Bearer "+secret, http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	var stderr bytes.Buffer
+	_ = Run([]string{"model", "discover", "--dir", root, "--provider", "test"}, Env{Stderr: &stderr})
+	if strings.Contains(stderr.String(), secret) || strings.Contains(stderr.String(), "Bearer "+secret) {
+		t.Fatalf("discover stderr leaked API key: %q", stderr.String())
+	}
+}
+
+func TestModelTestSuccess(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("TEST_MODEL_API_KEY", "sk-model-test")
+	server := newChatCompletionServer(t, http.StatusOK, `{"model":"test-model","choices":[{"message":{"content":"OK"}}]}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model", "--set-default")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model test code = %d", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "status=ok") || !strings.Contains(output, "response=OK") {
+		t.Fatalf("stdout = %q, want ok response", output)
+	}
+}
+
+func TestModelTestFailureStatusCode(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-model-test-failure"
+	t.Setenv("TEST_MODEL_API_KEY", secret)
+	server := newChatCompletionServer(t, http.StatusBadRequest, `{"error":"bad token `+secret+`"}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model"}, Env{Stdout: &stdout})
+	if code != 1 {
+		t.Fatalf("model test code = %d, want 1", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "status=failed") || !strings.Contains(output, "API returned status 400") {
+		t.Fatalf("stdout = %q, want failed status code", output)
+	}
+}
+
+func TestModelTestDoesNotLeakAPIKey(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-model-test-secret"
+	t.Setenv("TEST_MODEL_API_KEY", secret)
+	server := newChatCompletionServer(t, http.StatusOK, `{"model":"test-model","choices":[{"message":{"content":"`+secret+`"}}]}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	var stdout bytes.Buffer
+	_ = Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model"}, Env{Stdout: &stdout})
+	if strings.Contains(stdout.String(), secret) {
+		t.Fatalf("model test stdout leaked API key: %q", stdout.String())
+	}
+}
+
+func TestModelUseSwitchesDefaultModel(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", "http://127.0.0.1:9999/v1", "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "use", "--dir", root, "test-model"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model use code = %d", code)
+	}
+	cfg := loadConfigForTest(t, root)
+	if cfg.Models.Routing.DefaultModel != "test-model" {
+		t.Fatalf("default_model = %q, want test-model", cfg.Models.Routing.DefaultModel)
+	}
+}
+
+func TestModelUseRequiresExistingModel(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stderr bytes.Buffer
+	code := Run([]string{"model", "use", "--dir", root, "missing-model"}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("model use code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "model setup or model discover") {
+		t.Fatalf("stderr = %q, want setup/discover suggestion", stderr.String())
+	}
+}
+
+func TestModelUseUpdatesFallbackChain(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", "http://127.0.0.1:9999/v1", "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	code := Run([]string{"model", "use", "--dir", root, "test-model"}, Env{})
+	if code != 0 {
+		t.Fatalf("model use code = %d", code)
+	}
+	cfg := loadConfigForTest(t, root)
+	if len(cfg.Models.Routing.FallbackChain) == 0 || cfg.Models.Routing.FallbackChain[0].Provider != "test" || cfg.Models.Routing.FallbackChain[0].Model != "test-model" {
+		t.Fatalf("fallback_chain = %+v, want test/test-model first", cfg.Models.Routing.FallbackChain)
+	}
+}
+
+func TestModelRemoveModel(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", "http://127.0.0.1:9999/v1", "--api-key-env", "TEST_MODEL_API_KEY", "--model", "model-a")
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", "http://127.0.0.1:9999/v1", "--api-key-env", "TEST_MODEL_API_KEY", "--model", "model-b")
+	code := Run([]string{"model", "remove", "--dir", root, "--model", "model-a"}, Env{})
+	if code != 0 {
+		t.Fatalf("model remove code = %d", code)
+	}
+	cfg := loadConfigForTest(t, root)
+	provider, _ := findProviderForTest(cfg, "test")
+	if providerHasModel(provider, "model-a") {
+		t.Fatal("model-a was not removed")
+	}
+	if !providerHasModel(provider, "model-b") {
+		t.Fatal("model-b should remain")
+	}
+}
+
+func TestModelRemoveProvider(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	runModelSetupForTest(t, root, "--provider", "old-provider", "--base-url", "http://127.0.0.1:9999/v1", "--api-key-env", "OLD_MODEL_API_KEY", "--model", "old-model")
+	code := Run([]string{"model", "remove", "--dir", root, "--provider", "old-provider"}, Env{})
+	if code != 0 {
+		t.Fatalf("model remove code = %d", code)
+	}
+	cfg := loadConfigForTest(t, root)
+	if _, ok := findProviderForTest(cfg, "old-provider"); ok {
+		t.Fatal("old-provider was not removed")
+	}
+}
+
+func TestModelRemoveRejectsDefaultModel(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stderr bytes.Buffer
+	code := Run([]string{"model", "remove", "--dir", root, "--model", "local-coder"}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("model remove code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "default_model") {
+		t.Fatalf("stderr = %q, want default_model rejection", stderr.String())
+	}
+}
+
+func TestModelCommandRequiresSubcommand(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"model"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("model code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "requires a subcommand") {
+		t.Fatalf("stderr = %q, want subcommand error", stderr.String())
+	}
+}
+
+func TestModelUnknownSubcommand(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"model", "unknown"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("model unknown code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown model subcommand") {
+		t.Fatalf("stderr = %q, want unknown subcommand", stderr.String())
+	}
+}
+
+func TestModelSetupRejectsInvalidPreset(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stderr bytes.Buffer
+	code := Run([]string{"model", "setup", "--dir", root, "--preset", "bad-preset", "--provider", "bad", "--base-url", "http://127.0.0.1/v1", "--api-key-env", "BAD_API_KEY", "--model", "bad-model"}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("model setup code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown provider preset") {
+		t.Fatalf("stderr = %q, want invalid preset error", stderr.String())
+	}
+}
+
+func TestModelSetupNonInteractive(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "setup", "--dir", root, "--preset", "mimo", "--provider", "mimo", "--base-url", "https://token-plan-cn.xiaomimimo.com/v1", "--api-key-env", "MIMO_API_KEY", "--model", "mimo-v2.5-pro", "--purpose", "coding", "--max-output-tokens", "4096", "--set-default"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model setup code = %d", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "provider=mimo") || !strings.Contains(output, "model=mimo-v2.5-pro") || !strings.Contains(output, "default_model=mimo-v2.5-pro") {
+		t.Fatalf("stdout = %q, want noninteractive setup output", output)
+	}
+}
+
+func setupModelCommandRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	return root
+}
+
+func runModelSetupForTest(t *testing.T, root string, args ...string) {
+	t.Helper()
+	fullArgs := append([]string{"model", "setup", "--dir", root}, args...)
+	var stderr bytes.Buffer
+	if code := Run(fullArgs, Env{Stderr: &stderr}); code != 0 {
+		t.Fatalf("Run(%v) code = %d, stderr = %q", fullArgs, code, stderr.String())
+	}
+}
+
+func loadConfigForTest(t *testing.T, root string) *config.Root {
+	t.Helper()
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	return cfg
+}
+
+func readModelsYAMLForTest(t *testing.T, root string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(root, ".reasonforge", "models.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+func findProviderForTest(cfg *config.Root, name string) (config.ProviderConfig, bool) {
+	for _, provider := range cfg.Models.Providers {
+		if provider.Name == name {
+			return provider, true
+		}
+	}
+	return config.ProviderConfig{}, false
+}
+
+func providerHasModel(provider config.ProviderConfig, modelName string) bool {
+	for _, model := range provider.Models {
+		if model.Name == modelName {
+			return true
+		}
+	}
+	return false
+}
+
+func newChatCompletionServer(t *testing.T, status int, responseBody string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %s, want /chat/completions", r.URL.Path)
+		}
+		w.WriteHeader(status)
+		fmt.Fprint(w, responseBody)
+	}))
 }
 
 func TestToolsCommand(t *testing.T) {

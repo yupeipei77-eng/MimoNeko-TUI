@@ -11,6 +11,10 @@ reasonforge version
 reasonforge init
 reasonforge doctor
 reasonforge models
+reasonforge model setup
+reasonforge model discover --provider mimo
+reasonforge model test
+reasonforge model use mimo-v2.5-pro
 reasonforge cache-report
 reasonforge tools
 reasonforge tool-run <tool-name> [--key value ...]
@@ -28,6 +32,31 @@ reasonforge patch review <worktree_id> [--model-review] [--test-command go-test]
 reasonforge patch apply <worktree_id> [--dry-run]
 reasonforge patch discard <worktree_id>
 ```
+
+## Model Provider Setup
+
+ReasonForge stores model provider profiles in `.reasonforge/models.yaml`. API keys are never stored in YAML; the config only stores the environment variable name.
+
+```sh
+reasonforge model setup
+reasonforge model setup ^
+  --preset mimo ^
+  --provider mimo ^
+  --model mimo-v2.5-pro ^
+  --set-default
+reasonforge model list
+reasonforge model discover --provider mimo
+reasonforge model test
+reasonforge model use mimo-v2.5-pro
+```
+
+For Mimo on Windows, set the key outside ReasonForge:
+
+```powershell
+setx MIMO_API_KEY "your-key"
+```
+
+`models.yaml` stores `api_key_env: MIMO_API_KEY`, not the key value. ReasonForge does not modify shell profiles or write secrets to EventStore, checkpoints, or logs.
 
 ## Local Dashboards
 
