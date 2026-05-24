@@ -861,6 +861,21 @@ func runGitCmd(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// setupGitRepo creates a temp directory with an initialized git repo and initial commit.
+func setupGitRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	runGitCmd(t, root, "init")
+	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "add", ".")
+	runGitCmd(t, root, "commit", "-m", "initial")
+	return root
+}
+
 func TestCLIPatchPreviewDoesNotLeakSensitiveDiff(t *testing.T) {
 	root := t.TempDir()
 	runGitCmd(t, root, "init")
@@ -921,5 +936,247 @@ func TestCLIPatchPreviewDoesNotLeakSensitiveDiff(t *testing.T) {
 	// Output should show violation info
 	if !strings.Contains(output, "violation") && !strings.Contains(output, ".env") {
 		t.Fatalf("expected violation info in output, got:\n%s", output)
+	}
+}
+
+func TestPatchValidateRequiresWorktreeID(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "validate", "--dir", root}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch validate without ID) code = %d, want 2", code)
+	}
+}
+
+func TestPatchReviewRequiresWorktreeID(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "review", "--dir", root}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch review without ID) code = %d, want 2", code)
+	}
+}
+
+func TestPatchValidateOutputsRecommendation(t *testing.T) {
+	root := setupGitRepo(t)
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "task_validate_test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make a simple change in the worktree
+	testFile := filepath.Join(info.Path, "simple.txt")
+	if err := os.WriteFile(testFile, []byte("hello world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	_ = code // May return non-zero depending on findings
+
+	output := stdout.String()
+	if !strings.Contains(output, "recommendation=") {
+		t.Fatalf("patch validate should output recommendation, got:\n%s", output)
+	}
+}
+
+func TestPatchReviewOutputsWithoutModelReview(t *testing.T) {
+	root := setupGitRepo(t)
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "task_review_test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make a simple change
+	testFile := filepath.Join(info.Path, "review_test.txt")
+	if err := os.WriteFile(testFile, []byte("test content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "review", "--dir", root, info.ID, "--no-tests"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	_ = code
+
+	output := stdout.String()
+	if !strings.Contains(output, "recommendation=") {
+		t.Fatalf("patch review should output recommendation, got:\n%s", output)
+	}
+}
+
+func TestPatchValidateDoesNotLeakAPIKey(t *testing.T) {
+	root := setupGitRepo(t)
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree and add a sensitive file
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "task_validate_sensitive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write .env with secret content in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("API_KEY=sk-secret-key-12345\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	_ = code
+
+	output := stdout.String() + stderr.String()
+
+	// Must not leak API key values
+	if strings.Contains(output, "sk-secret-key-12345") {
+		t.Fatal("patch validate must not leak API key values")
+	}
+	if strings.Contains(output, "API_KEY=sk-secret") {
+		t.Fatal("patch validate must not leak sensitive content")
+	}
+}
+
+func TestPatchReviewDoesNotPrintSensitiveDiff(t *testing.T) {
+	root := setupGitRepo(t)
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree and add a sensitive file
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "task_review_sensitive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write .env with secret content in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("DB_PASSWORD=supersecret123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "review", "--dir", root, info.ID, "--no-tests"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	_ = code
+
+	output := stdout.String() + stderr.String()
+
+	// Must not print sensitive diff content when violations exist
+	if strings.Contains(output, "supersecret123") {
+		t.Fatal("patch review must not expose content of sensitive files")
+	}
+	if strings.Contains(output, "DB_PASSWORD") {
+		t.Fatal("patch review must not expose content of sensitive files")
+	}
+}
+
+func TestDoctorShowsReviewAndValidationConfig(t *testing.T) {
+	root := t.TempDir()
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	code = Run([]string{"doctor", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d", code)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "review_max_diff_bytes=") {
+		t.Fatalf("doctor should show review_max_diff_bytes, got:\n%s", output)
+	}
+	if !strings.Contains(output, "validation_max_output_bytes=") {
+		t.Fatalf("doctor should show validation_max_output_bytes, got:\n%s", output)
+	}
+	if !strings.Contains(output, "validation_timeout_seconds=") {
+		t.Fatalf("doctor should show validation_timeout_seconds, got:\n%s", output)
 	}
 }
