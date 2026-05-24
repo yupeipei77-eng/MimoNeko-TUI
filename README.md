@@ -14,7 +14,11 @@ reasonforge models
 reasonforge cache-report
 reasonforge tools
 reasonforge tool-run <tool-name> [--key value ...]
-reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-approve-medium]
+reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-approve-medium] [--worktree]
+reasonforge patch list
+reasonforge patch preview <worktree_id>
+reasonforge patch apply <worktree_id> [--dry-run]
+reasonforge patch discard <worktree_id>
 ```
 
 ## Design Constraints
@@ -29,18 +33,16 @@ reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-app
 - Agent execution must respect TaskContract boundaries.
 - Contract-level and system-level (ToolRuntime) security must both pass.
 - No tool execution without ApprovalPolicy consent for medium/high-risk tools.
+- Patch apply must not modify .git, .reasonforge, .env, *.pem, *.key files.
+- Worktree paths must stay under .reasonforge/worktrees.
 
 ## Status
 
-Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), Phase 3 (Tool Runtime), and Phase 3.1 (Security Hardening) are implemented.
+Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), Phase 3 (Tool Runtime + Security Hardening), and Phase 4 (Agent Runtime) are implemented.
 
-Phase 4 adds the Agent Runtime with:
-- TaskContract: execution boundary for every agent run (allowed/denied tools, paths, max steps, approval requirements)
-- AgentRuntime interface and SingleAgentRuntime implementation
-- Agent loop: ContextEngine.Build -> ModelRouter.Complete -> Parse ToolCall -> ApprovalPolicy -> ToolRuntime.Run -> Scratchpad injection -> Checkpoint
-- AgentState lifecycle: pending, running, waiting_approval, succeeded, failed, cancelled
-- ToolCall parser for `{"tool_call": {"name": "...", "args": {...}}}` format
-- JSONL CheckpointStore for run state persistence
-- ApprovalPolicy: risk-based approval (auto-approve low, require approval for medium, block high)
-- Interactive approval prompts for CLI
-- CLI: `reasonforge run`
+Phase 5 adds Worktree Isolation and Patch Manager:
+- WorktreeManager: isolated git worktree creation, removal, listing
+- PatchManager: diff preview, violation checking, apply, discard
+- AgentRuntime worktree integration: --worktree flag for isolated execution
+- CLI: `reasonforge run --worktree`, `reasonforge patch list/preview/apply/discard`
+- Safety: worktree IDs use crypto/rand, paths are sanitized, denied paths enforced

@@ -34,6 +34,8 @@ internal/modelrouter/         Model router implementation with fallback chain
 internal/toolruntime/         Tool runtime compatibility aliases
 internal/tools/               Tool runtime, registry, safety guard, audit log, built-in tools
 internal/task/                Task contract and worktree policy
+internal/worktree/            Git worktree isolation manager
+internal/patch/               Patch preview, apply, and discard manager
 internal/agent/               Agent runtime orchestration contract
 internal/version/             Version metadata
 docs/adr/                     Architecture decision records
@@ -171,8 +173,10 @@ TODO:
 - `tools.yaml`
 - `security.yaml`
 - `prefix.yaml`
+- `worktree.yaml` (Phase 5)
+- `patch.yaml` (Phase 5)
 
-`reasonforge doctor` loads all four files with strict YAML parsing and validates key safety constraints. The default model provider is OpenAI-compatible and local by default.
+`reasonforge doctor` loads all files with strict YAML parsing and validates key safety constraints. The default model provider is OpenAI-compatible and local by default.
 
 `reasonforge init` writes default config files with owner-only permissions where the platform supports them. The files should contain provider names, environment variable names, and policies, not secret values.
 
@@ -182,15 +186,35 @@ TODO:
 - Add config provenance and loaded file digests.
 - Add security profile validation for tool permissions.
 
-## Worktree Safety
+## Worktree Isolation
 
-`TaskContract` carries a `WorktreePolicy`. The MVP does not create worktrees yet, but the runtime contract requires worktree policy before task execution. Future agent implementations should refuse repository mutation when a task requires a worktree and one cannot be prepared.
+`WorktreeManager` (`internal/worktree/`) creates and manages isolated git worktrees for agent task execution. All worktrees live under `.reasonforge/worktrees/` with a JSONL registry for tracking.
 
-TODO:
+Key components:
+- **WorktreeManager interface**: `Create`, `Remove`, `Get`, `List`, `UpdateState`
+- **GitWorktreeManager**: Implements worktree operations using git commands
+- **Registry**: Append-only JSONL with 0700/0600 permissions, no API keys
 
-- Add worktree manager interface.
-- Add branch naming policy.
-- Add cleanup and rollback events.
+Branch naming follows the pattern: `reasonforge/<sanitized_task_id>/<short_id>`
+
+## Patch Manager
+
+`PatchManager` (`internal/patch/`) handles diff preview, violation checking, and patch application from worktrees to the main workspace.
+
+Key components:
+- **PatchManager interface**: `Preview`, `Apply`, `Discard`
+- **GitPatchManager**: Uses git diff/apply for patch operations
+- **Violation checking**: TaskContract AllowedPaths/DeniedPaths + hard-coded deny list
+- **Safety**: Apply refuses if violations exist or main workspace is dirty
+
+CLI commands:
+- `reasonforge run --worktree` - Run agent in isolated worktree
+- `reasonforge patch list` - List managed worktrees
+- `reasonforge patch preview <id>` - Show diff and violations
+- `reasonforge patch apply <id>` - Apply changes to main workspace
+- `reasonforge patch discard <id>` - Remove worktree
+
+See `docs/phase-5-worktree-patch-manager.md` for full documentation.
 
 ## Observability
 

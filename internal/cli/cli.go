@@ -18,11 +18,13 @@ import (
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/conversation"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
+	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/prefix"
 	"github.com/reasonforge/reasonforge/internal/scratchpad"
 	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/tools"
 	"github.com/reasonforge/reasonforge/internal/version"
+	"github.com/reasonforge/reasonforge/internal/worktree"
 )
 
 type Env struct {
@@ -64,6 +66,8 @@ func Run(args []string, env Env) int {
 		return runToolRun(args[1:], env)
 	case "run":
 		return runAgent(args[1:], env)
+	case "patch":
+		return runPatch(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -162,6 +166,10 @@ func runDoctor(args []string, env Env) int {
 	fmt.Fprintf(env.Stdout, "budget_block_ratio=%.2f\n", cfg.Prefix.Budget.BlockRatio)
 	fmt.Fprintf(env.Stdout, "cache_estimated_ttl=%s\n", cfg.Prefix.Cache.EstimatedTTL)
 	fmt.Fprintf(env.Stdout, "event_id_collision_resistant=true\n")
+	fmt.Fprintf(env.Stdout, "worktree_isolation=%v\n", cfg.Worktree.Enabled)
+	fmt.Fprintf(env.Stdout, "worktree_max_active=%d\n", cfg.Worktree.MaxActive)
+	fmt.Fprintf(env.Stdout, "patch_require_clean_main=%v\n", cfg.Patch.RequireCleanMain)
+	fmt.Fprintf(env.Stdout, "patch_max_diff_bytes=%d\n", cfg.Patch.MaxDiffBytes)
 	return 0
 }
 
@@ -244,6 +252,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  tools        List available tools and their status")
 	fmt.Fprintln(w, "  tool-run     Execute a tool with arguments")
 	fmt.Fprintln(w, "  run          Run an agent task")
+	fmt.Fprintln(w, "  patch        Manage patches (list, preview, apply, discard)")
 }
 
 func runModels(args []string, env Env) int {
@@ -485,6 +494,7 @@ func runAgent(args []string, env Env) int {
 	dryRun := fs.Bool("dry-run", true, "dry run mode (no side effects)")
 	autoApproveMedium := fs.Bool("auto-approve-medium", false, "auto-approve medium-risk tools without prompting")
 	taskID := fs.String("task-id", "", "task ID (auto-generated if empty)")
+	useWorktree := fs.Bool("worktree", false, "run in isolated git worktree")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -535,16 +545,17 @@ func runAgent(args []string, env Env) int {
 	rt.SetApprovalPolicy(policy)
 
 	req := agent.AgentRunRequest{
-		TaskID:   tid,
-		RepoRoot: root,
-		Goal:     *goal,
-		Contract: contract,
-		MaxSteps: *maxSteps,
-		DryRun:   *dryRun,
+		TaskID:      tid,
+		RepoRoot:    root,
+		Goal:        *goal,
+		Contract:    contract,
+		MaxSteps:    *maxSteps,
+		DryRun:      *dryRun,
+		UseWorktree: *useWorktree,
 	}
 
 	fmt.Fprintf(env.Stdout, "ReasonForge Agent\n")
-	fmt.Fprintf(env.Stdout, "run_id=pending goal=%q max_steps=%d dry_run=%v\n", *goal, contract.MaxSteps, contract.DryRun)
+	fmt.Fprintf(env.Stdout, "run_id=pending goal=%q max_steps=%d dry_run=%v worktree=%v\n", *goal, contract.MaxSteps, contract.DryRun, *useWorktree)
 
 	result, err := rt.Run(context.Background(), req)
 	if err != nil {
@@ -554,11 +565,24 @@ func runAgent(args []string, env Env) int {
 
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintf(env.Stdout, "run_id=%s state=%s steps=%d\n", result.RunID, result.State, len(result.Steps))
+	if result.WorktreeID != "" {
+		fmt.Fprintf(env.Stdout, "worktree_id=%s\n", result.WorktreeID)
+	}
 	if result.FinalMessage != "" {
 		fmt.Fprintf(env.Stdout, "message=%s\n", result.FinalMessage)
 	}
 	if result.Error != "" {
 		fmt.Fprintf(env.Stdout, "error=%s\n", result.Error)
+	}
+	if result.PatchPreview != nil {
+		fmt.Fprintf(env.Stdout, "patch_preview:\n")
+		fmt.Fprintf(env.Stdout, "  files_changed=%d\n", result.PatchPreview.Summary.FilesChanged)
+		fmt.Fprintf(env.Stdout, "  additions=%d deletions=%d\n", result.PatchPreview.Summary.Additions, result.PatchPreview.Summary.Deletions)
+		fmt.Fprintf(env.Stdout, "  risk_level=%s\n", result.PatchPreview.RiskLevel)
+		if len(result.PatchPreview.Violations) > 0 {
+			fmt.Fprintf(env.Stdout, "  violations=%d\n", len(result.PatchPreview.Violations))
+		}
+		fmt.Fprintf(env.Stdout, "  review with: reasonforge patch preview %s\n", result.WorktreeID)
 	}
 
 	switch result.State {
@@ -673,4 +697,287 @@ func generateShortID() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
+}
+
+// runPatch handles the "patch" subcommand.
+func runPatch(args []string, env Env) int {
+	if len(args) == 0 {
+		fmt.Fprintln(env.Stderr, "patch requires a subcommand: list, preview, apply, discard")
+		return 2
+	}
+
+	switch args[0] {
+	case "list":
+		return runPatchList(args[1:], env)
+	case "preview":
+		return runPatchPreview(args[1:], env)
+	case "apply":
+		return runPatchApply(args[1:], env)
+	case "discard":
+		return runPatchDiscard(args[1:], env)
+	default:
+		fmt.Fprintf(env.Stderr, "unknown patch subcommand %q (use: list, preview, apply, discard)\n", args[0])
+		return 2
+	}
+}
+
+// runPatchList lists all worktrees managed by ReasonForge.
+func runPatchList(args []string, env Env) int {
+	fs := flag.NewFlagSet("patch list", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	mgr, cleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch list failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	worktrees, err := mgr.List(context.Background())
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch list failed: %v\n", err)
+		return 1
+	}
+
+	if len(worktrees) == 0 {
+		fmt.Fprintln(env.Stdout, "No worktrees found.")
+		return 0
+	}
+
+	fmt.Fprintln(env.Stdout, "ReasonForge Worktrees")
+	for _, wt := range worktrees {
+		fmt.Fprintf(env.Stdout, "id=%s task_id=%s state=%s path=%s created_at=%s\n",
+			wt.ID, wt.TaskID, wt.State, filepath.ToSlash(wt.Path), wt.CreatedAt.Format(time.RFC3339))
+	}
+	return 0
+}
+
+// runPatchPreview shows the diff preview for a worktree.
+func runPatchPreview(args []string, env Env) int {
+	fs := flag.NewFlagSet("patch preview", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "patch preview requires a worktree ID")
+		return 2
+	}
+	wtID := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
+		return 1
+	}
+
+	wtMgr, cleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
+	contract := task.DefaultContract(root, "patch preview")
+
+	preview, err := patchMgr.Preview(context.Background(), patch.PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: wtID,
+		Contract:   contract,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(env.Stdout, "worktree_id=%s\n", preview.WorktreeID)
+	fmt.Fprintf(env.Stdout, "files_changed=%d\n", preview.Summary.FilesChanged)
+	fmt.Fprintf(env.Stdout, "additions=%d deletions=%d\n", preview.Summary.Additions, preview.Summary.Deletions)
+	fmt.Fprintf(env.Stdout, "has_binary=%v\n", preview.Summary.HasBinary)
+	fmt.Fprintf(env.Stdout, "risk_level=%s\n", preview.RiskLevel)
+
+	if len(preview.Violations) > 0 {
+		fmt.Fprintf(env.Stdout, "violations=%d\n", len(preview.Violations))
+		for _, v := range preview.Violations {
+			fmt.Fprintf(env.Stdout, "  violation: path=%s reason=%s\n", v.Path, v.Reason)
+		}
+	}
+
+	for _, f := range preview.FilesChanged {
+		fmt.Fprintf(env.Stdout, "  file: path=%s status=%s additions=%d deletions=%d\n", f.Path, f.Status, f.Additions, f.Deletions)
+	}
+
+	if preview.Diff != "" {
+		fmt.Fprintln(env.Stdout, "--- diff ---")
+		// Truncate diff output to respect max_output_bytes
+		maxBytes := cfg.Patch.MaxDiffBytes
+		if maxBytes <= 0 {
+			maxBytes = 131072
+		}
+		diff := preview.Diff
+		if len(diff) > maxBytes {
+			diff = diff[:maxBytes] + "\n... (truncated)"
+		}
+		fmt.Fprint(env.Stdout, diff)
+	}
+
+	return 0
+}
+
+// runPatchApply applies a worktree's changes to the main workspace.
+func runPatchApply(args []string, env Env) int {
+	fs := flag.NewFlagSet("patch apply", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	dryRun := fs.Bool("dry-run", false, "dry run: show what would be applied without modifying files")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "patch apply requires a worktree ID")
+		return 2
+	}
+	wtID := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch apply failed: %v\n", err)
+		return 1
+	}
+
+	wtMgr, cleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch apply failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
+	contract := task.DefaultContract(root, "patch apply")
+
+	result, err := patchMgr.Apply(context.Background(), patch.PatchApplyRequest{
+		RepoRoot:     root,
+		WorktreeID:   wtID,
+		Contract:     contract,
+		DryRun:       *dryRun,
+		MaxDiffBytes: cfg.Patch.MaxDiffBytes,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch apply failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(env.Stdout, "worktree_id=%s applied=%v\n", result.WorktreeID, result.Applied)
+	fmt.Fprintf(env.Stdout, "files_changed=%d additions=%d deletions=%d\n",
+		result.Summary.FilesChanged, result.Summary.Additions, result.Summary.Deletions)
+
+	if !result.Applied && !*dryRun {
+		fmt.Fprintln(env.Stdout, "No changes were applied.")
+	}
+
+	return 0
+}
+
+// runPatchDiscard discards a worktree and its changes.
+func runPatchDiscard(args []string, env Env) int {
+	fs := flag.NewFlagSet("patch discard", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "patch discard requires a worktree ID")
+		return 2
+	}
+	wtID := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch discard failed: %v\n", err)
+		return 1
+	}
+
+	wtMgr, cleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch discard failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
+	if err := patchMgr.Discard(context.Background(), patch.PatchDiscardRequest{
+		RepoRoot:   root,
+		WorktreeID: wtID,
+	}); err != nil {
+		fmt.Fprintf(env.Stderr, "patch discard failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(env.Stdout, "worktree_id=%s state=discarded\n", wtID)
+	return 0
+}
+
+// buildWorktreeManager creates a WorktreeManager for the given root.
+func buildWorktreeManager(root string) (worktree.WorktreeManager, func(), error) {
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("worktree registry: %w", err)
+	}
+
+	cfg := worktree.DefaultGitWorktreeManagerConfig()
+	cleanup := func() { registry.Close() }
+	return worktree.NewGitWorktreeManager(registry, cfg), cleanup, nil
+}
+
+// patchConfigFromConfig creates a GitPatchManagerConfig from the project config.
+func patchConfigFromConfig(cfg *config.Root) patch.GitPatchManagerConfig {
+	return patch.GitPatchManagerConfig{
+		MaxDiffBytes:     cfg.Patch.MaxDiffBytes,
+		RequireCleanMain: cfg.Patch.RequireCleanMain,
+		AllowBinary:      cfg.Patch.AllowBinary,
+	}
 }

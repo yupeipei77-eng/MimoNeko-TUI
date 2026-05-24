@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -640,4 +641,220 @@ func TestBuildAgentDependenciesNoAPIKeyLeak(t *testing.T) {
 	// This is a basic sanity check - the real protection is in SanitizeCheckpoint
 	// but we verify the infrastructure doesn't log or store keys
 	_ = deps
+}
+
+// --- Phase 5: Worktree/Patch CLI tests ---
+
+func TestInitCreatesWorktreeAndPatchConfig(t *testing.T) {
+	root := t.TempDir()
+
+	var stdout bytes.Buffer
+	code := Run([]string{"init", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Verify worktree.yaml was created
+	worktreeYAML := filepath.Join(root, ".reasonforge", "worktree.yaml")
+	if _, err := os.Stat(worktreeYAML); os.IsNotExist(err) {
+		t.Fatal("worktree.yaml should be created by init")
+	}
+
+	// Verify patch.yaml was created
+	patchYAML := filepath.Join(root, ".reasonforge", "patch.yaml")
+	if _, err := os.Stat(patchYAML); os.IsNotExist(err) {
+		t.Fatal("patch.yaml should be created by init")
+	}
+}
+
+func TestDoctorIncludesWorktreeConfig(t *testing.T) {
+	root := t.TempDir()
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"doctor", "--dir", root}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "worktree_isolation=") {
+		t.Fatalf("doctor output should contain worktree_isolation, got %q", output)
+	}
+	if !strings.Contains(output, "patch_require_clean_main=") {
+		t.Fatalf("doctor output should contain patch_require_clean_main, got %q", output)
+	}
+	if !strings.Contains(output, "patch_max_diff_bytes=") {
+		t.Fatalf("doctor output should contain patch_max_diff_bytes, got %q", output)
+	}
+}
+
+func TestPatchSubcommandRequiresSubcommand(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"patch"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch) code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "list") {
+		t.Fatalf("stderr should mention subcommands, got %q", stderr.String())
+	}
+}
+
+func TestPatchUnknownSubcommand(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"patch", "unknown"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch unknown) code = %d, want 2", code)
+	}
+}
+
+func TestPatchListEmpty(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "list", "--dir", root}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("Run(patch list) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "No worktrees found") {
+		t.Fatalf("patch list with no worktrees should say 'No worktrees found', got %q", stdout.String())
+	}
+}
+
+func TestPatchPreviewRequiresWorktreeID(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"patch", "preview"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch preview) without ID should return 2, got %d", code)
+	}
+}
+
+func TestPatchApplyRequiresWorktreeID(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"patch", "apply"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch apply) without ID should return 2, got %d", code)
+	}
+}
+
+func TestPatchDiscardRequiresWorktreeID(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"patch", "discard"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(patch discard) without ID should return 2, got %d", code)
+	}
+}
+
+func TestPatchApplyDirtyMainRejects(t *testing.T) {
+	root := t.TempDir()
+	// Init git repo
+	runGitCmd(t, root, "init")
+	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "add", ".")
+	runGitCmd(t, root, "commit", "-m", "initial")
+
+	// Init reasonforge
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Apply to nonexistent worktree should fail
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "apply", "--dir", root, "wt_nonexistent"}, Env{Stderr: &stderr})
+	if code == 0 {
+		t.Fatal("patch apply to nonexistent worktree should fail")
+	}
+}
+
+func TestPatchDiscardNonexistentWorktree(t *testing.T) {
+	root := t.TempDir()
+	runGitCmd(t, root, "init")
+	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "add", ".")
+	runGitCmd(t, root, "commit", "-m", "initial")
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "discard", "--dir", root, "wt_nonexistent"}, Env{Stderr: &stderr})
+	if code == 0 {
+		t.Fatal("patch discard nonexistent worktree should fail")
+	}
+}
+
+func TestRunWorktreeFlagNoPanic(t *testing.T) {
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Ensure --worktree flag doesn't cause panic
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("Run with --worktree panicked: %v", r)
+			}
+		}()
+		var stderr bytes.Buffer
+		Run([]string{"run", "--dir", root, "--goal", "test", "--worktree"}, Env{Stderr: &stderr})
+	}()
+}
+
+func TestCLIDoesNotLeakAPIKey(t *testing.T) {
+	t.Setenv("REASONFORGE_API_KEY", "sk-super-secret-key-12345")
+
+	root := t.TempDir()
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout bytes.Buffer
+	code = Run([]string{"doctor", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d", code)
+	}
+
+	if strings.Contains(stdout.String(), "sk-super-secret-key-12345") {
+		t.Fatal("CLI output should not contain API key")
+	}
+}
+
+func runGitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, string(output))
+	}
 }

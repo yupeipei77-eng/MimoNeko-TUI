@@ -8,8 +8,10 @@ import (
 
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
+	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/scratchpad"
 	"github.com/reasonforge/reasonforge/internal/tools"
+	"github.com/reasonforge/reasonforge/internal/worktree"
 )
 
 // SingleAgentRuntime implements AgentRuntime with a single-agent loop.
@@ -67,7 +69,42 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 		maxSteps = 5 // safety fallback
 	}
 
-	// 2. Generate run ID and initialize result
+	// 2. Handle worktree isolation
+	var worktreeInfo *worktree.WorktreeInfo
+	var originalRepoRoot string
+
+	if req.UseWorktree {
+		if rt.deps.WorktreeMgr == nil {
+			return AgentRunResult{}, fmt.Errorf("agent: worktree manager not configured but UseWorktree=true")
+		}
+
+		if req.WorktreeID != "" {
+			// Use existing worktree
+			info, err := rt.deps.WorktreeMgr.Get(ctx, req.WorktreeID)
+			if err != nil {
+				return AgentRunResult{}, fmt.Errorf("agent: get worktree %q: %w", req.WorktreeID, err)
+			}
+			worktreeInfo = &info
+		} else {
+			// Create new worktree
+			info, err := rt.deps.WorktreeMgr.Create(ctx, worktree.CreateWorktreeRequest{
+				RepoRoot: req.RepoRoot,
+				TaskID:   req.TaskID,
+				BaseRef:  "HEAD",
+				Metadata: map[string]string{"goal": req.Goal, "source": "agent_runtime"},
+			})
+			if err != nil {
+				return AgentRunResult{}, fmt.Errorf("agent: create worktree: %w", err)
+			}
+			worktreeInfo = &info
+		}
+
+		// Redirect RepoRoot to the worktree path
+		originalRepoRoot = req.RepoRoot
+		req.RepoRoot = worktreeInfo.Path
+	}
+
+	// 3. Generate run ID and initialize result
 	runID, err := GenerateRunID()
 	if err != nil {
 		return AgentRunResult{}, fmt.Errorf("agent: generate run id: %w", err)
@@ -81,7 +118,11 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 		StartedAt: time.Now().UTC(),
 	}
 
-	// 3. Save initial checkpoint
+	if worktreeInfo != nil {
+		result.WorktreeID = worktreeInfo.ID
+	}
+
+	// 4. Save initial checkpoint
 	if err := rt.saveCheckpoint(ctx, result, req.Contract.ID); err != nil {
 		return AgentRunResult{}, fmt.Errorf("agent: initial checkpoint failed: %w", err)
 	}
@@ -280,6 +321,39 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 	if cpErr := rt.saveCheckpoint(ctx, result, req.Contract.ID); cpErr != nil {
 		result.State = AgentStateFailed
 		result.Error = fmt.Sprintf("final checkpoint failed: %v", cpErr)
+	}
+
+	// 6. Handle worktree post-run: generate PatchPreview, update state
+	if worktreeInfo != nil {
+		// Update worktree state based on agent result
+		switch result.State {
+		case AgentStateSucceeded:
+			// Keep worktree active for user to review and apply
+		case AgentStateFailed:
+			if rt.deps.WorktreeMgr != nil {
+				_ = rt.deps.WorktreeMgr.UpdateState(ctx, worktreeInfo.ID, worktree.WorktreeStateFailed)
+			}
+			// Keep worktree for debugging (don't auto-delete)
+		case AgentStateCancelled:
+			// Keep worktree for debugging (don't auto-delete)
+		}
+
+		// Generate PatchPreview if PatchMgr is available
+		if rt.deps.PatchMgr != nil {
+			repoRootForPreview := originalRepoRoot
+			if repoRootForPreview == "" {
+				repoRootForPreview = req.Contract.RepoRoot
+			}
+			preview, previewErr := rt.deps.PatchMgr.Preview(ctx, patch.PatchPreviewRequest{
+				RepoRoot:   repoRootForPreview,
+				WorktreeID: worktreeInfo.ID,
+				Contract:   req.Contract,
+			})
+			if previewErr == nil {
+				result.PatchPreview = &preview
+			}
+			// Preview error is non-fatal; the worktree still exists for manual review
+		}
 	}
 
 	return result, nil
