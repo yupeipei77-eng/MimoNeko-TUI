@@ -15,6 +15,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/cache"
 	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/reasonforge/reasonforge/internal/dashboard"
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/conversation"
 	"github.com/reasonforge/reasonforge/internal/events"
@@ -80,6 +81,8 @@ func Run(args []string, env Env) int {
 		return runRunStatus(args[1:], env)
 	case "run-events":
 		return runRunEvents(args[1:], env)
+	case "dashboard":
+		return runDashboard(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -285,6 +288,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  runs         List recent runs with state and progress")
 	fmt.Fprintln(w, "  run-status   Show detailed status for a specific run")
 	fmt.Fprintln(w, "  run-events   Show events for a specific run")
+	fmt.Fprintln(w, "  dashboard    Local TUI dashboard (list runs, view details, watch)")
 }
 
 func runModels(args []string, env Env) int {
@@ -2021,4 +2025,119 @@ func runRunEvents(args []string, env Env) int {
 	}
 
 	return 0
+}
+
+// runDashboard handles the "dashboard" command - a local TUI dashboard.
+// It reads from the EventStore and renders run progress using standard
+// Go output (no external UI framework).
+//
+// Usage:
+//
+//	reasonforge dashboard [--limit N] [--run <run_id>] [--watch]
+//
+// Security:
+//   - Only displays data from SanitizeEvent-processed events.
+//   - Never prints API keys, sensitive diffs, or file content.
+//   - Does not auto-apply, auto-commit, or auto-push.
+func runDashboard(args []string, env Env) int {
+	fs := flag.NewFlagSet("dashboard", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	runID := fs.String("run", "", "show detail for a specific run ID")
+	limit := fs.Int("limit", 20, "max number of runs to show")
+	watch := fs.Bool("watch", false, "auto-refresh every 2 seconds")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "dashboard failed: %v\n", err)
+		return 1
+	}
+
+	if !cfg.Events.Enabled {
+		fmt.Fprintln(env.Stderr, "Events system is disabled. Enable it in .reasonforge/events.yaml to use the dashboard.")
+		return 1
+	}
+
+	store, cleanup, err := openEventStoreForRead(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "dashboard failed: could not open event store: %v\n", err)
+		fmt.Fprintln(env.Stderr, "Hint: run a command (e.g. 'reasonforge run --goal ...') to create events first.")
+		return 1
+	}
+	defer cleanup()
+
+	if *watch {
+		return runDashboardWatch(env, store, *runID, *limit)
+	}
+
+	if *runID != "" {
+		return runDashboardDetail(env, store, *runID)
+	}
+
+	return runDashboardList(env, store, *limit)
+}
+
+func runDashboardList(env Env, store *events.JSONLRunEventStore, limit int) int {
+	runs, err := store.ListRuns(context.Background())
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "dashboard failed: %v\n", err)
+		return 1
+	}
+
+	if len(runs) == 0 {
+		fmt.Fprintln(env.Stdout, "ReasonForge Dashboard")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "No runs found. Run a command to create events:")
+		fmt.Fprintln(env.Stdout, "  reasonforge run --goal \"your task\"")
+		return 0
+	}
+
+	dashboard.RenderRunsListWithProgress(env.Stdout, store, runs, limit)
+	return 0
+}
+
+func runDashboardDetail(env Env, store *events.JSONLRunEventStore, runID string) int {
+	if err := dashboard.RenderRunDetail(env.Stdout, store, runID); err != nil {
+		fmt.Fprintf(env.Stderr, "dashboard: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runDashboardWatch(env Env, store *events.JSONLRunEventStore, runID string, limit int) int {
+	for {
+		// Clear screen (ANSI escape)
+		fmt.Fprint(env.Stdout, "\033[2J\033[H")
+
+		if runID != "" {
+			if err := dashboard.RenderRunDetail(env.Stdout, store, runID); err != nil {
+				fmt.Fprintf(env.Stderr, "dashboard: %v\n", err)
+				return 1
+			}
+		} else {
+			runs, err := store.ListRuns(context.Background())
+			if err != nil {
+				fmt.Fprintf(env.Stderr, "dashboard failed: %v\n", err)
+				return 1
+			}
+			dashboard.RenderRunsListWithProgress(env.Stdout, store, runs, limit)
+		}
+
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "(watching - refreshes every 2s - press Ctrl+C to exit)")
+
+		time.Sleep(2 * time.Second)
+	}
 }

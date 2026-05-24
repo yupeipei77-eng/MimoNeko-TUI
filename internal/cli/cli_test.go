@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/config"
@@ -1802,5 +1804,192 @@ func TestMultiRunModelReviewFlagPassed(t *testing.T) {
 	errOutput := stderr.String()
 	if strings.Contains(errOutput, "unknown flag") || strings.Contains(errOutput, "cannot use") {
 		t.Errorf("--model-review flag should be recognized, got: %s", errOutput)
+	}
+}
+
+// --- Dashboard CLI tests ---
+
+func TestDashboardRequiresEventsEnabled(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	// Disable events in config
+	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: false\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+
+	var stderr bytes.Buffer
+	code := Run([]string{"dashboard", "--dir", root}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("dashboard with disabled events code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "disabled") {
+		t.Fatalf("stderr = %q, want 'disabled'", stderr.String())
+	}
+}
+
+func TestDashboardHandlesEmptyEventStore(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	// Create events config (enabled) and an empty event store
+	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	os.MkdirAll(eventsDir, 0o700)
+	storePath := filepath.Join(eventsDir, "run_events.jsonl")
+	os.WriteFile(storePath, []byte(""), 0o600)
+
+	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+
+	var stdout bytes.Buffer
+	code := Run([]string{"dashboard", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("dashboard with empty store code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "No runs found") {
+		t.Fatalf("stdout = %q, want 'No runs found'", stdout.String())
+	}
+}
+
+func TestDashboardShowsRuns(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	// Create events config and store with sample data
+	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	os.MkdirAll(eventsDir, 0o700)
+	storePath := filepath.Join(eventsDir, "run_events.jsonl")
+
+	// Write sample events
+	store, err := events.NewJSONLRunEventStore(storePath)
+	if err != nil {
+		t.Fatalf("NewJSONLRunEventStore: %v", err)
+	}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	store.Append(ctx, events.RunEvent{ID: "evt1", RunID: "run_test1", Type: events.EventRunStarted, Status: "started", StartedAt: now})
+	store.Append(ctx, events.RunEvent{ID: "evt2", RunID: "run_test1", Type: events.EventRunSucceeded, Status: "succeeded", FinishedAt: now.Add(time.Second)})
+	store.Close()
+
+	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+
+	var stdout bytes.Buffer
+	code := Run([]string{"dashboard", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("dashboard code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "run_test1") {
+		t.Fatalf("stdout = %q, want 'run_test1'", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "succeeded") {
+		t.Fatalf("stdout = %q, want 'succeeded'", stdout.String())
+	}
+}
+
+func TestDashboardRunDetailNotFound(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	os.MkdirAll(eventsDir, 0o700)
+	storePath := filepath.Join(eventsDir, "run_events.jsonl")
+	os.WriteFile(storePath, []byte(""), 0o600)
+
+	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+
+	var stderr bytes.Buffer
+	code := Run([]string{"dashboard", "--dir", root, "--run", "nonexistent"}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("dashboard --run nonexistent code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "not found") {
+		t.Fatalf("stderr = %q, want 'not found'", stderr.String())
+	}
+}
+
+func TestDashboardRejectsExtraArgs(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	code := Run([]string{"dashboard", "--dir", root, "extra"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("dashboard with extra args code = %d, want 2", code)
+	}
+}
+
+func TestDashboardDoesNotLeakSensitiveData(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	os.MkdirAll(eventsDir, 0o700)
+	storePath := filepath.Join(eventsDir, "run_events.jsonl")
+
+	store, _ := events.NewJSONLRunEventStore(storePath)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	// In production, SafeEmit calls SanitizeEvent before writing.
+	// Simulate that here by sanitizing before appending.
+	rawEvent := events.RunEvent{
+		ID: "evt_sec", RunID: "run_sec", Type: events.EventRunStarted, Status: "started",
+		Message: "Run started with API_KEY=sk-secret-12345",
+		StartedAt: now,
+	}
+	sanitized := events.SanitizeEvent(rawEvent)
+	store.Append(ctx, sanitized)
+	store.Close()
+
+	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+
+	var stdout bytes.Buffer
+	Run([]string{"dashboard", "--dir", root}, Env{Stdout: &stdout})
+	output := stdout.String()
+	if strings.Contains(output, "sk-secret-12345") {
+		t.Fatal("dashboard output leaked API key")
+	}
+	if strings.Contains(output, "API_KEY") {
+		t.Fatal("dashboard output leaked API key pattern")
+	}
+}
+
+func TestDashboardLimitRuns(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	os.MkdirAll(eventsDir, 0o700)
+	storePath := filepath.Join(eventsDir, "run_events.jsonl")
+
+	store, _ := events.NewJSONLRunEventStore(storePath)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i := 0; i < 10; i++ {
+		store.Append(ctx, events.RunEvent{
+			ID: fmt.Sprintf("evt_%d", i), RunID: fmt.Sprintf("run_%d", i),
+			Type: events.EventRunStarted, Status: "started",
+			StartedAt: now.Add(time.Duration(-i) * time.Hour),
+		})
+	}
+	store.Close()
+
+	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+
+	var stdout bytes.Buffer
+	Run([]string{"dashboard", "--dir", root, "--limit", "3"}, Env{Stdout: &stdout})
+	output := stdout.String()
+
+	// Count run_ occurrences (excluding headers)
+	dataLines := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "run_") && !strings.Contains(line, "Recent") {
+			dataLines++
+		}
+	}
+	if dataLines != 3 {
+		t.Errorf("expected 3 data lines with --limit 3, got %d\noutput:\n%s", dataLines, output)
 	}
 }
