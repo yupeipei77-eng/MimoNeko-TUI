@@ -51,6 +51,14 @@ It never asks the user to put the key in YAML.
 Reply with OK only.
 ```
 
+Custom smoke-test prompts are supported:
+
+```sh
+reasonforge model test --prompt "只回复 OK"
+```
+
+The prompt is sent only for that request and is not written back to `models.yaml`.
+
 Only status, latency, model/provider names, and a bounded sanitized model response are printed.
 
 ## Use And Remove

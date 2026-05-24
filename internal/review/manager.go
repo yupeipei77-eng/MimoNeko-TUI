@@ -195,38 +195,45 @@ func (m *DefaultPatchReviewManager) Review(ctx context.Context, req PatchReviewR
 
 	// 5. Optional test validation
 	var validation *ValidationResult
+	validationSkipped := false
+	validationSkipReason := ""
 	if req.RunTests && len(req.TestCommands) > 0 {
-		// WorktreePath is required for test validation.
-		// Tests must execute in the isolated worktree, not the main workspace.
-		if req.WorktreePath == "" {
-			return PatchReviewReport{}, fmt.Errorf("review: WorktreePath is required when RunTests=true with TestCommands")
-		}
-		if m.validationRunner != nil {
-			valReq := ValidationRequest{
-				RepoRoot:       req.WorktreePath, // Use worktree path, NOT main repo root
-				TaskID:         req.Contract.ID,
-				TestCommands:   req.TestCommands,
-				MaxOutputBytes: 65536,
-				TimeoutSeconds: 120,
+		if preview.Summary.FilesChanged == 0 && len(preview.Violations) == 0 && !req.ForceTests {
+			validationSkipped = true
+			validationSkipReason = "no changes"
+		} else {
+			// WorktreePath is required for test validation.
+			// Tests must execute in the isolated worktree, not the main workspace.
+			if req.WorktreePath == "" {
+				return PatchReviewReport{}, fmt.Errorf("review: WorktreePath is required when RunTests=true with TestCommands")
 			}
-			valResult, err := m.validationRunner.Validate(ctx, valReq)
-			if err != nil {
-				findings = append(findings, ReviewFinding{
-					Severity: SeverityError,
-					Category: CategoryTest,
-					Message:  fmt.Sprintf("validation runner failed: %v", err),
-				})
-			} else {
-				validation = &valResult
-				// Add findings for failed commands
-				for _, cmd := range valResult.Commands {
-					if !cmd.Success {
-						findings = append(findings, ReviewFinding{
-							Severity: SeverityError,
-							Category: CategoryTest,
-							Path:     cmd.CommandName,
-							Message:  fmt.Sprintf("test command %q failed (exit code %d)", cmd.CommandName, cmd.ExitCode),
-						})
+			if m.validationRunner != nil {
+				valReq := ValidationRequest{
+					RepoRoot:       req.WorktreePath, // Use worktree path, NOT main repo root
+					TaskID:         req.Contract.ID,
+					TestCommands:   req.TestCommands,
+					MaxOutputBytes: 65536,
+					TimeoutSeconds: 120,
+				}
+				valResult, err := m.validationRunner.Validate(ctx, valReq)
+				if err != nil {
+					findings = append(findings, ReviewFinding{
+						Severity: SeverityError,
+						Category: CategoryTest,
+						Message:  fmt.Sprintf("validation runner failed: %v", err),
+					})
+				} else {
+					validation = &valResult
+					// Add findings for failed commands
+					for _, cmd := range valResult.Commands {
+						if !cmd.Success {
+							findings = append(findings, ReviewFinding{
+								Severity: SeverityError,
+								Category: CategoryTest,
+								Path:     cmd.CommandName,
+								Message:  fmt.Sprintf("test command %q failed (exit code %d)", cmd.CommandName, cmd.ExitCode),
+							})
+						}
 					}
 				}
 			}
@@ -282,14 +289,16 @@ func (m *DefaultPatchReviewManager) Review(ctx context.Context, req PatchReviewR
 	})
 
 	return PatchReviewReport{
-		WorktreeID:     req.WorktreeID,
-		Preview:        preview,
-		RiskScore:      riskScore,
-		Findings:       findings,
-		Validation:     validation,
-		ModelReview:    modelReview,
-		Recommendation: recommendation,
-		CreatedAt:      time.Now().UTC(),
+		WorktreeID:           req.WorktreeID,
+		Preview:              preview,
+		RiskScore:            riskScore,
+		Findings:             findings,
+		Validation:           validation,
+		ValidationSkipped:    validationSkipped,
+		ValidationSkipReason: validationSkipReason,
+		ModelReview:          modelReview,
+		Recommendation:       recommendation,
+		CreatedAt:            time.Now().UTC(),
 	}, nil
 }
 

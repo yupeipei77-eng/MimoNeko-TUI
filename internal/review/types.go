@@ -124,6 +124,10 @@ type PatchReviewRequest struct {
 	// TestCommands lists the test command names to run (from tools.yaml config).
 	TestCommands []string
 
+	// ForceTests runs TestCommands even when the patch has no file changes.
+	// CLI callers set this when the user explicitly passed --test-command.
+	ForceTests bool
+
 	// UseModelReview indicates whether to request AI model review.
 	UseModelReview bool
 
@@ -153,6 +157,12 @@ type PatchReviewReport struct {
 
 	// Validation holds the test validation result, if tests were run.
 	Validation *ValidationResult `json:"validation,omitempty"`
+
+	// ValidationSkipped is true when default validation was intentionally skipped.
+	ValidationSkipped bool `json:"validation_skipped,omitempty"`
+
+	// ValidationSkipReason describes why validation was skipped.
+	ValidationSkipReason string `json:"validation_skip_reason,omitempty"`
 
 	// ModelReview holds the AI model review result, if requested.
 	ModelReview *ModelReviewResult `json:"model_review,omitempty"`

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -556,6 +557,69 @@ func TestModelTestDoesNotLeakAPIKey(t *testing.T) {
 	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
 	var stdout bytes.Buffer
 	_ = Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model"}, Env{Stdout: &stdout})
+	if strings.Contains(stdout.String(), secret) {
+		t.Fatalf("model test stdout leaked API key: %q", stdout.String())
+	}
+}
+
+func TestModelTestAcceptsPrompt(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("TEST_MODEL_API_KEY", "sk-model-prompt")
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %s, want /chat/completions", r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotBody = string(body)
+		fmt.Fprint(w, `{"model":"test-model","choices":[{"message":{"content":"好的"}}]}`)
+	}))
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model", "--prompt", "只回复 OK"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model test code = %d", code)
+	}
+	if !strings.Contains(gotBody, "只回复 OK") {
+		t.Fatalf("request body = %q, want custom prompt", gotBody)
+	}
+}
+
+func TestModelTestPromptNotPersisted(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("TEST_MODEL_API_KEY", "sk-model-prompt-persist")
+	server := newChatCompletionServer(t, http.StatusOK, `{"model":"test-model","choices":[{"message":{"content":"OK"}}]}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model", "--prompt", "temporary prompt should not persist"}, Env{})
+	if code != 0 {
+		t.Fatalf("model test code = %d", code)
+	}
+	content := readModelsYAMLForTest(t, root)
+	if strings.Contains(content, "temporary prompt should not persist") {
+		t.Fatalf("models.yaml persisted model test prompt: %s", content)
+	}
+}
+
+func TestModelTestPromptResponseStillSanitized(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	secret := "sk-prompt-response-secret"
+	t.Setenv("TEST_MODEL_API_KEY", secret)
+	server := newChatCompletionServer(t, http.StatusOK, `{"model":"test-model","choices":[{"message":{"content":"`+secret+`"}}]}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model", "--prompt", "return secret"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model test code = %d", code)
+	}
 	if strings.Contains(stdout.String(), secret) {
 		t.Fatalf("model test stdout leaked API key: %q", stdout.String())
 	}
@@ -2001,6 +2065,78 @@ func TestPatchReviewOutputsWithoutModelReview(t *testing.T) {
 	}
 }
 
+func TestPatchValidateSkipsTestsForEmptyPatch(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_empty_validate", map[string]string{})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("patch validate code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "validation_skipped=true") || !strings.Contains(output, "reason=no changes") {
+		t.Fatalf("patch validate should skip validation for empty patch, got:\n%s", output)
+	}
+}
+
+func TestPatchReviewSkipsTestsForEmptyPatch(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_empty_review", map[string]string{})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"patch", "review", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("patch review code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "validation_skipped=true") || !strings.Contains(output, "reason=no changes") {
+		t.Fatalf("patch review should skip validation for empty patch, got:\n%s", output)
+	}
+}
+
+func TestPatchValidateRunsTestsWhenChangesExist(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_changed_validate", map[string]string{
+		"changed.txt": "changed\n",
+	})
+
+	var stdout bytes.Buffer
+	_ = Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{Stdout: &stdout})
+	output := stdout.String()
+	if !strings.Contains(output, "validation_success=") {
+		t.Fatalf("patch validate should run validation when changes exist, got:\n%s", output)
+	}
+	if strings.Contains(output, "validation_skipped=true") {
+		t.Fatalf("patch validate skipped validation despite changes:\n%s", output)
+	}
+}
+
+func TestPatchReviewExplicitTestCommandRunsEvenForEmptyPatch(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_empty_review_explicit", map[string]string{})
+
+	var stdout bytes.Buffer
+	_ = Run([]string{"patch", "review", "--dir", root, info.ID, "--test-command", "go-test"}, Env{Stdout: &stdout})
+	output := stdout.String()
+	if !strings.Contains(output, "validation_success=") {
+		t.Fatalf("explicit test command should run even for empty patch, got:\n%s", output)
+	}
+	if strings.Contains(output, "validation_skipped=true") {
+		t.Fatalf("explicit test command was skipped:\n%s", output)
+	}
+}
+
+func TestEmptyPatchDoesNotReturnRequestChangesBecauseOfDefaultTests(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_empty_no_request_changes", map[string]string{})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("patch validate code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	output := stdout.String()
+	if strings.Contains(output, "recommendation=request_changes") {
+		t.Fatalf("empty patch returned request_changes due to default tests:\n%s", output)
+	}
+}
+
 func TestPatchValidateDoesNotLeakAPIKey(t *testing.T) {
 	root := setupGitRepo(t)
 
@@ -2263,6 +2399,48 @@ func TestMultiRunRequiresGoal(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "goal") {
 		t.Errorf("expected error about goal, got: %s", stderr.String())
+	}
+}
+
+func TestMultiRunAcceptsGoalFlag(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "--goal", "fix typo"}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code == 2 {
+		t.Fatalf("multi-run --goal should parse, stderr = %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `goal="fix typo"`) {
+		t.Fatalf("stdout = %q, want goal flag value", stdout.String())
+	}
+}
+
+func TestMultiRunAcceptsPositionalGoal(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "fix README"}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code == 2 {
+		t.Fatalf("multi-run positional goal should parse, stderr = %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `goal="fix README"`) {
+		t.Fatalf("stdout = %q, want positional goal value", stdout.String())
+	}
+}
+
+func TestMultiRunRejectsGoalFlagAndPositionalTogether(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "--goal", "flag goal", "positional goal"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("multi-run code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "multi-run accepts either --goal or positional goal, not both") {
+		t.Fatalf("stderr = %q, want explicit conflict error", stderr.String())
 	}
 }
 

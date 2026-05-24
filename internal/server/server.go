@@ -263,6 +263,7 @@ func (s *LocalServer) loadRunsResponse(ctx context.Context) (runsResponse, int) 
 		timeline, err := sanitizedTimeline(ctx, store, summary.RunID)
 		if err == nil && timeline.RunID != "" {
 			progress := events.ComputeProgressState(timeline)
+			normalizeDashboardProgress(&progress, timeline)
 			item.Percent = progress.Percent
 			item.CurrentPhase = progress.CurrentPhase
 			item.State = progress.State
@@ -303,12 +304,75 @@ func (s *LocalServer) loadRunDetailResponse(ctx context.Context, runID string) (
 	}
 
 	progress := events.ComputeProgressState(timeline)
+	normalizeDashboardProgress(&progress, timeline)
 	return runDetailResponse{
 		RunID:    timeline.RunID,
 		State:    progress.State,
 		Progress: progress,
 		Timeline: timeline,
 	}, http.StatusOK
+}
+
+func normalizeDashboardProgress(progress *events.ProgressState, timeline events.RunTimeline) {
+	if strings.TrimSpace(progress.State) == "" || progress.State == "unknown" {
+		if timeline.State != "" {
+			progress.State = timeline.State
+		} else {
+			progress.State = "running"
+		}
+	}
+
+	if state := dashboardTerminalState(timeline); state != "" {
+		progress.State = state
+	}
+
+	if progress.Percent >= 100 {
+		switch progress.State {
+		case "succeeded":
+			progress.CurrentPhase = "completed"
+		case "failed":
+			progress.CurrentPhase = "failed"
+		case "cancelled":
+			progress.CurrentPhase = "cancelled"
+		case "request_changes":
+			progress.CurrentPhase = "request_changes"
+		case "rejected":
+			progress.CurrentPhase = "rejected"
+		}
+	}
+}
+
+func dashboardTerminalState(timeline events.RunTimeline) string {
+	for i := len(timeline.Events) - 1; i >= 0; i-- {
+		evt := timeline.Events[i]
+		if !evt.Type.IsTerminal() {
+			continue
+		}
+		if state := safeDashboardState(evt.Metadata["state"]); state != "" {
+			return state
+		}
+		if state := safeDashboardState(evt.Status); state != "" {
+			return state
+		}
+		switch evt.Type {
+		case events.EventRunSucceeded:
+			return "succeeded"
+		case events.EventRunFailed:
+			return "failed"
+		case events.EventRunCancelled:
+			return "cancelled"
+		}
+	}
+	return ""
+}
+
+func safeDashboardState(state string) string {
+	switch state {
+	case "succeeded", "failed", "cancelled", "running", "request_changes", "rejected":
+		return state
+	default:
+		return ""
+	}
 }
 
 func (s *LocalServer) loadRunEventsResponse(ctx context.Context, runID string) (any, int) {
