@@ -284,6 +284,87 @@ func TestDashboardRunDetailPageRenders(t *testing.T) {
 	}
 }
 
+func TestDashboardRunDetailShowsState(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	writeTestEvents(t, root,
+		events.RunEvent{ID: "evt_1", RunID: "run_state", Type: events.EventRunStarted, Source: "test", Status: "started", StartedAt: now},
+		events.RunEvent{ID: "evt_2", RunID: "run_state", Type: events.EventRunSucceeded, Source: "test", Status: "succeeded", StartedAt: now, FinishedAt: now.Add(time.Second)},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/runs/run_state", nil)
+	rr := httptest.NewRecorder()
+	newTestServer(root, true).Handler().ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `<strong id="state">succeeded</strong>`) {
+		t.Fatalf("detail page did not show succeeded state: %s", body)
+	}
+}
+
+func TestDashboardTerminalRunShowsCompletedPhase(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	writeTestEvents(t, root,
+		events.RunEvent{ID: "evt_1", RunID: "run_done", Type: events.EventRunStarted, Source: "test", Status: "started", StartedAt: now},
+		events.RunEvent{ID: "evt_2", RunID: "run_done", Type: events.EventReviewerStarted, Source: "review", Status: "started", StartedAt: now.Add(time.Second)},
+		events.RunEvent{ID: "evt_3", RunID: "run_done", Type: events.EventRunSucceeded, Source: "test", Status: "succeeded", StartedAt: now, FinishedAt: now.Add(2 * time.Second)},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/runs/run_done", nil)
+	rr := httptest.NewRecorder()
+	newTestServer(root, true).Handler().ServeHTTP(rr, req)
+
+	var resp runDetailResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if resp.Progress.CurrentPhase != "completed" {
+		t.Fatalf("CurrentPhase = %q, want completed", resp.Progress.CurrentPhase)
+	}
+}
+
+func TestDashboardFailedRunShowsFailedPhase(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	writeTestEvents(t, root,
+		events.RunEvent{ID: "evt_1", RunID: "run_failed", Type: events.EventRunStarted, Source: "test", Status: "started", StartedAt: now},
+		events.RunEvent{ID: "evt_2", RunID: "run_failed", Type: events.EventCoderStarted, Source: "agent", Status: "started", StartedAt: now.Add(time.Second)},
+		events.RunEvent{ID: "evt_3", RunID: "run_failed", Type: events.EventRunFailed, Source: "test", Status: "failed", StartedAt: now, FinishedAt: now.Add(2 * time.Second)},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/runs/run_failed", nil)
+	rr := httptest.NewRecorder()
+	newTestServer(root, true).Handler().ServeHTTP(rr, req)
+
+	var resp runDetailResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if resp.Progress.CurrentPhase != "failed" {
+		t.Fatalf("CurrentPhase = %q, want failed", resp.Progress.CurrentPhase)
+	}
+}
+
+func TestDashboardStateCardNotEmpty(t *testing.T) {
+	root := t.TempDir()
+	writeTestEvents(t, root, events.RunEvent{
+		ID: "evt_1", RunID: "run_nonempty_state", Type: events.EventRunStarted, Source: "test", Status: "started", StartedAt: time.Now().UTC(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/runs/run_nonempty_state", nil)
+	rr := httptest.NewRecorder()
+	newTestServer(root, true).Handler().ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if strings.Contains(body, `<strong id="state"></strong>`) {
+		t.Fatalf("state card is empty: %s", body)
+	}
+	if !strings.Contains(body, `<strong id="state">running</strong>`) {
+		t.Fatalf("state card did not show running: %s", body)
+	}
+}
+
 func TestDashboardPageDoesNotLeakSensitiveData(t *testing.T) {
 	root := t.TempDir()
 	writeTestEvents(t, root, events.RunEvent{

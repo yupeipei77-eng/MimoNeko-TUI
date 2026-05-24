@@ -69,6 +69,7 @@ type TestOptions struct {
 	Model     string
 	BaseURL   string
 	APIKeyEnv string
+	Prompt    string
 	Client    *http.Client
 }
 
@@ -397,10 +398,15 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	prompt := strings.TrimSpace(opt.Prompt)
+	if prompt == "" {
+		prompt = "Reply with OK only."
+	}
+
 	body, err := json.Marshal(map[string]any{
 		"model": modelName,
 		"messages": []map[string]string{
-			{"role": "user", "content": "Reply with OK only."},
+			{"role": "user", "content": prompt},
 		},
 		"max_tokens":  16,
 		"temperature": 0,

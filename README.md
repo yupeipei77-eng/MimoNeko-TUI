@@ -13,13 +13,14 @@ reasonforge doctor
 reasonforge models
 reasonforge model setup
 reasonforge model discover --provider mimo
-reasonforge model test
+reasonforge model test [--prompt "只回复 OK"]
 reasonforge model use mimo-v2.5-pro
 reasonforge cache-report
 reasonforge tools
 reasonforge tool-run <tool-name> [--key value ...]
 reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-approve-medium] [--worktree]
-reasonforge multi-run "fix typo in README" [--max-iterations 2] [--dry-run] [--worktree] [--model-review]
+reasonforge multi-run --goal "fix typo in README" [--max-iterations 2] [--dry-run] [--worktree] [--model-review]
+reasonforge multi-run "fix typo in README"
 reasonforge runs
 reasonforge run-status <run_id>
 reasonforge run-events <run_id>
@@ -47,6 +48,7 @@ reasonforge model setup ^
 reasonforge model list
 reasonforge model discover --provider mimo
 reasonforge model test
+reasonforge model test --prompt "只回复 OK"
 reasonforge model use mimo-v2.5-pro
 ```
 
@@ -75,7 +77,16 @@ reasonforge serve --open
 http://127.0.0.1:8765
 ```
 
-The dashboard data comes from EventStore and shows recent runs, run detail, timelines, progress state, and event lists. It does not execute tools, call models, read source file contents, auto-apply patches, commit, or push.
+The dashboard data comes from EventStore and shows recent runs, run detail, timelines, progress state, and event lists. Terminal runs display explicit states and phases such as `succeeded` with `completed`, `failed` with `failed`, and `cancelled` with `cancelled`. It does not execute tools, call models, read source file contents, auto-apply patches, commit, or push.
+
+Empty patch validation is quiet by default. When `patch preview` reports `files_changed=0`, `patch validate` and `patch review` skip default validation commands and print:
+
+```text
+validation_skipped=true
+reason=no changes
+```
+
+Passing `--test-command` explicitly still runs validation.
 
 ## Design Constraints
 

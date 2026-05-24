@@ -533,6 +533,7 @@ func runModelTest(args []string, env Env) int {
 	model := fs.String("model", "", "model name")
 	baseURL := fs.String("base-url", "", "OpenAI-compatible base URL")
 	apiKeyEnv := fs.String("api-key-env", "", "API key environment variable")
+	prompt := fs.String("prompt", "", "prompt to send for the smoke test")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -549,6 +550,7 @@ func runModelTest(args []string, env Env) int {
 		Model:     *model,
 		BaseURL:   *baseURL,
 		APIKeyEnv: *apiKeyEnv,
+		Prompt:    *prompt,
 	})
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "model test failed: %s\n", modelprofile.SanitizeText(err.Error()))
@@ -1061,6 +1063,7 @@ func runMultiAgent(args []string, env Env) int {
 	fs := flag.NewFlagSet("multi-run", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	dir := fs.String("dir", "", "project root")
+	goalFlag := fs.String("goal", "", "task goal")
 	model := fs.String("model", "", "model name (default: from config)")
 	maxIterations := fs.Int("max-iterations", 0, "max iterations (default: 2, max: 5)")
 	dryRun := fs.Bool("dry-run", true, "dry run mode (no side effects)")
@@ -1071,14 +1074,25 @@ func runMultiAgent(args []string, env Env) int {
 		return 2
 	}
 
-	// Goal is the first positional argument
+	// Goal can be passed with --goal for consistency with run, or as the
+	// historical first positional argument.
 	remaining := fs.Args()
-	if len(remaining) == 0 {
-		fmt.Fprintln(env.Stderr, "multi-run requires a goal argument")
-		fmt.Fprintln(env.Stderr, "Usage: reasonforge multi-run \"fix typo in README\"")
+	hasGoalFlag := strings.TrimSpace(*goalFlag) != ""
+	hasPositionalGoal := len(remaining) > 0 && strings.TrimSpace(remaining[0]) != ""
+	if hasGoalFlag && hasPositionalGoal {
+		fmt.Fprintln(env.Stderr, "multi-run accepts either --goal or positional goal, not both")
 		return 2
 	}
-	goal := remaining[0]
+	if !hasGoalFlag && !hasPositionalGoal {
+		fmt.Fprintln(env.Stderr, "multi-run requires a goal argument")
+		fmt.Fprintln(env.Stderr, "Usage: reasonforge multi-run --goal \"fix typo in README\"")
+		fmt.Fprintln(env.Stderr, "   or: reasonforge multi-run \"fix typo in README\"")
+		return 2
+	}
+	goal := strings.TrimSpace(*goalFlag)
+	if goal == "" {
+		goal = strings.TrimSpace(remaining[0])
+	}
 
 	// multi-run requires worktree isolation; --worktree=false is not supported
 	if !*useWorktree {
@@ -1834,9 +1848,11 @@ func runPatchValidate(args []string, env Env) int {
 
 	// Parse additional --test-command flags from remaining positional args
 	var testCommands []string
+	explicitTestCommands := false
 	for i := 1; i < len(remaining); i++ {
 		if remaining[i] == "--test-command" && i+1 < len(remaining) {
 			testCommands = append(testCommands, remaining[i+1])
+			explicitTestCommands = true
 			i++
 		}
 	}
@@ -1925,6 +1941,7 @@ func runPatchValidate(args []string, env Env) int {
 		Contract:       contract,
 		RunTests:       true,
 		TestCommands:   testCommands,
+		ForceTests:     explicitTestCommands,
 		UseModelReview: false,
 		MaxDiffBytes:   cfg.Review.MaxDiffBytes,
 	})
@@ -1970,9 +1987,11 @@ func runPatchReview(args []string, env Env) int {
 
 	// Parse --test-command flags
 	var testCommands []string
+	explicitTestCommands := false
 	for i := 1; i < len(remaining); i++ {
 		if remaining[i] == "--test-command" && i+1 < len(remaining) {
 			testCommands = append(testCommands, remaining[i+1])
+			explicitTestCommands = true
 			i++
 		}
 	}
@@ -2090,6 +2109,7 @@ func runPatchReview(args []string, env Env) int {
 		Contract:       contract,
 		RunTests:       runTests,
 		TestCommands:   testCommands,
+		ForceTests:     explicitTestCommands,
 		UseModelReview: *modelReview,
 		Model:          *model,
 		MaxDiffBytes:   cfg.Review.MaxDiffBytes,
@@ -2157,6 +2177,9 @@ func printReviewReport(env Env, report review.PatchReviewReport, cfg *config.Roo
 			fmt.Fprintf(env.Stdout, "  command: name=%s success=%v exit_code=%d duration_ms=%d\n",
 				cmd.CommandName, cmd.Success, cmd.ExitCode, cmd.DurationMs)
 		}
+	} else if report.ValidationSkipped {
+		fmt.Fprintln(env.Stdout, "validation_skipped=true")
+		fmt.Fprintf(env.Stdout, "reason=%s\n", report.ValidationSkipReason)
 	}
 
 	if report.ModelReview != nil {

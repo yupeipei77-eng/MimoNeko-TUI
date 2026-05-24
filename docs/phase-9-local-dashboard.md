@@ -40,6 +40,14 @@ The Web Dashboard provides:
 - Events List
 - JavaScript polling refresh
 
+Terminal runs keep an explicit state visible in both Recent Runs and Run Detail. When a run reaches 100%:
+
+- `succeeded` shows current phase `completed`
+- `failed` shows current phase `failed`
+- `cancelled` shows current phase `cancelled`
+
+This keeps the dashboard readable after polling switches to an offline or idle visual state.
+
 ## HTTP API
 
 The local server exposes read-only endpoints:
