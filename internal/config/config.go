@@ -19,6 +19,8 @@ type Root struct {
 	Tools    ToolsConfig
 	Security SecurityConfig
 	Prefix   PrefixConfig
+	Worktree WorktreeConfig
+	Patch    PatchConfig
 }
 
 type ModelsConfig struct {
@@ -42,8 +44,8 @@ type ModelConfig struct {
 }
 
 type RoutingConfig struct {
-	DefaultModel  string           `yaml:"default_model"`
-	FallbackChain []FallbackEntry  `yaml:"fallback_chain,omitempty"`
+	DefaultModel  string          `yaml:"default_model"`
+	FallbackChain []FallbackEntry `yaml:"fallback_chain,omitempty"`
 }
 
 // FallbackEntry is a single entry in the routing fallback chain.
@@ -53,16 +55,16 @@ type FallbackEntry struct {
 }
 
 type ToolsConfig struct {
-	Tools        []ToolConfig       `yaml:"tools"`
+	Tools        []ToolConfig        `yaml:"tools"`
 	TestCommands []TestCommandConfig `yaml:"test_commands,omitempty"`
-	Policy       ToolPolicyConfig   `yaml:"policy,omitempty"`
+	Policy       ToolPolicyConfig    `yaml:"policy,omitempty"`
 }
 
 type ToolConfig struct {
-	Name      string `yaml:"name"`
-	Kind      string `yaml:"kind"`
-	Enabled   bool   `yaml:"enabled"`
-	RiskLevel string `yaml:"risk_level,omitempty"`
+	Name      string   `yaml:"name"`
+	Kind      string   `yaml:"kind"`
+	Enabled   bool     `yaml:"enabled"`
+	RiskLevel string   `yaml:"risk_level,omitempty"`
 	Command   []string `yaml:"command,omitempty"`
 }
 
@@ -73,10 +75,10 @@ type TestCommandConfig struct {
 }
 
 type ToolPolicyConfig struct {
-	MaxOutputBytes      int      `yaml:"max_output_bytes,omitempty"`
-	DefaultTimeoutSeconds int    `yaml:"default_timeout_seconds,omitempty"`
-	DenyWritePaths      []string `yaml:"deny_write_paths,omitempty"`
-	DenyReadPaths       []string `yaml:"deny_read_paths,omitempty"`
+	MaxOutputBytes        int      `yaml:"max_output_bytes,omitempty"`
+	DefaultTimeoutSeconds int      `yaml:"default_timeout_seconds,omitempty"`
+	DenyWritePaths        []string `yaml:"deny_write_paths,omitempty"`
+	DenyReadPaths         []string `yaml:"deny_read_paths,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -100,9 +102,9 @@ type SecretsConfig struct {
 type PrefixConfig struct {
 	Version          int                  `yaml:"version"`
 	ImmutableSources []PrefixSourceConfig `yaml:"immutable_sources"`
-	ByteStable      ByteStableConfig     `yaml:"byte_stable"`
-	Cache           PrefixCacheConfig    `yaml:"cache"`
-	Budget          BudgetConfig         `yaml:"budget"`
+	ByteStable       ByteStableConfig     `yaml:"byte_stable"`
+	Cache            PrefixCacheConfig    `yaml:"cache"`
+	Budget           BudgetConfig         `yaml:"budget"`
 }
 
 type PrefixSourceConfig struct {
@@ -113,9 +115,9 @@ type PrefixSourceConfig struct {
 }
 
 type ByteStableConfig struct {
-	NormalizeLineEndings    string `yaml:"normalize_line_endings"`
-	SortToolSchemas         bool   `yaml:"sort_tool_schemas"`
-	DisallowDynamicContent  bool   `yaml:"disallow_dynamic_content"`
+	NormalizeLineEndings   string `yaml:"normalize_line_endings"`
+	SortToolSchemas        bool   `yaml:"sort_tool_schemas"`
+	DisallowDynamicContent bool   `yaml:"disallow_dynamic_content"`
 }
 
 type PrefixCacheConfig struct {
@@ -126,6 +128,39 @@ type PrefixCacheConfig struct {
 type BudgetConfig struct {
 	WarnRatio  float64 `yaml:"warn_ratio"`
 	BlockRatio float64 `yaml:"block_ratio"`
+}
+
+// WorktreeConfig configures git worktree isolation behavior.
+type WorktreeConfig struct {
+	// Enabled controls whether worktree isolation is available.
+	Enabled bool `yaml:"enabled"`
+
+	// Root is the directory under the repo where worktrees are created.
+	Root string `yaml:"root"`
+
+	// BranchPrefix is the prefix for worktree branch names.
+	BranchPrefix string `yaml:"branch_prefix"`
+
+	// KeepFailed determines whether to keep failed worktrees for debugging.
+	KeepFailed bool `yaml:"keep_failed"`
+
+	// KeepCancelled determines whether to keep cancelled worktrees for debugging.
+	KeepCancelled bool `yaml:"keep_cancelled"`
+
+	// MaxActive is the maximum number of active worktrees.
+	MaxActive int `yaml:"max_active"`
+}
+
+// PatchConfig configures patch preview and apply behavior.
+type PatchConfig struct {
+	// MaxDiffBytes is the maximum diff output size in bytes.
+	MaxDiffBytes int `yaml:"max_diff_bytes"`
+
+	// RequireCleanMain requires the main workspace to be clean before applying.
+	RequireCleanMain bool `yaml:"require_clean_main"`
+
+	// AllowBinary controls whether binary file changes are allowed in patches.
+	AllowBinary bool `yaml:"allow_binary"`
 }
 
 func ConfigDir(root string) string {
@@ -172,6 +207,17 @@ func Load(root string) (*Root, error) {
 	if err := loadYAML(filepath.Join(dir, "prefix.yaml"), &cfg.Prefix); err != nil {
 		return nil, err
 	}
+
+	// worktree.yaml and patch.yaml are optional (Phase 5 addition).
+	// If missing, apply safe defaults.
+	if err := loadYAMLOptional(filepath.Join(dir, "worktree.yaml"), &cfg.Worktree); err != nil {
+		return nil, err
+	}
+	if err := loadYAMLOptional(filepath.Join(dir, "patch.yaml"), &cfg.Patch); err != nil {
+		return nil, err
+	}
+	cfg.applyWorktreeDefaults()
+	cfg.applyPatchDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -295,6 +341,57 @@ func loadYAML(path string, out any) error {
 	return nil
 }
 
+// loadYAMLOptional loads a YAML file if it exists. Missing files are not an error.
+func loadYAMLOptional(path string, out any) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil // missing file is OK, defaults will be used
+		}
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(out); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// applyWorktreeDefaults fills in safe defaults for WorktreeConfig.
+func (cfg *Root) applyWorktreeDefaults() {
+	// Default to enabled for Phase 5+
+	if !cfg.Worktree.Enabled && cfg.Worktree.Root == "" && cfg.Worktree.BranchPrefix == "" {
+		// Config was not set at all (empty struct from missing file), apply defaults
+		cfg.Worktree.Enabled = true
+	}
+	if cfg.Worktree.Root == "" {
+		cfg.Worktree.Root = ".reasonforge/worktrees"
+	}
+	if cfg.Worktree.BranchPrefix == "" {
+		cfg.Worktree.BranchPrefix = "reasonforge"
+	}
+	if cfg.Worktree.MaxActive == 0 {
+		cfg.Worktree.MaxActive = 10
+	}
+	// KeepFailed and KeepCancelled default to true (safe: preserve for debugging)
+	// Only override if they are explicitly false AND the file existed
+}
+
+// applyPatchDefaults fills in safe defaults for PatchConfig.
+func (cfg *Root) applyPatchDefaults() {
+	if cfg.Patch.MaxDiffBytes == 0 {
+		cfg.Patch.MaxDiffBytes = 131072 // 128KB
+	}
+	// RequireCleanMain defaults to true (safe: don't overwrite user changes)
+	if !cfg.Patch.RequireCleanMain {
+		cfg.Patch.RequireCleanMain = true
+	}
+	// AllowBinary defaults to false (safe: binary patches are risky)
+}
+
 func isAllowedImmutableSourceKind(kind string) bool {
 	switch kind {
 	case "static_file", "generated_schema":
@@ -411,6 +508,27 @@ cache:
 budget:
   warn_ratio: 0.8
   block_ratio: 1.0
+`,
+	},
+	{
+		Name: "worktree.yaml",
+		Body: `# Worktree isolation configuration
+# Git worktrees provide isolated working directories for agent tasks.
+enabled: true
+root: .reasonforge/worktrees
+branch_prefix: reasonforge
+keep_failed: true
+keep_cancelled: true
+max_active: 10
+`,
+	},
+	{
+		Name: "patch.yaml",
+		Body: `# Patch manager configuration
+# Controls how diffs from worktrees are previewed and applied.
+max_diff_bytes: 131072
+require_clean_main: true
+allow_binary: false
 `,
 	},
 }
