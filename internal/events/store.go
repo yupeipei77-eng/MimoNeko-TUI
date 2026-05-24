@@ -67,6 +67,20 @@ func NewJSONLRunEventStore(path string) (*JSONLRunEventStore, error) {
 	return store, nil
 }
 
+// OpenJSONLRunEventStoreReadOnly opens an existing JSONL event store for
+// read-only queries. It does not create missing directories or files.
+func OpenJSONLRunEventStoreReadOnly(path string) (*JSONLRunEventStore, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+
+	store := &JSONLRunEventStore{path: path}
+	if err := store.loadExisting(); err != nil {
+		return nil, fmt.Errorf("events: load existing events: %w", err)
+	}
+	return store, nil
+}
+
 // loadExisting reads all existing events from the JSONL file into memory.
 // Uses line-by-line reading so that corrupted lines can be safely skipped.
 func (s *JSONLRunEventStore) loadExisting() error {
