@@ -200,3 +200,18 @@ func TestGenerateStepID(t *testing.T) {
 		t.Errorf("GenerateStepID() = %q, want prefix 'step_'", id)
 	}
 }
+
+func TestParseToolCallRejectsMultipleToolCalls(t *testing.T) {
+	text := `I need to do two things. {"tool_call": {"name": "file_read", "args": {"path": "a.go"}}} and {"tool_call": {"name": "file_write", "args": {"path": "b.go", "content": "x"}}}`
+
+	tc, err := ParseToolCall(text)
+	if err == nil {
+		t.Fatal("ParseToolCall() should return error for multiple tool_call blocks")
+	}
+	if !strings.Contains(err.Error(), "multiple tool_call") {
+		t.Errorf("error should mention multiple tool_call, got: %v", err)
+	}
+	if tc != nil {
+		t.Errorf("ParseToolCall() should return nil ToolCall on error, got: %+v", tc)
+	}
+}

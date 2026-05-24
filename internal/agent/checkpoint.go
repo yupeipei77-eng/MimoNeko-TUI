@@ -194,3 +194,88 @@ func (s *JSONLCheckpointStore) readAll() ([]Checkpoint, error) {
 func DefaultCheckpointPath(repoRoot string) string {
 	return filepath.Join(repoRoot, ".reasonforge", "logs", "checkpoints.jsonl")
 }
+
+const (
+	// maxModelTextBytes is the maximum number of bytes of ModelText retained in a checkpoint.
+	maxModelTextBytes = 512
+
+	// maxToolOutputBytes is the maximum number of bytes of Stdout/Stderr retained in a checkpoint.
+	maxToolOutputBytes = 1024
+
+	// truncationMarker is appended when content is truncated.
+	truncationMarker = "...[truncated]"
+)
+
+// safeCheckpointArgKeys are the keys allowed in cleartext in ToolCall.Args within checkpoints.
+var safeCheckpointArgKeys = map[string]bool{
+	"path":         true,
+	"command_name": true,
+	"max_bytes":    true,
+	"create_dirs":  true,
+}
+
+// SanitizeCheckpoint returns a copy of the checkpoint with sensitive data
+// redacted and large fields truncated. The original checkpoint is not modified.
+//
+// Rules:
+//   - ModelText is truncated to 512 bytes
+//   - ToolResponse.Stdout and Stderr are truncated to 1024 bytes each
+//   - ToolCall.Args values are redacted unless the key is in the safe list
+//   - ToolResponse.Artifacts content hashes are preserved (already safe)
+func SanitizeCheckpoint(cp Checkpoint) Checkpoint {
+	sanitized := cp
+	sanitized.Steps = make([]AgentStep, len(cp.Steps))
+	for i, step := range cp.Steps {
+		sanitized.Steps[i] = sanitizeStep(step)
+	}
+	return sanitized
+}
+
+func sanitizeStep(step AgentStep) AgentStep {
+	s := step
+
+	// Truncate ModelText
+	if len(s.ModelText) > maxModelTextBytes {
+		s.ModelText = s.ModelText[:maxModelTextBytes] + truncationMarker
+	}
+
+	// Redact ToolCall.Args
+	if s.ToolCall != nil {
+		s.ToolCall = &ToolCall{
+			Name: s.ToolCall.Name,
+			Args: redactArgs(s.ToolCall.Args),
+		}
+	}
+
+	// Truncate ToolResponse output fields
+	if s.ToolResponse != nil {
+		tr := *s.ToolResponse
+		if len(tr.Stdout) > maxToolOutputBytes {
+			tr.Stdout = tr.Stdout[:maxToolOutputBytes] + truncationMarker
+		}
+		if len(tr.Stderr) > maxToolOutputBytes {
+			tr.Stderr = tr.Stderr[:maxToolOutputBytes] + truncationMarker
+		}
+		// Artifacts are kept (content_hash is safe, no raw content)
+		s.ToolResponse = &tr
+	}
+
+	return s
+}
+
+// redactArgs returns a copy of args with values replaced by "<redacted>"
+// for keys not in the safe list.
+func redactArgs(args map[string]string) map[string]string {
+	if args == nil {
+		return nil
+	}
+	result := make(map[string]string, len(args))
+	for k, v := range args {
+		if safeCheckpointArgKeys[k] {
+			result[k] = v
+		} else {
+			result[k] = "<redacted>"
+		}
+	}
+	return result
+}

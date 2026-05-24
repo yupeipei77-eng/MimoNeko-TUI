@@ -520,95 +520,12 @@ func runAgent(args []string, env Env) int {
 		tid = "task_cli_" + generateShortID()
 	}
 
-	cacheRegistryPath := cfg.Prefix.Cache.RegistryPath
-	if !filepath.IsAbs(cacheRegistryPath) {
-		cacheRegistryPath = filepath.Join(root, cacheRegistryPath)
-	}
-
-	cacheRegistry, err := cache.NewJSONLCacheRegistry(cacheRegistryPath)
+	deps, cleanup, err := buildAgentDependencies(root, cfg)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: cache registry: %v\n", err)
-		return 1
-	}
-	if strings.TrimSpace(cfg.Prefix.Cache.EstimatedTTL) != "" {
-		ttl, err := time.ParseDuration(cfg.Prefix.Cache.EstimatedTTL)
-		if err != nil {
-			fmt.Fprintf(env.Stderr, "run failed: cache ttl: %v\n", err)
-			return 1
-		}
-		cacheRegistry.SetTTL(ttl)
-	}
-
-	prefixBuilder := prefix.NewImmutablePrefixBuilder(cfg.Prefix.ByteStable)
-	conversationLog := conversation.NewJSONLConversationLog(filepath.Join(root, config.DirName, "logs", "conversations"))
-	scratch := scratchpad.NewVolatileScratchpad()
-	budgetGuard, err := contextengine.NewBudgetGuard(contextengine.BudgetThresholds{
-		WarnRatio:  cfg.Prefix.Budget.WarnRatio,
-		BlockRatio: cfg.Prefix.Budget.BlockRatio,
-	})
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: budget guard: %v\n", err)
-		return 1
-	}
-	contextEngine := contextengine.NewDefaultContextEngine(prefixBuilder, conversationLog, scratch, cacheRegistry, budgetGuard, root, cfg.Prefix)
-
-	providers := make(map[string]modelrouter.Provider, len(cfg.Models.Providers))
-	for _, providerCfg := range cfg.Models.Providers {
-		models := make([]string, 0, len(providerCfg.Models))
-		for _, modelCfg := range providerCfg.Models {
-			models = append(models, modelCfg.Name)
-		}
-		providers[providerCfg.Name] = modelrouter.NewOpenAICompatibleProvider(
-			providerCfg.Name,
-			providerCfg.BaseURL,
-			providerCfg.APIKeyEnv,
-			models,
-			nil,
-		)
-	}
-
-	fallbackChain, err := modelrouter.BuildFallbackChainFromConfig(cfg)
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: model routing: %v\n", err)
-		return 1
-	}
-	modelRouter := modelrouter.NewDefaultModelRouter(providers, fallbackChain, cfg.Models.Routing.DefaultModel, cacheRegistry)
-
-	registry := tools.NewMemoryRegistry()
-	testCmds := tools.TestCommandsFromConfig(cfg)
-	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
 		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
 		return 1
 	}
-
-	enabledMap := tools.EnabledToolsFromConfig(cfg)
-	guard := tools.SafetyGuardFromConfig(cfg)
-	auditPath := tools.DefaultAuditLogPath(root)
-	auditLog, err := tools.NewAuditLog(auditPath)
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: audit log: %v\n", err)
-		return 1
-	}
-	defer auditLog.Close()
-
-	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
-
-	checkpointPath := agent.DefaultCheckpointPath(root)
-	checkpointStore, err := agent.NewJSONLCheckpointStore(checkpointPath)
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: checkpoint store: %v\n", err)
-		return 1
-	}
-
-	deps := agent.Dependencies{
-		ContextEngine:   contextEngine,
-		ModelRouter:     modelRouter,
-		ToolRuntime:     toolRt,
-		ToolRegistry:    registry,
-		ConversationLog: conversationLog,
-		Scratchpad:      scratch,
-		CheckpointStore: checkpointStore,
-	}
+	defer cleanup()
 
 	rt := agent.NewSingleAgentRuntime(deps)
 	rt.SetOutput(env.Stdout)
@@ -656,6 +573,97 @@ func runAgent(args []string, env Env) int {
 	default:
 		return 1
 	}
+}
+
+// buildAgentDependencies constructs all agent dependencies from the project config.
+// It returns the dependencies, a cleanup function, and any error.
+func buildAgentDependencies(root string, cfg *config.Root) (agent.Dependencies, func(), error) {
+	cacheRegistryPath := cfg.Prefix.Cache.RegistryPath
+	if !filepath.IsAbs(cacheRegistryPath) {
+		cacheRegistryPath = filepath.Join(root, cacheRegistryPath)
+	}
+
+	cacheRegistry, err := cache.NewJSONLCacheRegistry(cacheRegistryPath)
+	if err != nil {
+		return agent.Dependencies{}, nil, fmt.Errorf("cache registry: %w", err)
+	}
+	if strings.TrimSpace(cfg.Prefix.Cache.EstimatedTTL) != "" {
+		ttl, err := time.ParseDuration(cfg.Prefix.Cache.EstimatedTTL)
+		if err != nil {
+			return agent.Dependencies{}, nil, fmt.Errorf("cache ttl: %w", err)
+		}
+		cacheRegistry.SetTTL(ttl)
+	}
+
+	prefixBuilder := prefix.NewImmutablePrefixBuilder(cfg.Prefix.ByteStable)
+	conversationLog := conversation.NewJSONLConversationLog(filepath.Join(root, config.DirName, "logs", "conversations"))
+	scratch := scratchpad.NewVolatileScratchpad()
+	budgetGuard, err := contextengine.NewBudgetGuard(contextengine.BudgetThresholds{
+		WarnRatio:  cfg.Prefix.Budget.WarnRatio,
+		BlockRatio: cfg.Prefix.Budget.BlockRatio,
+	})
+	if err != nil {
+		return agent.Dependencies{}, nil, fmt.Errorf("budget guard: %w", err)
+	}
+	contextEngine := contextengine.NewDefaultContextEngine(prefixBuilder, conversationLog, scratch, cacheRegistry, budgetGuard, root, cfg.Prefix)
+
+	providers := make(map[string]modelrouter.Provider, len(cfg.Models.Providers))
+	for _, providerCfg := range cfg.Models.Providers {
+		models := make([]string, 0, len(providerCfg.Models))
+		for _, modelCfg := range providerCfg.Models {
+			models = append(models, modelCfg.Name)
+		}
+		providers[providerCfg.Name] = modelrouter.NewOpenAICompatibleProvider(
+			providerCfg.Name,
+			providerCfg.BaseURL,
+			providerCfg.APIKeyEnv,
+			models,
+			nil,
+		)
+	}
+
+	fallbackChain, err := modelrouter.BuildFallbackChainFromConfig(cfg)
+	if err != nil {
+		return agent.Dependencies{}, nil, fmt.Errorf("model routing: %w", err)
+	}
+	modelRouter := modelrouter.NewDefaultModelRouter(providers, fallbackChain, cfg.Models.Routing.DefaultModel, cacheRegistry)
+
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		return agent.Dependencies{}, nil, err
+	}
+
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+	guard := tools.SafetyGuardFromConfig(cfg)
+	auditPath := tools.DefaultAuditLogPath(root)
+	auditLog, err := tools.NewAuditLog(auditPath)
+	if err != nil {
+		return agent.Dependencies{}, nil, fmt.Errorf("audit log: %w", err)
+	}
+
+	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+
+	checkpointPath := agent.DefaultCheckpointPath(root)
+	checkpointStore, err := agent.NewJSONLCheckpointStore(checkpointPath)
+	if err != nil {
+		auditLog.Close()
+		return agent.Dependencies{}, nil, fmt.Errorf("checkpoint store: %w", err)
+	}
+
+	deps := agent.Dependencies{
+		ContextEngine:   contextEngine,
+		ModelRouter:     modelRouter,
+		ToolRuntime:     toolRt,
+		ToolRegistry:    registry,
+		ConversationLog: conversationLog,
+		Scratchpad:      scratch,
+		CheckpointStore: checkpointStore,
+	}
+
+	cleanup := func() { auditLog.Close() }
+
+	return deps, cleanup, nil
 }
 
 func generateShortID() string {

@@ -21,6 +21,7 @@ func ParseToolCall(text string) (*ToolCall, error) {
 	// Find candidate JSON objects by scanning for balanced braces
 	start := -1
 	depth := 0
+	var found []*ToolCall
 	for i := 0; i < len(text); i++ {
 		if text[i] == '{' {
 			if depth == 0 {
@@ -33,13 +34,21 @@ func ParseToolCall(text string) (*ToolCall, error) {
 				candidate := text[start : i+1]
 				tc, err := tryParseToolCall(candidate)
 				if err == nil && tc != nil {
-					return tc, nil
+					found = append(found, tc)
 				}
 				start = -1
 			}
 		}
 	}
-	return nil, nil
+
+	switch len(found) {
+	case 0:
+		return nil, nil
+	case 1:
+		return found[0], nil
+	default:
+		return nil, fmt.Errorf("agent: multiple tool_call blocks found (%d), only one is allowed per step", len(found))
+	}
 }
 
 // toolCallWrapper is used to unmarshal a tool_call JSON block.
