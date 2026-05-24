@@ -14,13 +14,15 @@ import (
 const DirName = ".reasonforge"
 
 type Root struct {
-	Dir      string
-	Models   ModelsConfig
-	Tools    ToolsConfig
-	Security SecurityConfig
-	Prefix   PrefixConfig
-	Worktree WorktreeConfig
-	Patch    PatchConfig
+	Dir        string
+	Models     ModelsConfig
+	Tools      ToolsConfig
+	Security   SecurityConfig
+	Prefix     PrefixConfig
+	Worktree   WorktreeConfig
+	Patch      PatchConfig
+	Review     ReviewConfig
+	Validation ValidationConfig
 }
 
 type ModelsConfig struct {
@@ -163,6 +165,43 @@ type PatchConfig struct {
 	AllowBinary bool `yaml:"allow_binary"`
 }
 
+// ReviewConfig configures patch review behavior (Phase 6).
+type ReviewConfig struct {
+	// MaxDiffBytes caps the diff output size for review.
+	MaxDiffBytes int `yaml:"max_diff_bytes"`
+
+	// HighRiskFileCount is the file count threshold for high risk.
+	HighRiskFileCount int `yaml:"high_risk_file_count"`
+
+	// MediumRiskFileCount is the file count threshold for medium risk.
+	MediumRiskFileCount int `yaml:"medium_risk_file_count"`
+
+	// HighRiskLineCount is the total additions+deletions threshold for high risk.
+	HighRiskLineCount int `yaml:"high_risk_line_count"`
+
+	// MediumRiskLineCount is the total additions+deletions threshold for medium risk.
+	MediumRiskLineCount int `yaml:"medium_risk_line_count"`
+
+	// RequireTestsForCodeChanges produces a warning when source code is modified
+	// without corresponding test changes.
+	RequireTestsForCodeChanges bool `yaml:"require_tests_for_code_changes"`
+
+	// StrictModelReview causes the entire review to fail if the model review fails.
+	StrictModelReview bool `yaml:"strict_model_review"`
+}
+
+// ValidationConfig configures test validation behavior (Phase 6).
+type ValidationConfig struct {
+	// DefaultTestCommands lists the default test command names.
+	DefaultTestCommands []string `yaml:"default_test_commands"`
+
+	// MaxOutputBytes caps the output per command.
+	MaxOutputBytes int `yaml:"max_output_bytes"`
+
+	// TimeoutSeconds caps the total validation duration.
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+}
+
 func ConfigDir(root string) string {
 	return filepath.Join(root, DirName)
 }
@@ -216,8 +255,17 @@ func Load(root string) (*Root, error) {
 	if err := loadYAMLOptional(filepath.Join(dir, "patch.yaml"), &cfg.Patch); err != nil {
 		return nil, err
 	}
+	// review.yaml and validation.yaml are optional (Phase 6 addition).
+	if err := loadYAMLOptional(filepath.Join(dir, "review.yaml"), &cfg.Review); err != nil {
+		return nil, err
+	}
+	if err := loadYAMLOptional(filepath.Join(dir, "validation.yaml"), &cfg.Validation); err != nil {
+		return nil, err
+	}
 	cfg.applyWorktreeDefaults()
 	cfg.applyPatchDefaults()
+	cfg.applyReviewDefaults()
+	cfg.applyValidationDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -392,6 +440,40 @@ func (cfg *Root) applyPatchDefaults() {
 	// AllowBinary defaults to false (safe: binary patches are risky)
 }
 
+// applyReviewDefaults fills in safe defaults for ReviewConfig.
+func (cfg *Root) applyReviewDefaults() {
+	if cfg.Review.MaxDiffBytes == 0 {
+		cfg.Review.MaxDiffBytes = 131072
+	}
+	if cfg.Review.HighRiskFileCount == 0 {
+		cfg.Review.HighRiskFileCount = 20
+	}
+	if cfg.Review.MediumRiskFileCount == 0 {
+		cfg.Review.MediumRiskFileCount = 5
+	}
+	if cfg.Review.HighRiskLineCount == 0 {
+		cfg.Review.HighRiskLineCount = 500
+	}
+	if cfg.Review.MediumRiskLineCount == 0 {
+		cfg.Review.MediumRiskLineCount = 100
+	}
+	// RequireTestsForCodeChanges defaults to false
+	// StrictModelReview defaults to false
+}
+
+// applyValidationDefaults fills in safe defaults for ValidationConfig.
+func (cfg *Root) applyValidationDefaults() {
+	if len(cfg.Validation.DefaultTestCommands) == 0 {
+		cfg.Validation.DefaultTestCommands = []string{"go-test"}
+	}
+	if cfg.Validation.MaxOutputBytes == 0 {
+		cfg.Validation.MaxOutputBytes = 65536
+	}
+	if cfg.Validation.TimeoutSeconds == 0 {
+		cfg.Validation.TimeoutSeconds = 120
+	}
+}
+
 func isAllowedImmutableSourceKind(kind string) bool {
 	switch kind {
 	case "static_file", "generated_schema":
@@ -529,6 +611,29 @@ max_active: 10
 max_diff_bytes: 131072
 require_clean_main: true
 allow_binary: false
+`,
+	},
+	{
+		Name: "review.yaml",
+		Body: `# Patch review configuration (Phase 6)
+# Controls risk scoring and rule-based review thresholds.
+max_diff_bytes: 131072
+high_risk_file_count: 20
+medium_risk_file_count: 5
+high_risk_line_count: 500
+medium_risk_line_count: 100
+require_tests_for_code_changes: false
+strict_model_review: false
+`,
+	},
+	{
+		Name: "validation.yaml",
+		Body: `# Test validation configuration (Phase 6)
+# Controls how test validation is executed during patch review.
+default_test_commands:
+  - go-test
+max_output_bytes: 65536
+timeout_seconds: 120
 `,
 	},
 }

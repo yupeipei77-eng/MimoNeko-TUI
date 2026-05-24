@@ -20,9 +20,11 @@ import (
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/reasonforge/reasonforge/internal/review"
 	"github.com/reasonforge/reasonforge/internal/scratchpad"
 	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/tools"
+	"github.com/reasonforge/reasonforge/internal/validation"
 	"github.com/reasonforge/reasonforge/internal/version"
 	"github.com/reasonforge/reasonforge/internal/worktree"
 )
@@ -170,6 +172,12 @@ func runDoctor(args []string, env Env) int {
 	fmt.Fprintf(env.Stdout, "worktree_max_active=%d\n", cfg.Worktree.MaxActive)
 	fmt.Fprintf(env.Stdout, "patch_require_clean_main=%v\n", cfg.Patch.RequireCleanMain)
 	fmt.Fprintf(env.Stdout, "patch_max_diff_bytes=%d\n", cfg.Patch.MaxDiffBytes)
+	fmt.Fprintf(env.Stdout, "review_max_diff_bytes=%d\n", cfg.Review.MaxDiffBytes)
+	fmt.Fprintf(env.Stdout, "review_high_risk_file_count=%d\n", cfg.Review.HighRiskFileCount)
+	fmt.Fprintf(env.Stdout, "review_high_risk_line_count=%d\n", cfg.Review.HighRiskLineCount)
+	fmt.Fprintf(env.Stdout, "review_strict_model_review=%v\n", cfg.Review.StrictModelReview)
+	fmt.Fprintf(env.Stdout, "validation_max_output_bytes=%d\n", cfg.Validation.MaxOutputBytes)
+	fmt.Fprintf(env.Stdout, "validation_timeout_seconds=%d\n", cfg.Validation.TimeoutSeconds)
 	return 0
 }
 
@@ -252,7 +260,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  tools        List available tools and their status")
 	fmt.Fprintln(w, "  tool-run     Execute a tool with arguments")
 	fmt.Fprintln(w, "  run          Run an agent task")
-	fmt.Fprintln(w, "  patch        Manage patches (list, preview, apply, discard)")
+	fmt.Fprintln(w, "  patch        Manage patches (list, preview, validate, review, apply, discard)")
 }
 
 func runModels(args []string, env Env) int {
@@ -702,7 +710,7 @@ func generateShortID() string {
 // runPatch handles the "patch" subcommand.
 func runPatch(args []string, env Env) int {
 	if len(args) == 0 {
-		fmt.Fprintln(env.Stderr, "patch requires a subcommand: list, preview, apply, discard")
+		fmt.Fprintln(env.Stderr, "patch requires a subcommand: list, preview, validate, review, apply, discard")
 		return 2
 	}
 
@@ -711,12 +719,16 @@ func runPatch(args []string, env Env) int {
 		return runPatchList(args[1:], env)
 	case "preview":
 		return runPatchPreview(args[1:], env)
+	case "validate":
+		return runPatchValidate(args[1:], env)
+	case "review":
+		return runPatchReview(args[1:], env)
 	case "apply":
 		return runPatchApply(args[1:], env)
 	case "discard":
 		return runPatchDiscard(args[1:], env)
 	default:
-		fmt.Fprintf(env.Stderr, "unknown patch subcommand %q (use: list, preview, apply, discard)\n", args[0])
+		fmt.Fprintf(env.Stderr, "unknown patch subcommand %q (use: list, preview, validate, review, apply, discard)\n", args[0])
 		return 2
 	}
 }
@@ -958,6 +970,435 @@ func runPatchDiscard(args []string, env Env) int {
 
 	fmt.Fprintf(env.Stdout, "worktree_id=%s state=discarded\n", wtID)
 	return 0
+}
+
+// runPatchValidate executes patch validation: preview + rule review + test validation.
+// Does NOT call model review. Does NOT auto-apply.
+func runPatchValidate(args []string, env Env) int {
+	fs := flag.NewFlagSet("patch validate", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	maxOutputBytes := fs.Int("max-output-bytes", 0, "max output bytes per test command")
+	timeoutSeconds := fs.Int("timeout-seconds", 0, "validation timeout in seconds")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	// Collect --test-command flags from remaining args
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "patch validate requires a worktree ID")
+		return 2
+	}
+	wtID := remaining[0]
+
+	// Parse additional --test-command flags from remaining positional args
+	var testCommands []string
+	for i := 1; i < len(remaining); i++ {
+		if remaining[i] == "--test-command" && i+1 < len(remaining) {
+			testCommands = append(testCommands, remaining[i+1])
+			i++
+		}
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+
+	wtMgr, cleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	// Get worktree path for validation
+	wtInfo, err := wtMgr.Get(context.Background(), wtID)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
+	// Build validation runner
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+	guard := tools.SafetyGuardFromConfig(cfg)
+	auditPath := tools.DefaultAuditLogPath(root)
+	auditLog, err := tools.NewAuditLog(auditPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+	defer auditLog.Close()
+	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+
+	valCfg := validationConfigFromConfig(cfg)
+	valRunner := validation.NewValidationRunner(toolRt, valCfg)
+
+	reviewCfg := reviewConfigFromConfig(cfg)
+	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, nil, reviewCfg)
+
+	// Use default test commands if none specified
+	if len(testCommands) == 0 {
+		testCommands = cfg.Validation.DefaultTestCommands
+	}
+
+	contract := task.DefaultContract(root, "patch validate")
+
+	report, err := reviewMgr.Review(context.Background(), review.PatchReviewRequest{
+		RepoRoot:       root,
+		WorktreeID:     wtID,
+		Contract:       contract,
+		RunTests:       true,
+		TestCommands:   testCommands,
+		UseModelReview: false,
+		MaxDiffBytes:   cfg.Review.MaxDiffBytes,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+
+	// Override validation RepoRoot with worktree path
+	// Re-run validation with correct worktree path if needed
+	if report.Validation == nil && len(testCommands) > 0 {
+		valReq := review.ValidationRequest{
+			RepoRoot:       wtInfo.Path,
+			TaskID:         contract.ID,
+			TestCommands:   testCommands,
+			MaxOutputBytes: *maxOutputBytes,
+			TimeoutSeconds: *timeoutSeconds,
+		}
+		if valReq.MaxOutputBytes <= 0 {
+			valReq.MaxOutputBytes = cfg.Validation.MaxOutputBytes
+		}
+		if valReq.TimeoutSeconds <= 0 {
+			valReq.TimeoutSeconds = cfg.Validation.TimeoutSeconds
+		}
+		valResult, valErr := valRunner.Validate(context.Background(), valReq)
+		if valErr != nil {
+			fmt.Fprintf(env.Stderr, "patch validate: validation failed: %v\n", valErr)
+		} else {
+			report.Validation = &valResult
+			// Recompute recommendation
+			report.Recommendation = recomputeRecommendation(report)
+		}
+	}
+
+	printReviewReport(env, report, cfg)
+
+	if report.Recommendation == review.RecommendationReject {
+		return 1
+	}
+	if report.Recommendation == review.RecommendationRequestChanges {
+		return 1
+	}
+	return 0
+}
+
+// runPatchReview executes patch review: preview + rule review + optional model review + optional test validation.
+// Does NOT auto-apply.
+func runPatchReview(args []string, env Env) int {
+	fs := flag.NewFlagSet("patch review", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	modelReview := fs.Bool("model-review", false, "use AI model review")
+	model := fs.String("model", "", "model name for review (default: from config)")
+	noTests := fs.Bool("no-tests", false, "skip test validation")
+	maxOutputBytes := fs.Int("max-output-bytes", 0, "max output bytes per test command")
+	timeoutSeconds := fs.Int("timeout-seconds", 0, "validation timeout in seconds")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "patch review requires a worktree ID")
+		return 2
+	}
+	wtID := remaining[0]
+
+	// Parse --test-command flags
+	var testCommands []string
+	for i := 1; i < len(remaining); i++ {
+		if remaining[i] == "--test-command" && i+1 < len(remaining) {
+			testCommands = append(testCommands, remaining[i+1])
+			i++
+		}
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+
+	wtMgr, cleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	// Get worktree path for validation
+	wtInfo, err := wtMgr.Get(context.Background(), wtID)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
+	// Build validation runner
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+	guard := tools.SafetyGuardFromConfig(cfg)
+	auditPath := tools.DefaultAuditLogPath(root)
+	auditLog, err := tools.NewAuditLog(auditPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+	defer auditLog.Close()
+	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+
+	valCfg := validationConfigFromConfig(cfg)
+	valRunner := validation.NewValidationRunner(toolRt, valCfg)
+
+	// Build model reviewer if requested
+	var modelReviewerInst review.ModelReviewer
+	if *modelReview {
+		providers := make(map[string]modelrouter.Provider, len(cfg.Models.Providers))
+		for _, providerCfg := range cfg.Models.Providers {
+			models := make([]string, 0, len(providerCfg.Models))
+			for _, modelCfg := range providerCfg.Models {
+				models = append(models, modelCfg.Name)
+			}
+			providers[providerCfg.Name] = modelrouter.NewOpenAICompatibleProvider(
+				providerCfg.Name,
+				providerCfg.BaseURL,
+				providerCfg.APIKeyEnv,
+				models,
+				nil,
+			)
+		}
+		fallbackChain, _ := modelrouter.BuildFallbackChainFromConfig(cfg)
+		cacheRegistryPath := cfg.Prefix.Cache.RegistryPath
+		if !filepath.IsAbs(cacheRegistryPath) {
+			cacheRegistryPath = filepath.Join(root, cacheRegistryPath)
+		}
+		cacheRegistry, _ := cache.NewJSONLCacheRegistry(cacheRegistryPath)
+		modelRouter := modelrouter.NewDefaultModelRouter(providers, fallbackChain, cfg.Models.Routing.DefaultModel, cacheRegistry)
+		modelReviewerInst = review.NewDefaultModelReviewer(modelRouter)
+	}
+
+	reviewCfg := reviewConfigFromConfig(cfg)
+	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, modelReviewerInst, reviewCfg)
+
+	// Use default test commands if none specified
+	if len(testCommands) == 0 {
+		testCommands = cfg.Validation.DefaultTestCommands
+	}
+
+	runTests := !*noTests
+
+	contract := task.DefaultContract(root, "patch review")
+
+	report, err := reviewMgr.Review(context.Background(), review.PatchReviewRequest{
+		RepoRoot:       root,
+		WorktreeID:     wtID,
+		Contract:       contract,
+		RunTests:       runTests,
+		TestCommands:   testCommands,
+		UseModelReview: *modelReview,
+		Model:          *model,
+		MaxDiffBytes:   cfg.Review.MaxDiffBytes,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+
+	// Re-run validation with worktree path if needed
+	if runTests && len(testCommands) > 0 && report.Validation != nil {
+		valReq := review.ValidationRequest{
+			RepoRoot:       wtInfo.Path,
+			TaskID:         contract.ID,
+			TestCommands:   testCommands,
+			MaxOutputBytes: *maxOutputBytes,
+			TimeoutSeconds: *timeoutSeconds,
+		}
+		if valReq.MaxOutputBytes <= 0 {
+			valReq.MaxOutputBytes = cfg.Validation.MaxOutputBytes
+		}
+		if valReq.TimeoutSeconds <= 0 {
+			valReq.TimeoutSeconds = cfg.Validation.TimeoutSeconds
+		}
+		valResult, valErr := valRunner.Validate(context.Background(), valReq)
+		if valErr == nil {
+			report.Validation = &valResult
+			report.Recommendation = recomputeRecommendation(report)
+		}
+	}
+
+	printReviewReport(env, report, cfg)
+
+	if report.Recommendation == review.RecommendationReject {
+		return 1
+	}
+	if report.Recommendation == review.RecommendationRequestChanges {
+		return 1
+	}
+	return 0
+}
+
+// printReviewReport outputs a PatchReviewReport in text format.
+func printReviewReport(env Env, report review.PatchReviewReport, cfg *config.Root) {
+	fmt.Fprintf(env.Stdout, "=== Patch Review Report ===\n")
+	fmt.Fprintf(env.Stdout, "worktree_id=%s\n", report.WorktreeID)
+	fmt.Fprintf(env.Stdout, "recommendation=%s\n", report.Recommendation)
+	fmt.Fprintf(env.Stdout, "risk_level=%s risk_score=%d\n", report.RiskScore.Level, report.RiskScore.Score)
+
+	if len(report.RiskScore.Reasons) > 0 {
+		fmt.Fprintf(env.Stdout, "risk_reasons:\n")
+		for _, r := range report.RiskScore.Reasons {
+			fmt.Fprintf(env.Stdout, "  - %s\n", r)
+		}
+	}
+
+	fmt.Fprintf(env.Stdout, "files_changed=%d additions=%d deletions=%d\n",
+		report.Preview.Summary.FilesChanged,
+		report.Preview.Summary.Additions,
+		report.Preview.Summary.Deletions)
+	fmt.Fprintf(env.Stdout, "has_binary=%v\n", report.Preview.Summary.HasBinary)
+
+	if len(report.Preview.Violations) > 0 {
+		fmt.Fprintf(env.Stdout, "violations=%d\n", len(report.Preview.Violations))
+		for _, v := range report.Preview.Violations {
+			fmt.Fprintf(env.Stdout, "  violation: path=%s reason=%s\n", v.Path, v.Reason)
+		}
+		// Do not print sensitive diff when violations exist
+	}
+
+	if len(report.Findings) > 0 {
+		fmt.Fprintf(env.Stdout, "findings=%d\n", len(report.Findings))
+		for _, f := range report.Findings {
+			fmt.Fprintf(env.Stdout, "  finding: severity=%s category=%s path=%s message=%s\n",
+				f.Severity, f.Category, f.Path, f.Message)
+		}
+	}
+
+	if report.Validation != nil {
+		fmt.Fprintf(env.Stdout, "validation_success=%v\n", report.Validation.Success)
+		fmt.Fprintf(env.Stdout, "validation_summary=%s\n", report.Validation.Summary)
+		for _, cmd := range report.Validation.Commands {
+			fmt.Fprintf(env.Stdout, "  command: name=%s success=%v exit_code=%d duration_ms=%d\n",
+				cmd.CommandName, cmd.Success, cmd.ExitCode, cmd.DurationMs)
+		}
+	}
+
+	if report.ModelReview != nil {
+		fmt.Fprintf(env.Stdout, "model_review:\n")
+		fmt.Fprintf(env.Stdout, "  provider=%s model=%s\n", report.ModelReview.Provider, report.ModelReview.Model)
+		fmt.Fprintf(env.Stdout, "  summary=%s\n", report.ModelReview.Summary)
+		fmt.Fprintf(env.Stdout, "  recommendation=%s\n", report.ModelReview.Recommendation)
+		for _, f := range report.ModelReview.Findings {
+			fmt.Fprintf(env.Stdout, "  finding: severity=%s category=%s message=%s\n",
+				f.Severity, f.Category, f.Message)
+		}
+	}
+
+	// Only print diff when no violations (don't leak sensitive diff)
+	if report.Preview.Diff != "" && len(report.Preview.Violations) == 0 {
+		fmt.Fprintln(env.Stdout, "--- diff ---")
+		maxBytes := cfg.Patch.MaxDiffBytes
+		if maxBytes <= 0 {
+			maxBytes = 131072
+		}
+		diff := report.Preview.Diff
+		if len(diff) > maxBytes {
+			diff = diff[:maxBytes] + "\n... (truncated)"
+		}
+		fmt.Fprint(env.Stdout, diff)
+	}
+}
+
+// recomputeRecommendation recomputes the recommendation based on the full report.
+func recomputeRecommendation(report review.PatchReviewReport) review.ReviewRecommendation {
+	// Check for critical findings
+	for _, f := range report.Findings {
+		if f.Severity == review.SeverityCritical {
+			return review.RecommendationReject
+		}
+	}
+	if len(report.Preview.Violations) > 0 {
+		return review.RecommendationReject
+	}
+	if report.Validation != nil && !report.Validation.Success {
+		return review.RecommendationRequestChanges
+	}
+	if report.RiskScore.Level == "critical" {
+		return review.RecommendationReject
+	}
+	if report.RiskScore.Level == "high" {
+		return review.RecommendationRequestChanges
+	}
+	if report.ModelReview != nil && report.ModelReview.Recommendation == review.RecommendationReject {
+		return review.RecommendationReject
+	}
+	if report.ModelReview != nil && report.ModelReview.Recommendation == review.RecommendationRequestChanges {
+		return review.RecommendationRequestChanges
+	}
+	return review.RecommendationApprove
+}
+
+// reviewConfigFromConfig creates a ReviewConfig from the project config.
+func reviewConfigFromConfig(cfg *config.Root) review.ReviewConfig {
+	return review.ReviewConfig{
+		MaxDiffBytes:               cfg.Review.MaxDiffBytes,
+		HighRiskFileCount:          cfg.Review.HighRiskFileCount,
+		MediumRiskFileCount:        cfg.Review.MediumRiskFileCount,
+		HighRiskLineCount:          cfg.Review.HighRiskLineCount,
+		MediumRiskLineCount:        cfg.Review.MediumRiskLineCount,
+		RequireTestsForCodeChanges: cfg.Review.RequireTestsForCodeChanges,
+		AllowBinary:                cfg.Patch.AllowBinary,
+		StrictModelReview:          cfg.Review.StrictModelReview,
+	}
+}
+
+// validationConfigFromConfig creates a ValidationConfig from the project config.
+func validationConfigFromConfig(cfg *config.Root) validation.ValidationConfig {
+	return validation.ValidationConfig{
+		DefaultTestCommands: cfg.Validation.DefaultTestCommands,
+		MaxOutputBytes:      cfg.Validation.MaxOutputBytes,
+		TimeoutSeconds:      cfg.Validation.TimeoutSeconds,
+	}
 }
 
 // buildWorktreeManager creates a WorktreeManager for the given root.

@@ -17,6 +17,8 @@ reasonforge tool-run <tool-name> [--key value ...]
 reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-approve-medium] [--worktree]
 reasonforge patch list
 reasonforge patch preview <worktree_id>
+reasonforge patch validate <worktree_id> [--test-command go-test]
+reasonforge patch review <worktree_id> [--model-review] [--test-command go-test] [--no-tests]
 reasonforge patch apply <worktree_id> [--dry-run]
 reasonforge patch discard <worktree_id>
 ```
@@ -35,14 +37,19 @@ reasonforge patch discard <worktree_id>
 - No tool execution without ApprovalPolicy consent for medium/high-risk tools.
 - Patch apply must not modify .git, .reasonforge, .env, *.pem, *.key files.
 - Worktree paths must stay under .reasonforge/worktrees.
+- Patch review recommendation is deterministic; safety rules override model suggestions.
+- Sensitive diff content is never sent to AI models when violations exist.
 
 ## Status
 
-Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), Phase 3 (Tool Runtime + Security Hardening), and Phase 4 (Agent Runtime) are implemented.
+Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), Phase 3 (Tool Runtime + Security Hardening), Phase 4 (Agent Runtime), and Phase 5 (Worktree Isolation + Patch Manager) are implemented.
 
-Phase 5 adds Worktree Isolation and Patch Manager:
-- WorktreeManager: isolated git worktree creation, removal, listing
-- PatchManager: diff preview, violation checking, apply, discard
-- AgentRuntime worktree integration: --worktree flag for isolated execution
-- CLI: `reasonforge run --worktree`, `reasonforge patch list/preview/apply/discard`
-- Safety: worktree IDs use crypto/rand, paths are sanitized, denied paths enforced
+Phase 6 adds Patch Review and Validation Pipeline:
+- PatchReviewManager: full review pipeline (rule review → risk scoring → test validation → optional model review → recommendation)
+- RuleBasedReviewer: violation detection, diff size, file/line counts, binary files, sensitive paths, test coverage, generated files
+- RiskScorer: numeric risk score (0-100) with low/medium/high/critical levels
+- ValidationRunner: test execution through ToolRuntime (test_run), output truncation, API key sanitization
+- ModelReviewer: optional AI review via ModelRouter with sensitive diff guard
+- Deterministic recommendation: approve / request_changes / reject
+- CLI: `reasonforge patch validate`, `reasonforge patch review`
+- Configuration: review.yaml, validation.yaml with safe defaults
