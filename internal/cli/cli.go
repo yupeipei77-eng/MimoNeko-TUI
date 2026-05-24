@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -23,6 +24,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/conversation"
 	"github.com/reasonforge/reasonforge/internal/dashboard"
 	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/reasonforge/reasonforge/internal/modelprofile"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/multiagent"
 	"github.com/reasonforge/reasonforge/internal/patch"
@@ -40,6 +42,7 @@ import (
 type Env struct {
 	Stdout io.Writer
 	Stderr io.Writer
+	Stdin  io.Reader
 	Getwd  func() (string, error)
 }
 
@@ -49,6 +52,9 @@ func Run(args []string, env Env) int {
 	}
 	if env.Stderr == nil {
 		env.Stderr = io.Discard
+	}
+	if env.Stdin == nil {
+		env.Stdin = os.Stdin
 	}
 	if env.Getwd == nil {
 		env.Getwd = func() (string, error) { return ".", nil }
@@ -70,6 +76,8 @@ func Run(args []string, env Env) int {
 		return runCacheReport(args[1:], env)
 	case "models":
 		return runModels(args[1:], env)
+	case "model":
+		return runModel(args[1:], env)
 	case "tools":
 		return runTools(args[1:], env)
 	case "tool-run":
@@ -287,6 +295,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  doctor       Validate local ReasonForge configuration")
 	fmt.Fprintln(w, "  cache-report Show prefix cache statistics")
 	fmt.Fprintln(w, "  models       Show model provider configuration")
+	fmt.Fprintln(w, "  model        Manage model providers and profiles")
 	fmt.Fprintln(w, "  tools        List available tools and their status")
 	fmt.Fprintln(w, "  tool-run     Execute a tool with arguments")
 	fmt.Fprintln(w, "  run          Run an agent task")
@@ -352,6 +361,395 @@ func runModels(args []string, env Env) int {
 	}
 
 	return 0
+}
+
+func runModel(args []string, env Env) int {
+	if len(args) == 0 {
+		fmt.Fprintln(env.Stderr, "model requires a subcommand")
+		fmt.Fprintln(env.Stderr, "Usage: reasonforge model <setup|list|discover|test|use|remove>")
+		return 2
+	}
+
+	switch args[0] {
+	case "setup":
+		return runModelSetup(args[1:], env)
+	case "list":
+		return runModelList(args[1:], env)
+	case "discover":
+		return runModelDiscover(args[1:], env)
+	case "test":
+		return runModelTest(args[1:], env)
+	case "use":
+		return runModelUse(args[1:], env)
+	case "remove":
+		return runModelRemove(args[1:], env)
+	default:
+		fmt.Fprintf(env.Stderr, "unknown model subcommand %q\n", args[0])
+		fmt.Fprintln(env.Stderr, "Usage: reasonforge model <setup|list|discover|test|use|remove>")
+		return 2
+	}
+}
+
+func runModelSetup(args []string, env Env) int {
+	fs := flag.NewFlagSet("model setup", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	preset := fs.String("preset", "", "provider preset")
+	provider := fs.String("provider", "", "provider name")
+	baseURL := fs.String("base-url", "", "OpenAI-compatible base URL")
+	apiKeyEnv := fs.String("api-key-env", "", "API key environment variable")
+	model := fs.String("model", "", "model name")
+	purpose := fs.String("purpose", "", "model purpose")
+	maxOutputTokens := fs.Int("max-output-tokens", 0, "maximum output tokens")
+	supportsPrefixCache := fs.Bool("supports-prefix-cache", false, "model supports provider-side prefix cache")
+	setDefault := fs.Bool("set-default", false, "set model as routing.default_model")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	opt := modelprofile.SetupOptions{
+		Preset:              *preset,
+		Provider:            *provider,
+		BaseURL:             *baseURL,
+		APIKeyEnv:           *apiKeyEnv,
+		Model:               *model,
+		Purpose:             *purpose,
+		MaxOutputTokens:     *maxOutputTokens,
+		SupportsPrefixCache: *supportsPrefixCache,
+		SetDefault:          *setDefault,
+	}
+	if !hasModelSetupFields(args) {
+		opt, err = promptModelSetupOptions(env)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "model setup failed: %v\n", err)
+			return 1
+		}
+	}
+
+	result, err := modelprofile.Setup(root, opt)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model setup failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		return 1
+	}
+	fmt.Fprintln(env.Stdout, "model provider configured")
+	fmt.Fprintf(env.Stdout, "provider=%s\n", result.Provider)
+	fmt.Fprintf(env.Stdout, "model=%s\n", result.Model)
+	if opt.SetDefault {
+		fmt.Fprintf(env.Stdout, "default_model=%s\n", result.Model)
+	}
+	for _, hint := range result.Hints {
+		fmt.Fprintln(env.Stdout, hint)
+	}
+	return 0
+}
+
+func runModelList(args []string, env Env) int {
+	fs := flag.NewFlagSet("model list", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	models, err := modelprofile.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model list failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(env.Stdout, "ReasonForge Model Profiles")
+	fmt.Fprintf(env.Stdout, "default_model=%s\n", models.Routing.DefaultModel)
+	fmt.Fprintln(env.Stdout)
+	for _, provider := range models.Providers {
+		fmt.Fprintf(env.Stdout, "provider=%s\n", provider.Name)
+		fmt.Fprintf(env.Stdout, "type=%s\n", provider.Type)
+		fmt.Fprintf(env.Stdout, "base_url=%s\n", provider.BaseURL)
+		fmt.Fprintf(env.Stdout, "api_key_env=%s\n", provider.APIKeyEnv)
+		fmt.Fprintf(env.Stdout, "api_key_status=%s\n", modelprofile.APIKeyStatus(provider.APIKeyEnv))
+		fmt.Fprintln(env.Stdout, "models:")
+		for _, model := range provider.Models {
+			fmt.Fprintf(env.Stdout, "- %s purpose=%s max_output_tokens=%d supports_prefix_cache=%v\n",
+				model.Name, model.Purpose, model.MaxOutputTokens, model.SupportsPrefixCache)
+		}
+		fmt.Fprintln(env.Stdout)
+	}
+	return 0
+}
+
+func runModelDiscover(args []string, env Env) int {
+	fs := flag.NewFlagSet("model discover", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	provider := fs.String("provider", "", "provider name")
+	baseURL := fs.String("base-url", "", "OpenAI-compatible base URL")
+	apiKeyEnv := fs.String("api-key-env", "", "API key environment variable")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	models, err := modelprofile.Discover(context.Background(), root, modelprofile.DiscoverOptions{
+		Provider:  *provider,
+		BaseURL:   *baseURL,
+		APIKeyEnv: *apiKeyEnv,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model discover failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		return 1
+	}
+	fmt.Fprintln(env.Stdout, "Available models:")
+	for _, model := range models {
+		fmt.Fprintf(env.Stdout, "* %s\n", model)
+	}
+	return 0
+}
+
+func runModelTest(args []string, env Env) int {
+	fs := flag.NewFlagSet("model test", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	provider := fs.String("provider", "", "provider name")
+	model := fs.String("model", "", "model name")
+	baseURL := fs.String("base-url", "", "OpenAI-compatible base URL")
+	apiKeyEnv := fs.String("api-key-env", "", "API key environment variable")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	result, err := modelprofile.Test(context.Background(), root, modelprofile.TestOptions{
+		Provider:  *provider,
+		Model:     *model,
+		BaseURL:   *baseURL,
+		APIKeyEnv: *apiKeyEnv,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model test failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		return 1
+	}
+	fmt.Fprintf(env.Stdout, "model=%s\n", result.Model)
+	fmt.Fprintf(env.Stdout, "provider=%s\n", result.Provider)
+	fmt.Fprintf(env.Stdout, "status=%s\n", result.Status)
+	fmt.Fprintf(env.Stdout, "latency_ms=%d\n", result.LatencyMs)
+	if result.Status != "ok" {
+		fmt.Fprintf(env.Stdout, "error=%s\n", modelprofile.SanitizeText(result.Error))
+		return 1
+	}
+	fmt.Fprintf(env.Stdout, "response=%s\n", result.Response)
+	return 0
+}
+
+func runModelUse(args []string, env Env) int {
+	fs := flag.NewFlagSet("model use", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(env.Stderr, "model use requires exactly one model name")
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	model := fs.Arg(0)
+	provider, err := modelprofile.Use(root, model)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model use failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		return 1
+	}
+	fmt.Fprintf(env.Stdout, "default_model=%s\n", model)
+	fmt.Fprintf(env.Stdout, "provider=%s\n", provider)
+	return 0
+}
+
+func runModelRemove(args []string, env Env) int {
+	fs := flag.NewFlagSet("model remove", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	provider := fs.String("provider", "", "provider name")
+	model := fs.String("model", "", "model name")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	err = modelprofile.Remove(root, modelprofile.RemoveOptions{Provider: *provider, Model: *model})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model remove failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		return 1
+	}
+	if strings.TrimSpace(*provider) != "" {
+		fmt.Fprintf(env.Stdout, "removed_provider=%s\n", *provider)
+	} else {
+		fmt.Fprintf(env.Stdout, "removed_model=%s\n", *model)
+	}
+	return 0
+}
+
+func hasModelSetupFields(args []string) bool {
+	for _, arg := range args {
+		name := strings.TrimLeft(arg, "-")
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		switch name {
+		case "preset", "provider", "base-url", "api-key-env", "model", "purpose", "max-output-tokens", "supports-prefix-cache", "set-default":
+			return true
+		}
+	}
+	return false
+}
+
+func promptModelSetupOptions(env Env) (modelprofile.SetupOptions, error) {
+	scanner := bufio.NewScanner(env.Stdin)
+	presetOrder := []string{"openai", "deepseek", "glm", "mimo", "custom-openai-compatible"}
+	fmt.Fprintln(env.Stdout, "Select provider preset:")
+	for i, name := range presetOrder {
+		fmt.Fprintf(env.Stdout, "%d. %s\n", i+1, name)
+	}
+	selected, err := promptLine(scanner, env.Stdout, "preset", "mimo")
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	if n := parsePresetNumber(selected, len(presetOrder)); n > 0 {
+		selected = presetOrder[n-1]
+	}
+	preset, ok := modelprofile.GetPreset(selected)
+	if !ok {
+		return modelprofile.SetupOptions{}, fmt.Errorf("unknown provider preset %q", selected)
+	}
+	provider, err := promptLine(scanner, env.Stdout, "provider name", preset.Name)
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	baseURL, err := promptLine(scanner, env.Stdout, "base_url", preset.BaseURL)
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	apiKeyEnv, err := promptLine(scanner, env.Stdout, "api_key_env", preset.APIKeyEnv)
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	defaultModel := ""
+	if len(preset.SuggestedModels) > 0 {
+		defaultModel = preset.SuggestedModels[0]
+	}
+	model, err := promptLine(scanner, env.Stdout, "model name", defaultModel)
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	purpose, err := promptLine(scanner, env.Stdout, "purpose", "coding")
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	maxTokensText, err := promptLine(scanner, env.Stdout, "max_output_tokens", "4096")
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	maxTokens := 4096
+	if strings.TrimSpace(maxTokensText) != "" {
+		if _, scanErr := fmt.Sscanf(maxTokensText, "%d", &maxTokens); scanErr != nil {
+			return modelprofile.SetupOptions{}, fmt.Errorf("invalid max_output_tokens %q", maxTokensText)
+		}
+	}
+	prefixCacheText, err := promptLine(scanner, env.Stdout, "supports_prefix_cache", "false")
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	setDefaultText, err := promptLine(scanner, env.Stdout, "set as default?", "yes")
+	if err != nil {
+		return modelprofile.SetupOptions{}, err
+	}
+	return modelprofile.SetupOptions{
+		Preset:              selected,
+		Provider:            provider,
+		BaseURL:             baseURL,
+		APIKeyEnv:           apiKeyEnv,
+		Model:               model,
+		Purpose:             purpose,
+		MaxOutputTokens:     maxTokens,
+		SupportsPrefixCache: parseYes(prefixCacheText),
+		SetDefault:          parseYes(setDefaultText),
+	}, nil
+}
+
+func promptLine(scanner *bufio.Scanner, w io.Writer, label, defaultValue string) (string, error) {
+	if defaultValue != "" {
+		fmt.Fprintf(w, "%s [%s]: ", label, defaultValue)
+	} else {
+		fmt.Fprintf(w, "%s: ", label)
+	}
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		if defaultValue != "" {
+			return defaultValue, nil
+		}
+		return "", errors.New("input ended before setup completed")
+	}
+	value := strings.TrimSpace(scanner.Text())
+	if value == "" {
+		return defaultValue, nil
+	}
+	return value, nil
+}
+
+func parsePresetNumber(value string, max int) int {
+	var n int
+	if _, err := fmt.Sscanf(strings.TrimSpace(value), "%d", &n); err != nil {
+		return 0
+	}
+	if n < 1 || n > max {
+		return 0
+	}
+	return n
+}
+
+func parseYes(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "y", "yes", "true", "1":
+		return true
+	default:
+		return false
+	}
 }
 
 // apiKeyStatus checks whether an API key environment variable is configured.
