@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/review"
 	"github.com/reasonforge/reasonforge/internal/tools"
 )
@@ -46,8 +47,9 @@ type ValidationConfig struct {
 
 // ValidationRunner executes test commands through ToolRuntime.
 type ValidationRunner struct {
-	toolRuntime tools.ToolRuntime
-	cfg         ValidationConfig
+	toolRuntime  tools.ToolRuntime
+	cfg          ValidationConfig
+	eventEmitter events.EventEmitter
 }
 
 // NewValidationRunner creates a new ValidationRunner.
@@ -59,8 +61,16 @@ func NewValidationRunner(toolRuntime tools.ToolRuntime, cfg ValidationConfig) *V
 		cfg.TimeoutSeconds = 120
 	}
 	return &ValidationRunner{
-		toolRuntime: toolRuntime,
-		cfg:         cfg,
+		toolRuntime:  toolRuntime,
+		cfg:          cfg,
+		eventEmitter: &events.NoopEventEmitter{},
+	}
+}
+
+// SetEventEmitter sets the optional event emitter for validation events.
+func (r *ValidationRunner) SetEventEmitter(emitter events.EventEmitter) {
+	if emitter != nil {
+		r.eventEmitter = emitter
 	}
 }
 
@@ -82,6 +92,17 @@ func (r *ValidationRunner) Validate(ctx context.Context, req review.ValidationRe
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = r.cfg.TimeoutSeconds
 	}
+
+	validationStartedAt := time.Now().UTC()
+	events.SafeEmit(r.eventEmitter, ctx, events.RunEvent{
+		ID:        mustGenerateValidationEventID(),
+		Type:      events.EventValidationStarted,
+		Source:    "validation",
+		Status:    "started",
+		Message:   fmt.Sprintf("Validation started with %d commands", len(req.TestCommands)),
+		StartedAt: validationStartedAt,
+		Metadata:  map[string]string{"command_count": fmt.Sprintf("%d", len(req.TestCommands))},
+	})
 
 	// Create timeout context for the entire validation
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
@@ -147,11 +168,37 @@ func (r *ValidationRunner) Validate(ctx context.Context, req review.ValidationRe
 		summary = fmt.Sprintf("%d of %d commands failed", failed, len(commands))
 	}
 
+	validationFinishedAt := time.Now().UTC()
+	finishStatus := "succeeded"
+	if !allSuccess {
+		finishStatus = "failed"
+	}
+	events.SafeEmit(r.eventEmitter, ctx, events.RunEvent{
+		ID:         mustGenerateValidationEventID(),
+		Type:       events.EventValidationFinished,
+		Source:     "validation",
+		Status:     finishStatus,
+		Message:    summary,
+		StartedAt:  validationStartedAt,
+		FinishedAt: validationFinishedAt,
+		DurationMs: validationFinishedAt.Sub(validationStartedAt).Milliseconds(),
+		Metadata:   map[string]string{"success": fmt.Sprintf("%v", allSuccess)},
+	})
+
 	return review.ValidationResult{
 		Success:  allSuccess,
 		Commands: commands,
 		Summary:  summary,
 	}, nil
+}
+
+// mustGenerateValidationEventID generates a unique event ID for validation events.
+func mustGenerateValidationEventID() string {
+	id, err := events.GenerateEventID()
+	if err != nil {
+		return "evt_error"
+	}
+	return id
 }
 
 // apiKeyPatterns are substrings that indicate potential API key leakage.

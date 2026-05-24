@@ -7,6 +7,7 @@ import (
 
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/contextengine"
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/review"
 	"github.com/reasonforge/reasonforge/internal/worktree"
@@ -20,6 +21,12 @@ type Dependencies struct {
 	ReviewMgr       review.PatchReviewManager
 	WorktreeMgr     worktree.WorktreeManager
 	CheckpointStore MultiAgentCheckpointStore
+
+	// EventEmitter is optional. When provided, the multi-agent runtime
+	// emits structured events (run.started, planner.started, coder.started,
+	// reviewer.started, etc.) for progress tracking. When nil, no events
+	// are emitted.
+	EventEmitter events.EventEmitter
 }
 
 // DefaultMultiAgentRuntime implements MultiAgentRuntime with a
@@ -73,24 +80,77 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 
 	result.State = MultiAgentStateRunning
 
+	// Emit run.started event
+	events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+		ID:        mustGenerateMultiAgentEventID(),
+		RunID:     runID,
+		TaskID:    req.TaskID,
+		Type:      events.EventRunStarted,
+		Source:    "multiagent",
+		Status:    "started",
+		Message:   "Multi-agent run started",
+		StartedAt: result.StartedAt,
+		Metadata:  map[string]string{"goal": req.Goal, "max_iterations": fmt.Sprintf("%d", maxIter)},
+	})
+
 	// Build agents
 	planner := NewPlannerAgent(rt.deps.ModelRouter, rt.deps.ContextEngine, req.Model)
 	coder := NewCoderAgent(rt.deps.SingleAgent)
 	reviewer := NewReviewerAgent(rt.deps.ReviewMgr, rt.deps.WorktreeMgr)
 
 	// === Phase 1: Planner ===
+	plannerStartedAt := time.Now().UTC()
+	events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+		ID:        mustGenerateMultiAgentEventID(),
+		RunID:     runID,
+		TaskID:    req.TaskID,
+		Type:      events.EventPlannerStarted,
+		Source:    "multiagent",
+		Status:    "started",
+		Message:   "Planner started",
+		StartedAt: plannerStartedAt,
+	})
+
 	planResult, err := planner.Plan(ctx, PlanRequest{
 		Goal:     req.Goal,
 		Contract: req.Contract,
 		RepoRoot: req.RepoRoot,
 	})
+	plannerFinishedAt := time.Now().UTC()
 	if err != nil {
+		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+			ID:         mustGenerateMultiAgentEventID(),
+			RunID:      runID,
+			TaskID:     req.TaskID,
+			Type:       events.EventPlannerFinished,
+			Source:     "multiagent",
+			Status:     "failed",
+			Message:    "Planner failed",
+			StartedAt:  plannerStartedAt,
+			FinishedAt: plannerFinishedAt,
+			DurationMs: plannerFinishedAt.Sub(plannerStartedAt).Milliseconds(),
+			Error:      err.Error(),
+		})
 		result.State = MultiAgentStateFailed
 		result.Error = fmt.Sprintf("planner failed: %v", err)
-		result.FinishedAt = time.Now().UTC()
+		result.FinishedAt = plannerFinishedAt
 		rt.saveCheckpointOrFail(ctx, &result, "planner_failed")
 		return result, nil
 	}
+
+	events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+		ID:         mustGenerateMultiAgentEventID(),
+		RunID:      runID,
+		TaskID:     req.TaskID,
+		Type:       events.EventPlannerFinished,
+		Source:     "multiagent",
+		Status:     "succeeded",
+		Message:    "Plan generated",
+		StartedAt:  plannerStartedAt,
+		FinishedAt: plannerFinishedAt,
+		DurationMs: plannerFinishedAt.Sub(plannerStartedAt).Milliseconds(),
+		Metadata:   map[string]string{"plan_steps": fmt.Sprintf("%d", len(planResult.Plan.Steps)), "risk_level": planResult.Plan.RiskLevel},
+	})
 
 	sharedCtx.Plan = planResult.Plan
 	sharedCtx.AddMessage(planResult.Message)
@@ -130,6 +190,20 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 		feedback := sharedCtx.LastReviewerMessage()
 
 		// === Coder ===
+		coderStartedAt := time.Now().UTC()
+		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+			ID:         mustGenerateMultiAgentEventID(),
+			RunID:      runID,
+			TaskID:     req.TaskID,
+			WorktreeID: worktreeID,
+			Type:       events.EventCoderStarted,
+			Source:     "multiagent",
+			Status:     "started",
+			Message:    fmt.Sprintf("Coder started (iteration %d)", iterIndex),
+			StartedAt:  coderStartedAt,
+			Metadata:   map[string]string{"iteration": fmt.Sprintf("%d", iterIndex)},
+		})
+
 		coderResult, err := coder.Code(ctx, CodeRequest{
 			Goal:       req.Goal,
 			Plan:       planResult.Plan,
@@ -140,10 +214,26 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			DryRun:     req.DryRun,
 			Feedback:   feedback,
 		})
+		coderFinishedAt := time.Now().UTC()
 		if err != nil {
+			events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+				ID:         mustGenerateMultiAgentEventID(),
+				RunID:      runID,
+				TaskID:     req.TaskID,
+				WorktreeID: worktreeID,
+				Type:       events.EventCoderFinished,
+				Source:     "multiagent",
+				Status:     "failed",
+				Message:    fmt.Sprintf("Coder failed (iteration %d)", iterIndex),
+				StartedAt:  coderStartedAt,
+				FinishedAt: coderFinishedAt,
+				DurationMs: coderFinishedAt.Sub(coderStartedAt).Milliseconds(),
+				Error:      err.Error(),
+				Metadata:   map[string]string{"iteration": fmt.Sprintf("%d", iterIndex)},
+			})
 			result.State = MultiAgentStateFailed
 			result.Error = fmt.Sprintf("coder failed at iteration %d: %v", iterIndex, err)
-			result.FinishedAt = time.Now().UTC()
+			result.FinishedAt = coderFinishedAt
 			rt.saveCheckpointOrFail(ctx, &result, "coder_failed")
 			return result, nil
 		}
@@ -153,6 +243,21 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 		sharedCtx.WorktreeID = worktreeID
 		sharedCtx.AddMessage(coderResult.Message)
 
+		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+			ID:         mustGenerateMultiAgentEventID(),
+			RunID:      runID,
+			TaskID:     req.TaskID,
+			WorktreeID: worktreeID,
+			Type:       events.EventCoderFinished,
+			Source:     "multiagent",
+			Status:     "succeeded",
+			Message:    fmt.Sprintf("Coding finished (iteration %d)", iterIndex),
+			StartedAt:  coderStartedAt,
+			FinishedAt: coderFinishedAt,
+			DurationMs: coderFinishedAt.Sub(coderStartedAt).Milliseconds(),
+			Metadata:   map[string]string{"iteration": fmt.Sprintf("%d", iterIndex), "worktree_id": worktreeID},
+		})
+
 		if err := rt.saveCheckpoint(ctx, result, "coder_done"); err != nil {
 			result.State = MultiAgentStateFailed
 			result.Error = fmt.Sprintf("iteration %d coder checkpoint failed: %v", iterIndex, err)
@@ -161,6 +266,20 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 		}
 
 		// === Reviewer ===
+		reviewerStartedAt := time.Now().UTC()
+		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+			ID:         mustGenerateMultiAgentEventID(),
+			RunID:      runID,
+			TaskID:     req.TaskID,
+			WorktreeID: worktreeID,
+			Type:       events.EventReviewerStarted,
+			Source:     "multiagent",
+			Status:     "started",
+			Message:    fmt.Sprintf("Reviewer started (iteration %d)", iterIndex),
+			StartedAt:  reviewerStartedAt,
+			Metadata:   map[string]string{"iteration": fmt.Sprintf("%d", iterIndex)},
+		})
+
 		reviewResult, err := reviewer.Review(ctx, ReviewRequest{
 			CoderResult:    coderResult.Result,
 			Contract:       req.Contract,
@@ -172,13 +291,48 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			UseModelReview: req.UseModelReview,
 			Model:          req.Model,
 		})
+		reviewerFinishedAt := time.Now().UTC()
 		if err != nil {
+			events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+				ID:         mustGenerateMultiAgentEventID(),
+				RunID:      runID,
+				TaskID:     req.TaskID,
+				WorktreeID: worktreeID,
+				Type:       events.EventReviewerFinished,
+				Source:     "multiagent",
+				Status:     "failed",
+				Message:    fmt.Sprintf("Reviewer failed (iteration %d)", iterIndex),
+				StartedAt:  reviewerStartedAt,
+				FinishedAt: reviewerFinishedAt,
+				DurationMs: reviewerFinishedAt.Sub(reviewerStartedAt).Milliseconds(),
+				Error:      err.Error(),
+				Metadata:   map[string]string{"iteration": fmt.Sprintf("%d", iterIndex)},
+			})
 			result.State = MultiAgentStateFailed
 			result.Error = fmt.Sprintf("reviewer failed at iteration %d: %v", iterIndex, err)
-			result.FinishedAt = time.Now().UTC()
+			result.FinishedAt = reviewerFinishedAt
 			rt.saveCheckpointOrFail(ctx, &result, "reviewer_failed")
 			return result, nil
 		}
+
+		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+			ID:         mustGenerateMultiAgentEventID(),
+			RunID:      runID,
+			TaskID:     req.TaskID,
+			WorktreeID: worktreeID,
+			Type:       events.EventReviewerFinished,
+			Source:     "multiagent",
+			Status:     "succeeded",
+			Message:    fmt.Sprintf("Review completed (iteration %d)", iterIndex),
+			StartedAt:  reviewerStartedAt,
+			FinishedAt: reviewerFinishedAt,
+			DurationMs: reviewerFinishedAt.Sub(reviewerStartedAt).Milliseconds(),
+			Metadata: map[string]string{
+				"iteration":      fmt.Sprintf("%d", iterIndex),
+				"recommendation": string(reviewResult.Recommendation),
+				"risk_level":     reviewResult.Report.RiskScore.Level,
+			},
+		})
 
 		sharedCtx.AddReviewReport(reviewResult.Report)
 		sharedCtx.AddMessage(reviewResult.Message)
@@ -203,6 +357,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			result.FinalRecommendation = review.RecommendationApprove
 			result.FinalMessage = reviewResult.Message.Content
 			result.FinishedAt = time.Now().UTC()
+			rt.emitTerminalEvent(ctx, result, events.EventRunSucceeded, "succeeded", "Multi-agent run succeeded")
 			rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 			return result, nil
 
@@ -211,6 +366,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			result.FinalRecommendation = review.RecommendationReject
 			result.FinalMessage = reviewResult.Message.Content
 			result.FinishedAt = time.Now().UTC()
+			rt.emitTerminalEvent(ctx, result, events.EventRunFailed, "failed", "Multi-agent run rejected")
 			rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 			return result, nil
 
@@ -221,6 +377,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 				result.FinalRecommendation = review.RecommendationRequestChanges
 				result.FinalMessage = fmt.Sprintf("Max iterations (%d) reached with request_changes recommendation", maxIter)
 				result.FinishedAt = time.Now().UTC()
+				rt.emitTerminalEvent(ctx, result, events.EventRunFailed, "failed", result.FinalMessage)
 				rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 				return result, nil
 			}
@@ -232,8 +389,28 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 	result.State = MultiAgentStateFailed
 	result.Error = fmt.Sprintf("iteration loop exited unexpectedly after %d iterations", maxIter)
 	result.FinishedAt = time.Now().UTC()
+	rt.emitTerminalEvent(ctx, result, events.EventRunFailed, "failed", result.Error)
 	rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 	return result, nil
+}
+
+// emitTerminalEvent emits a terminal event (run.succeeded/failed/cancelled) for the multi-agent run.
+func (rt *DefaultMultiAgentRuntime) emitTerminalEvent(ctx context.Context, result MultiAgentRunResult, eventType events.EventType, status string, message string) {
+	events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
+		ID:         mustGenerateMultiAgentEventID(),
+		RunID:      result.RunID,
+		TaskID:     result.TaskID,
+		WorktreeID: result.WorktreeID,
+		Type:       eventType,
+		Source:     "multiagent",
+		Status:     status,
+		Message:    message,
+		StartedAt:  result.StartedAt,
+		FinishedAt: result.FinishedAt,
+		DurationMs: result.FinishedAt.Sub(result.StartedAt).Milliseconds(),
+		Error:      result.Error,
+		Metadata:   map[string]string{"iterations": fmt.Sprintf("%d", len(result.Iterations))},
+	})
 }
 
 // saveCheckpoint persists the current multi-agent run state.
@@ -281,4 +458,13 @@ func (rt *DefaultMultiAgentRuntime) saveCheckpointOrFail(ctx context.Context, re
 		result.Error = fmt.Sprintf("checkpoint failed (%s): %v", phase, err)
 		result.FinishedAt = time.Now().UTC()
 	}
+}
+
+// mustGenerateMultiAgentEventID generates a unique event ID for multi-agent events.
+func mustGenerateMultiAgentEventID() string {
+	id, err := events.GenerateEventID()
+	if err != nil {
+		return "evt_error"
+	}
+	return id
 }

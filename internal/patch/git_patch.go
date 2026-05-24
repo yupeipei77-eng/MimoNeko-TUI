@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/tools"
 	"github.com/reasonforge/reasonforge/internal/worktree"
@@ -33,6 +34,7 @@ type GitPatchManager struct {
 	maxDiffBytes     int
 	requireCleanMain bool
 	allowBinary      bool
+	eventEmitter     events.EventEmitter
 }
 
 // GitPatchManagerConfig configures the GitPatchManager.
@@ -61,14 +63,44 @@ func NewGitPatchManager(worktreeMgr worktree.WorktreeManager, cfg GitPatchManage
 		maxDiffBytes:     cfg.MaxDiffBytes,
 		requireCleanMain: cfg.RequireCleanMain,
 		allowBinary:      cfg.AllowBinary,
+		eventEmitter:     &events.NoopEventEmitter{},
+	}
+}
+
+// SetEventEmitter sets the optional event emitter for patch events.
+func (m *GitPatchManager) SetEventEmitter(emitter events.EventEmitter) {
+	if emitter != nil {
+		m.eventEmitter = emitter
 	}
 }
 
 // Preview generates a diff preview for the worktree's changes.
 func (m *GitPatchManager) Preview(ctx context.Context, req PatchPreviewRequest) (PatchPreview, error) {
+	previewStartedAt := time.Now().UTC()
+	events.SafeEmit(m.eventEmitter, ctx, events.RunEvent{
+		ID:        mustGeneratePatchEventID(),
+		Type:      events.EventPatchPreviewStarted,
+		Source:    "patch",
+		Status:    "started",
+		Message:   "Patch preview started",
+		StartedAt: previewStartedAt,
+		Metadata:  map[string]string{"worktree_id": req.WorktreeID},
+	})
+
 	// 1. Get worktree info
 	info, err := m.worktreeMgr.Get(ctx, req.WorktreeID)
 	if err != nil {
+		events.SafeEmit(m.eventEmitter, ctx, events.RunEvent{
+			ID:         mustGeneratePatchEventID(),
+			Type:       events.EventPatchPreviewFinished,
+			Source:     "patch",
+			Status:     "failed",
+			Message:    "Patch preview failed: worktree error",
+			StartedAt:  previewStartedAt,
+			FinishedAt: time.Now().UTC(),
+			DurationMs: time.Since(previewStartedAt).Milliseconds(),
+			Error:      err.Error(),
+		})
 		return PatchPreview{}, fmt.Errorf("patch: get worktree: %w", err)
 	}
 
@@ -116,6 +148,25 @@ func (m *GitPatchManager) Preview(ctx context.Context, req PatchPreviewRequest) 
 		Violations:   violations,
 		GeneratedAt:  time.Now().UTC(),
 	}
+
+	previewFinishedAt := time.Now().UTC()
+	events.SafeEmit(m.eventEmitter, ctx, events.RunEvent{
+		ID:         mustGeneratePatchEventID(),
+		Type:       events.EventPatchPreviewFinished,
+		Source:     "patch",
+		Status:     "succeeded",
+		Message:    fmt.Sprintf("Patch preview completed: %d files changed", summary.FilesChanged),
+		StartedAt:  previewStartedAt,
+		FinishedAt: previewFinishedAt,
+		DurationMs: previewFinishedAt.Sub(previewStartedAt).Milliseconds(),
+		Metadata: map[string]string{
+			"worktree_id":   req.WorktreeID,
+			"risk_level":    riskLevel,
+			"files_changed": fmt.Sprintf("%d", summary.FilesChanged),
+			"additions":     fmt.Sprintf("%d", summary.Additions),
+			"deletions":     fmt.Sprintf("%d", summary.Deletions),
+		},
+	})
 
 	return preview, nil
 }
@@ -609,4 +660,13 @@ func matchesAnyPattern(relPath string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// mustGeneratePatchEventID generates a unique event ID for patch events.
+func mustGeneratePatchEventID() string {
+	id, err := events.GenerateEventID()
+	if err != nil {
+		return "evt_error"
+	}
+	return id
 }

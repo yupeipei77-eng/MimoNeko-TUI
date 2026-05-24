@@ -17,6 +17,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/config"
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/conversation"
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/multiagent"
 	"github.com/reasonforge/reasonforge/internal/patch"
@@ -73,6 +74,12 @@ func Run(args []string, env Env) int {
 		return runPatch(args[1:], env)
 	case "multi-run":
 		return runMultiAgent(args[1:], env)
+	case "runs":
+		return runRuns(args[1:], env)
+	case "run-status":
+		return runRunStatus(args[1:], env)
+	case "run-events":
+		return runRunEvents(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -185,6 +192,12 @@ func runDoctor(args []string, env Env) int {
 	fmt.Fprintf(env.Stdout, "multiagent_max_allowed_iterations=%d\n", cfg.MultiAgent.MaxAllowedIterations)
 	fmt.Fprintf(env.Stdout, "multiagent_default_worktree=%v\n", cfg.MultiAgent.DefaultWorktree)
 	fmt.Fprintf(env.Stdout, "multiagent_default_dry_run=%v\n", cfg.MultiAgent.DefaultDryRun)
+	fmt.Fprintf(env.Stdout, "events_enabled=%v\n", cfg.Events.Enabled)
+	fmt.Fprintf(env.Stdout, "events_store_path=%s\n", cfg.Events.StorePath)
+	fmt.Fprintf(env.Stdout, "events_max_message_bytes=%d\n", cfg.Events.MaxMessageBytes)
+	fmt.Fprintf(env.Stdout, "events_emit_tool_events=%v\n", cfg.Events.EmitToolEvents)
+	fmt.Fprintf(env.Stdout, "events_emit_patch_events=%v\n", cfg.Events.EmitPatchEvents)
+	fmt.Fprintf(env.Stdout, "events_emit_validation_events=%v\n", cfg.Events.EmitValidationEvents)
 	return 0
 }
 
@@ -269,6 +282,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  run          Run an agent task")
 	fmt.Fprintln(w, "  multi-run    Run multi-agent task (Planner->Coder->Reviewer)")
 	fmt.Fprintln(w, "  patch        Manage patches (list, preview, validate, review, apply, discard)")
+	fmt.Fprintln(w, "  runs         List recent runs with state and progress")
+	fmt.Fprintln(w, "  run-status   Show detailed status for a specific run")
+	fmt.Fprintln(w, "  run-events   Show events for a specific run")
 }
 
 func runModels(args []string, env Env) int {
@@ -812,6 +828,14 @@ func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.
 	reviewCfg := reviewConfigFromConfig(cfg)
 	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, modelReviewerInst, reviewCfg)
 
+	// Inject event emitter into sub-components if available
+	if agentDeps.EventEmitter != nil {
+		emitter := agentDeps.EventEmitter
+		patchMgr.SetEventEmitter(emitter)
+		valRunner.SetEventEmitter(emitter)
+		reviewMgr.SetEventEmitter(emitter)
+	}
+
 	// Build checkpoint store
 	cpPath := multiagent.DefaultMultiAgentCheckpointPath(root)
 	cpStore, err := multiagent.NewJSONLMultiAgentCheckpointStore(cpPath)
@@ -831,6 +855,7 @@ func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.
 		ReviewMgr:       reviewMgr,
 		WorktreeMgr:     wtMgr,
 		CheckpointStore: cpStore,
+		EventEmitter:    agentDeps.EventEmitter,
 	}
 
 	cleanup := func() {
@@ -928,6 +953,27 @@ func buildAgentDependencies(root string, cfg *config.Root) (agent.Dependencies, 
 	}
 
 	cleanup := func() { auditLog.Close() }
+
+	// Set up event system if enabled
+	if cfg.Events.Enabled {
+		eventStorePath := cfg.Events.StorePath
+		if !filepath.IsAbs(eventStorePath) {
+			eventStorePath = filepath.Join(root, eventStorePath)
+		}
+		eventStore, eventErr := events.NewJSONLRunEventStore(eventStorePath)
+		if eventErr == nil {
+			bus := events.NewDefaultEventBus(eventStore)
+			deps.EventEmitter = events.NewEventEmitter(bus)
+			// Close event store on cleanup
+			prevCleanup := cleanup
+			cleanup = func() {
+				eventStore.Close()
+				prevCleanup()
+			}
+		}
+		// EventStore initialization failure is non-fatal;
+		// the runtime proceeds without event recording.
+	}
 
 	return deps, cleanup, nil
 }
@@ -1576,4 +1622,233 @@ func patchConfigFromConfig(cfg *config.Root) patch.GitPatchManagerConfig {
 		RequireCleanMain: cfg.Patch.RequireCleanMain,
 		AllowBinary:      cfg.Patch.AllowBinary,
 	}
+}
+
+// openEventStoreForRead opens the JSONLRunEventStore for read-only queries.
+// Returns the store, a cleanup function, and any error.
+func openEventStoreForRead(root string, cfg *config.Root) (*events.JSONLRunEventStore, func(), error) {
+	eventStorePath := cfg.Events.StorePath
+	if !filepath.IsAbs(eventStorePath) {
+		eventStorePath = filepath.Join(root, eventStorePath)
+	}
+	store, err := events.NewJSONLRunEventStore(eventStorePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("event store: %w", err)
+	}
+	cleanup := func() { store.Close() }
+	return store, cleanup, nil
+}
+
+// runRuns handles the "runs" command - lists recent runs.
+func runRuns(args []string, env Env) int {
+	fs := flag.NewFlagSet("runs", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	limit := fs.Int("limit", 20, "max number of runs to show")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "runs failed: %v\n", err)
+		return 1
+	}
+
+	if !cfg.Events.Enabled {
+		fmt.Fprintln(env.Stderr, "events system is disabled; enable in .reasonforge/events.yaml")
+		return 1
+	}
+
+	store, cleanup, err := openEventStoreForRead(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "runs failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	summaries, err := store.ListRuns(context.Background())
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "runs failed: %v\n", err)
+		return 1
+	}
+
+	if len(summaries) == 0 {
+		fmt.Fprintln(env.Stdout, "No runs found.")
+		return 0
+	}
+
+	// Apply limit
+	if *limit > 0 && len(summaries) > *limit {
+		summaries = summaries[:*limit]
+	}
+
+	fmt.Fprintln(env.Stdout, "ReasonForge Runs")
+	fmt.Fprintf(env.Stdout, "%-36s %-12s %-20s %s\n", "RUN ID", "STATE", "STARTED", "LAST EVENT")
+	for _, s := range summaries {
+		started := "-"
+		if !s.StartedAt.IsZero() {
+			started = s.StartedAt.Format("2006-01-02 15:04:05")
+		}
+		fmt.Fprintf(env.Stdout, "%-36s %-12s %-20s %s\n", s.RunID, s.State, started, s.LastEventType)
+	}
+
+	return 0
+}
+
+// runRunStatus handles the "run-status" command - shows detailed status for a run.
+func runRunStatus(args []string, env Env) int {
+	fs := flag.NewFlagSet("run-status", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "run-status requires a run ID")
+		return 2
+	}
+	runID := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run-status failed: %v\n", err)
+		return 1
+	}
+
+	if !cfg.Events.Enabled {
+		fmt.Fprintln(env.Stderr, "events system is disabled; enable in .reasonforge/events.yaml")
+		return 1
+	}
+
+	store, cleanup, err := openEventStoreForRead(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run-status failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	timeline, err := store.GetTimeline(context.Background(), runID)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run-status failed: %v\n", err)
+		return 1
+	}
+
+	if timeline.RunID == "" {
+		fmt.Fprintf(env.Stderr, "run %q not found\n", runID)
+		return 1
+	}
+
+	progress := events.ComputeProgressState(timeline)
+
+	fmt.Fprintf(env.Stdout, "run_id=%s\n", progress.RunID)
+	fmt.Fprintf(env.Stdout, "state=%s\n", progress.State)
+	if progress.CurrentPhase != "" {
+		fmt.Fprintf(env.Stdout, "current_phase=%s\n", progress.CurrentPhase)
+	}
+	fmt.Fprintf(env.Stdout, "percent=%d\n", progress.Percent)
+	fmt.Fprintf(env.Stdout, "completed_steps=%d\n", progress.CompletedSteps)
+	fmt.Fprintf(env.Stdout, "total_steps=%d\n", progress.TotalSteps)
+	fmt.Fprintf(env.Stdout, "last_event=%s\n", progress.LastEvent.Type)
+	if progress.LastEvent.WorktreeID != "" {
+		fmt.Fprintf(env.Stdout, "worktree_id=%s\n", progress.LastEvent.WorktreeID)
+	}
+	if !timeline.StartedAt.IsZero() {
+		fmt.Fprintf(env.Stdout, "started_at=%s\n", timeline.StartedAt.Format(time.RFC3339))
+	}
+	if !timeline.FinishedAt.IsZero() {
+		fmt.Fprintf(env.Stdout, "finished_at=%s\n", timeline.FinishedAt.Format(time.RFC3339))
+	}
+	if timeline.DurationMs > 0 {
+		fmt.Fprintf(env.Stdout, "duration_ms=%d\n", timeline.DurationMs)
+	}
+
+	return 0
+}
+
+// runRunEvents handles the "run-events" command - shows events for a run.
+func runRunEvents(args []string, env Env) int {
+	fs := flag.NewFlagSet("run-events", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "run-events requires a run ID")
+		return 2
+	}
+	runID := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run-events failed: %v\n", err)
+		return 1
+	}
+
+	if !cfg.Events.Enabled {
+		fmt.Fprintln(env.Stderr, "events system is disabled; enable in .reasonforge/events.yaml")
+		return 1
+	}
+
+	store, cleanup, err := openEventStoreForRead(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run-events failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	evts, err := store.ListEvents(context.Background(), runID)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "run-events failed: %v\n", err)
+		return 1
+	}
+
+	if len(evts) == 0 {
+		fmt.Fprintf(env.Stderr, "no events found for run %q\n", runID)
+		return 1
+	}
+
+	fmt.Fprintln(env.Stdout, "ReasonForge Run Events")
+	fmt.Fprintf(env.Stdout, "%-20s %-24s %-12s %s\n", "TIME", "TYPE", "STATUS", "MESSAGE")
+	for _, evt := range evts {
+		ts := "-"
+		if !evt.StartedAt.IsZero() {
+			ts = evt.StartedAt.Format("15:04:05.000")
+		} else if !evt.FinishedAt.IsZero() {
+			ts = evt.FinishedAt.Format("15:04:05.000")
+		}
+		msg := evt.Message
+		if len(msg) > 60 {
+			msg = msg[:57] + "..."
+		}
+		fmt.Fprintf(env.Stdout, "%-20s %-24s %-12s %s\n", ts, evt.Type, evt.Status, msg)
+	}
+
+	return 0
 }

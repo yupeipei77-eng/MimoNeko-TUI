@@ -9,6 +9,7 @@ import (
 
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/conversation"
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/scratchpad"
@@ -117,6 +118,11 @@ type Dependencies struct {
 	// PatchMgr is optional. When provided with UseWorktree=true,
 	// the agent result includes a PatchPreview.
 	PatchMgr patch.PatchManager
+
+	// EventEmitter is optional. When provided, the agent emits
+	// structured events (run.started, tool.started, etc.) for
+	// progress tracking. When nil, no events are emitted.
+	EventEmitter events.EventEmitter
 }
 
 // AgentRuntime is the interface for running an agent loop.
