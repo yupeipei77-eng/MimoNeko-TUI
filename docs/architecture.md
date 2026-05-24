@@ -36,6 +36,8 @@ internal/tools/               Tool runtime, registry, safety guard, audit log, b
 internal/task/                Task contract and worktree policy
 internal/worktree/            Git worktree isolation manager
 internal/patch/               Patch preview, apply, and discard manager
+internal/review/              Patch review pipeline (rule review, risk scoring, model review)
+internal/validation/          Test validation runner
 internal/agent/               Agent runtime orchestration contract
 internal/version/             Version metadata
 docs/adr/                     Architecture decision records
