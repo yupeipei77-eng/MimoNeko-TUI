@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/reasonforge/reasonforge/internal/cache"
 	"github.com/reasonforge/reasonforge/internal/contextengine"
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/scratchpad"
 	"github.com/reasonforge/reasonforge/internal/task"
@@ -891,5 +893,109 @@ func TestSingleAgentRuntime_FinalCheckpointFailureMarksFailed(t *testing.T) {
 	}
 	if !strings.Contains(result.Error, "final checkpoint failed") {
 		t.Errorf("Error = %q, want to contain 'final checkpoint failed'", result.Error)
+	}
+}
+
+type agentCaptureEmitter struct {
+	events []events.RunEvent
+}
+
+func (e *agentCaptureEmitter) Emit(ctx context.Context, event events.RunEvent) error {
+	e.events = append(e.events, event)
+	return nil
+}
+
+type emittingToolRuntime struct {
+	emitter events.EventEmitter
+}
+
+func (rt *emittingToolRuntime) Run(ctx context.Context, req tools.ToolRequest) (tools.ToolResponse, error) {
+	events.SafeEmit(rt.emitter, ctx, events.RunEvent{
+		ID:        "evt_tool_started_test",
+		Type:      events.EventToolStarted,
+		Source:    "tool",
+		Status:    "started",
+		Message:   "tool started",
+		StartedAt: timeNowForAgentTest(),
+		Metadata:  map[string]string{"tool_name": req.ToolName},
+	})
+	events.SafeEmit(rt.emitter, ctx, events.RunEvent{
+		ID:         "evt_tool_finished_test",
+		Type:       events.EventToolFinished,
+		Source:     "tool",
+		Status:     "succeeded",
+		Message:    "tool finished",
+		StartedAt:  timeNowForAgentTest(),
+		FinishedAt: timeNowForAgentTest(),
+		Metadata:   map[string]string{"tool_name": req.ToolName},
+	})
+	return tools.ToolResponse{
+		ToolName: req.ToolName,
+		Success:  true,
+		ExitCode: 0,
+		Stdout:   "tool output",
+	}, nil
+}
+
+func timeNowForAgentTest() time.Time {
+	return time.Now().UTC()
+}
+
+func TestSingleAgentDoesNotDuplicateToolEvents(t *testing.T) {
+	emitter := &agentCaptureEmitter{}
+	deps := testDeps()
+	deps.EventEmitter = emitter
+	deps.ToolRuntime = &emittingToolRuntime{emitter: emitter}
+	deps.ModelRouter = &mockModelRouter{
+		responses: []modelrouter.CompletionResponse{
+			{
+				Provider: "mock",
+				Model:    "mock-model",
+				Text:     `{"tool_call": {"name": "file_read", "args": {"path": "README.md"}}}`,
+			},
+			{
+				Provider: "mock",
+				Model:    "mock-model",
+				Text:     "Done.",
+			},
+		},
+	}
+
+	rt := NewSingleAgentRuntime(deps)
+	contract := task.TaskContract{
+		ID:           "tc_no_duplicate_tool_events",
+		Goal:         "read file",
+		RepoRoot:     "/repo",
+		MaxSteps:     5,
+		MaxToolCalls: 5,
+	}
+	result, err := rt.Run(context.Background(), AgentRunRequest{
+		TaskID:   "task_no_duplicate_tool_events",
+		RepoRoot: "/repo",
+		Goal:     "read file",
+		Contract: contract,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.State != AgentStateSucceeded {
+		t.Fatalf("State = %q, want %q", result.State, AgentStateSucceeded)
+	}
+
+	toolStarted := 0
+	toolFinished := 0
+	for _, evt := range emitter.events {
+		switch evt.Type {
+		case events.EventToolStarted:
+			toolStarted++
+		case events.EventToolFinished:
+			toolFinished++
+		}
+	}
+	if toolStarted != 1 {
+		t.Fatalf("tool.started count = %d, want 1", toolStarted)
+	}
+	if toolFinished != 1 {
+		t.Fatalf("tool.finished count = %d, want 1", toolFinished)
 	}
 }

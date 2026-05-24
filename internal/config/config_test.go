@@ -31,6 +31,32 @@ func TestInitAndLoadDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAllowsEventsDisabled(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	eventsPath := filepath.Join(ConfigDir(root), "events.yaml")
+	if err := os.WriteFile(eventsPath, []byte("enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Events.Enabled {
+		t.Fatal("Events.Enabled = true, want false")
+	}
+	if cfg.Events.StorePath == "" {
+		t.Fatal("Events.StorePath should keep its default when omitted")
+	}
+	if !cfg.Events.EmitToolEvents {
+		t.Fatal("Events.EmitToolEvents should keep its default when omitted")
+	}
+}
+
 func TestLoadRejectsUnsupportedImmutablePrefixSourceKind(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Init(root); err != nil {
@@ -172,9 +198,9 @@ func TestLoadRejectsMissingDefaultModel(t *testing.T) {
 
 func TestValidateRejectsInvalidByteStableSettings(t *testing.T) {
 	tests := []struct {
-		name string
+		name   string
 		mutate func(*Root)
-		want string
+		want   string
 	}{
 		{
 			name: "line endings",
@@ -217,9 +243,9 @@ func TestValidateRejectsInvalidByteStableSettings(t *testing.T) {
 
 func TestValidateRejectsEmptyImmutableSourceFields(t *testing.T) {
 	tests := []struct {
-		name string
+		name   string
 		mutate func(*Root)
-		want string
+		want   string
 	}{
 		{
 			name: "name",

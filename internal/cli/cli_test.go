@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/worktree"
 )
 
@@ -643,6 +645,95 @@ func TestBuildAgentDependenciesNoAPIKeyLeak(t *testing.T) {
 	// This is a basic sanity check - the real protection is in SanitizeCheckpoint
 	// but we verify the infrastructure doesn't log or store keys
 	_ = deps
+}
+
+func TestBuildAgentDependenciesEventsEnabledStoreFailureReturnsError(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	blocker := filepath.Join(root, "event-store-blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Events.Enabled = true
+	cfg.Events.StorePath = filepath.Join(blocker, "events.jsonl")
+
+	_, cleanup, err := buildAgentDependencies(root, cfg)
+	if err == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		t.Fatal("buildAgentDependencies() should fail when events are enabled and EventStore cannot initialize")
+	}
+	if !strings.Contains(err.Error(), "event store") {
+		t.Fatalf("error = %q, want event store", err.Error())
+	}
+}
+
+func TestBuildAgentDependenciesEventsDisabledUsesNoop(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	blocker := filepath.Join(root, "event-store-blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Events.Enabled = false
+	cfg.Events.StorePath = filepath.Join(blocker, "events.jsonl")
+
+	deps, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		t.Fatalf("buildAgentDependencies() with events disabled error = %v", err)
+	}
+	defer cleanup()
+
+	if _, ok := deps.EventEmitter.(*events.NoopEventEmitter); !ok {
+		t.Fatalf("EventEmitter = %T, want *events.NoopEventEmitter", deps.EventEmitter)
+	}
+}
+
+func TestBuildMultiAgentDependenciesEventsEnabledStoreFailureReturnsError(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	blocker := filepath.Join(root, "multi-event-store-blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Events.Enabled = true
+	cfg.Events.StorePath = filepath.Join(blocker, "events.jsonl")
+
+	_, cleanup, err := buildMultiAgentDependencies(root, cfg, agent.Dependencies{})
+	if err == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		t.Fatal("buildMultiAgentDependencies() should fail when events are enabled and EventStore cannot initialize")
+	}
+	if !strings.Contains(err.Error(), "event store") {
+		t.Fatalf("error = %q, want event store", err.Error())
+	}
 }
 
 // --- Phase 5: Worktree/Patch CLI tests ---

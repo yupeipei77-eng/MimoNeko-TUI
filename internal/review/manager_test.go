@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/task"
 )
@@ -162,6 +163,67 @@ func TestReview_LowRisk_Approve(t *testing.T) {
 
 	if report.Recommendation != RecommendationApprove {
 		t.Errorf("expected approve, got %s", report.Recommendation)
+	}
+}
+
+type reviewCaptureEmitter struct {
+	events []events.RunEvent
+}
+
+func (e *reviewCaptureEmitter) Emit(ctx context.Context, event events.RunEvent) error {
+	e.events = append(e.events, event)
+	return nil
+}
+
+func TestRunContextPropagationToReviewEvents(t *testing.T) {
+	emitter := &reviewCaptureEmitter{}
+	mgr := NewDefaultPatchReviewManager(
+		&mockPatchManager{preview: makeLowRiskPreview()},
+		nil,
+		nil,
+		DefaultReviewConfig(),
+	)
+	mgr.SetEventEmitter(emitter)
+
+	ctx := events.WithRunContext(context.Background(), events.RunContext{
+		RunID:      "run_review_ctx",
+		TaskID:     "task_review_ctx",
+		WorktreeID: "wt_test",
+	})
+	_, err := mgr.Review(ctx, PatchReviewRequest{
+		RepoRoot:   "/tmp/repo",
+		WorktreeID: "wt_test",
+		Contract:   task.DefaultContract("/tmp/repo", "review"),
+	})
+	if err != nil {
+		t.Fatalf("Review() error: %v", err)
+	}
+
+	if len(emitter.events) < 2 {
+		t.Fatalf("expected review start/finish events, got %d", len(emitter.events))
+	}
+
+	seenStarted := false
+	seenFinished := false
+	for _, evt := range emitter.events {
+		if evt.Type == events.EventReviewerStarted {
+			seenStarted = true
+		}
+		if evt.Type == events.EventReviewerFinished {
+			seenFinished = true
+		}
+		if evt.RunID != "run_review_ctx" {
+			t.Errorf("event %s RunID = %q, want run_review_ctx", evt.Type, evt.RunID)
+		}
+		if evt.TaskID != "task_review_ctx" {
+			t.Errorf("event %s TaskID = %q, want task_review_ctx", evt.Type, evt.TaskID)
+		}
+		if evt.WorktreeID != "wt_test" {
+			t.Errorf("event %s WorktreeID = %q, want wt_test", evt.Type, evt.WorktreeID)
+		}
+	}
+	if !seenStarted || !seenFinished {
+		t.Fatalf("expected started and finished review events, got %+v", emitter.events)
 	}
 }
 

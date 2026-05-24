@@ -24,6 +24,7 @@ type Root struct {
 	Review     ReviewConfig
 	Validation ValidationConfig
 	MultiAgent MultiAgentConfig
+	Events     EventsConfig
 }
 
 type ModelsConfig struct {
@@ -230,6 +231,33 @@ type MultiAgentConfig struct {
 	ReviewerUseModelReview bool `yaml:"reviewer_use_model_review"`
 }
 
+// EventsConfig configures the event system behavior (Phase 8).
+type EventsConfig struct {
+	// Enabled controls whether the event system is active.
+	Enabled bool `yaml:"enabled"`
+
+	// StorePath is the path to the JSONL event store file.
+	StorePath string `yaml:"store_path"`
+
+	// MaxMessageBytes caps the size of event Message fields.
+	MaxMessageBytes int `yaml:"max_message_bytes"`
+
+	// MaxMetadataValueBytes caps the size of each metadata value.
+	MaxMetadataValueBytes int `yaml:"max_metadata_value_bytes"`
+
+	// EmitToolEvents controls whether tool.started/finished events are emitted.
+	EmitToolEvents bool `yaml:"emit_tool_events"`
+
+	// EmitModelEvents controls whether model call events are emitted.
+	EmitModelEvents bool `yaml:"emit_model_events"`
+
+	// EmitPatchEvents controls whether patch.preview.started/finished events are emitted.
+	EmitPatchEvents bool `yaml:"emit_patch_events"`
+
+	// EmitValidationEvents controls whether validation.started/finished events are emitted.
+	EmitValidationEvents bool `yaml:"emit_validation_events"`
+}
+
 func ConfigDir(root string) string {
 	return filepath.Join(root, DirName)
 }
@@ -294,11 +322,17 @@ func Load(root string) (*Root, error) {
 	if err := loadYAMLOptional(filepath.Join(dir, "multiagent.yaml"), &cfg.MultiAgent); err != nil {
 		return nil, err
 	}
+	// events.yaml is optional (Phase 8 addition).
+	cfg.Events = defaultEventsConfig()
+	if err := loadYAMLOptional(filepath.Join(dir, "events.yaml"), &cfg.Events); err != nil {
+		return nil, err
+	}
 	cfg.applyWorktreeDefaults()
 	cfg.applyPatchDefaults()
 	cfg.applyReviewDefaults()
 	cfg.applyValidationDefaults()
 	cfg.applyMultiAgentDefaults()
+	cfg.applyEventsDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -523,6 +557,32 @@ func (cfg *Root) applyMultiAgentDefaults() {
 	// ReviewerUseModelReview defaults to false
 }
 
+// applyEventsDefaults fills in safe defaults for EventsConfig.
+func (cfg *Root) applyEventsDefaults() {
+	if cfg.Events.StorePath == "" {
+		cfg.Events.StorePath = ".reasonforge/events/run_events.jsonl"
+	}
+	if cfg.Events.MaxMessageBytes == 0 {
+		cfg.Events.MaxMessageBytes = 2048
+	}
+	if cfg.Events.MaxMetadataValueBytes == 0 {
+		cfg.Events.MaxMetadataValueBytes = 512
+	}
+}
+
+func defaultEventsConfig() EventsConfig {
+	return EventsConfig{
+		Enabled:               true,
+		StorePath:             ".reasonforge/events/run_events.jsonl",
+		MaxMessageBytes:       2048,
+		MaxMetadataValueBytes: 512,
+		EmitToolEvents:        true,
+		EmitModelEvents:       true,
+		EmitPatchEvents:       true,
+		EmitValidationEvents:  true,
+	}
+}
+
 func isAllowedImmutableSourceKind(kind string) bool {
 	switch kind {
 	case "static_file", "generated_schema":
@@ -697,6 +757,20 @@ planner_model: ""
 coder_model: ""
 reviewer_model: ""
 reviewer_use_model_review: false
+`,
+	},
+	{
+		Name: "events.yaml",
+		Body: `# Event system configuration (Phase 8)
+# Controls structured event recording for run progress tracking.
+enabled: true
+store_path: .reasonforge/events/run_events.jsonl
+max_message_bytes: 2048
+max_metadata_value_bytes: 512
+emit_tool_events: true
+emit_model_events: true
+emit_patch_events: true
+emit_validation_events: true
 `,
 	},
 }

@@ -2,11 +2,14 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/reasonforge/reasonforge/internal/events"
 )
 
 func TestRuntimeUnknownTool(t *testing.T) {
@@ -210,8 +213,8 @@ func TestRuntimeTimeout(t *testing.T) {
 type slowTool struct{}
 
 func (t *slowTool) Name() string        { return "slow_tool" }
-func (t *slowTool) Description() string  { return "A slow test tool" }
-func (t *slowTool) RiskLevel() string    { return "low" }
+func (t *slowTool) Description() string { return "A slow test tool" }
+func (t *slowTool) RiskLevel() string   { return "low" }
 func (t *slowTool) Run(ctx context.Context, _ ToolRequest) (ToolResponse, error) {
 	select {
 	case <-time.After(30 * time.Second):
@@ -250,4 +253,251 @@ func newTestRuntime(t *testing.T, root string) *DefaultToolRuntime {
 	}
 
 	return NewDefaultToolRuntime(registry, guard, audit, enabled)
+}
+
+// captureEmitter captures emitted events for test assertions.
+type captureEmitter struct {
+	events []events.RunEvent
+	err    error // if set, Emit returns this error
+}
+
+func (c *captureEmitter) Emit(ctx context.Context, event events.RunEvent) error {
+	c.events = append(c.events, event)
+	return c.err
+}
+
+// failingEmitter always returns an error on Emit.
+type failingEmitter struct {
+	captured []events.RunEvent
+}
+
+func (f *failingEmitter) Emit(ctx context.Context, event events.RunEvent) error {
+	f.captured = append(f.captured, event)
+	return errors.New("emitter failure")
+}
+
+func newTestToolRuntimeWithEmitter(t *testing.T, emitter events.EventEmitter) *DefaultToolRuntime {
+	t.Helper()
+	registry := NewMemoryRegistry()
+	testCmds := map[string]TestCommandDef{}
+	if err := RegisterBuiltinTools(registry, testCmds); err != nil {
+		t.Fatalf("RegisterBuiltinTools() error = %v", err)
+	}
+
+	root := t.TempDir()
+	guard := NewSafetyGuard(ToolPolicy{
+		DenyWritePaths: DefaultDenyWritePaths(),
+		DenyReadPaths:  DefaultDenyReadPaths(),
+	})
+
+	auditPath := DefaultAuditLogPath(root)
+	audit, err := NewAuditLog(auditPath)
+	if err != nil {
+		t.Fatalf("NewAuditLog() error = %v", err)
+	}
+	t.Cleanup(func() { audit.Close() })
+
+	enabled := map[string]bool{
+		"file_read":  true,
+		"file_write": true,
+		"file_patch": true,
+		"git_diff":   true,
+		"test_run":   true,
+	}
+
+	rt := NewDefaultToolRuntime(registry, guard, audit, enabled)
+	if emitter != nil {
+		rt.SetEventEmitter(emitter)
+	}
+	return rt
+}
+
+func TestToolRuntimeEmitsToolStartedFinished(t *testing.T) {
+	emitter := &captureEmitter{}
+	rt := newTestToolRuntimeWithEmitter(t, emitter)
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	rc := events.RunContext{RunID: "run_tool_test", TaskID: "task_001"}
+	ctx = events.WithRunContext(ctx, rc)
+
+	resp, err := rt.Run(ctx, ToolRequest{
+		ToolName: "file_read",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "test.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("Run() resp.Success = false, want true")
+	}
+
+	// Should have emitted tool.started and tool.finished
+	if len(emitter.events) != 2 {
+		t.Fatalf("expected 2 events (started + finished), got %d", len(emitter.events))
+	}
+
+	started := emitter.events[0]
+	if started.Type != events.EventToolStarted {
+		t.Errorf("first event type = %s, want tool.started", started.Type)
+	}
+	if started.Status != "started" {
+		t.Errorf("first event status = %s, want started", started.Status)
+	}
+	if started.Source != "tool" {
+		t.Errorf("first event source = %s, want tool", started.Source)
+	}
+	if started.RunID != "run_tool_test" {
+		t.Errorf("first event RunID = %q, want run_tool_test", started.RunID)
+	}
+	if started.TaskID != "task_001" {
+		t.Errorf("first event TaskID = %q, want task_001", started.TaskID)
+	}
+
+	finished := emitter.events[1]
+	if finished.Type != events.EventToolFinished {
+		t.Errorf("second event type = %s, want tool.finished", finished.Type)
+	}
+	if finished.Status != "succeeded" {
+		t.Errorf("second event status = %s, want succeeded", finished.Status)
+	}
+	if finished.DurationMs < 0 {
+		t.Errorf("second event DurationMs = %d, want >= 0", finished.DurationMs)
+	}
+	if finished.RunID != "run_tool_test" {
+		t.Errorf("second event RunID = %q, want run_tool_test", finished.RunID)
+	}
+	if finished.TaskID != "task_001" {
+		t.Errorf("second event TaskID = %q, want task_001", finished.TaskID)
+	}
+}
+
+func TestToolRuntimeEventEmitterNilNoop(t *testing.T) {
+	// Create ToolRuntime without setting an emitter (defaults to NoopEventEmitter)
+	root := t.TempDir()
+	registry := NewMemoryRegistry()
+	testCmds := map[string]TestCommandDef{}
+	if err := RegisterBuiltinTools(registry, testCmds); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "test.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	guard := NewSafetyGuard(ToolPolicy{})
+	auditPath := DefaultAuditLogPath(root)
+	auditLog, _ := NewAuditLog(auditPath)
+	defer auditLog.Close()
+
+	rt := NewDefaultToolRuntime(registry, guard, auditLog, map[string]bool{"file_read": true})
+	// Don't call SetEventEmitter - should use NoopEventEmitter
+
+	ctx := context.Background()
+	rc := events.RunContext{RunID: "run_nil_test"}
+	ctx = events.WithRunContext(ctx, rc)
+
+	// Should not panic and should return a valid response
+	resp, err := rt.Run(ctx, ToolRequest{
+		ToolName: "file_read",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "test.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	if !resp.Success {
+		t.Errorf("resp.Success = false, want true")
+	}
+}
+
+func TestToolRuntimeEmitFailureDoesNotFailTool(t *testing.T) {
+	emitter := &failingEmitter{}
+	rt := newTestToolRuntimeWithEmitter(t, emitter)
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	rc := events.RunContext{RunID: "run_emitfail_test"}
+	ctx = events.WithRunContext(ctx, rc)
+
+	// Even though the emitter returns an error, the tool should still succeed
+	resp, err := rt.Run(ctx, ToolRequest{
+		ToolName: "file_read",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "test.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v (emit failure should not propagate)", err)
+	}
+	if !resp.Success {
+		t.Errorf("resp.Success = false, want true (emit failure should not affect tool)")
+	}
+
+	// The emitter should still have received the events
+	if len(emitter.captured) != 2 {
+		t.Errorf("expected 2 events captured despite emit error, got %d", len(emitter.captured))
+	}
+}
+
+func TestToolRuntimeEventsIncludeRunContext(t *testing.T) {
+	emitter := &captureEmitter{}
+	rt := newTestToolRuntimeWithEmitter(t, emitter)
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "test.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	rc := events.RunContext{
+		RunID:      "run_ctx_test",
+		TaskID:     "task_ctx",
+		WorktreeID: "wt_ctx",
+	}
+	ctx = events.WithRunContext(ctx, rc)
+
+	_, err := rt.Run(ctx, ToolRequest{
+		ToolName: "file_read",
+		RepoRoot: root,
+		TaskID:   "task_from_request",
+		Args:     map[string]string{"path": "test.txt", "command_name": "go-test"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if len(emitter.events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(emitter.events))
+	}
+
+	for i, evt := range emitter.events {
+		if evt.RunID != "run_ctx_test" {
+			t.Errorf("event[%d].RunID = %q, want run_ctx_test", i, evt.RunID)
+		}
+		if evt.TaskID != "task_from_request" {
+			t.Errorf("event[%d].TaskID = %q, want task_from_request", i, evt.TaskID)
+		}
+		if evt.WorktreeID != "wt_ctx" {
+			t.Errorf("event[%d].WorktreeID = %q, want wt_ctx", i, evt.WorktreeID)
+		}
+	}
+
+	// Verify tool_name metadata
+	started := emitter.events[0]
+	if started.Metadata["tool_name"] != "file_read" {
+		t.Errorf("started metadata tool_name = %q, want file_read", started.Metadata["tool_name"])
+	}
+	// Verify command_name metadata from Args
+	if started.Metadata["command_name"] != "go-test" {
+		t.Errorf("started metadata command_name = %q, want go-test", started.Metadata["command_name"])
+	}
 }

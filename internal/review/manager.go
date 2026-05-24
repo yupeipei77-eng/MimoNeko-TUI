@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/task"
 )
@@ -105,6 +106,7 @@ type DefaultPatchReviewManager struct {
 	validationRunner ValidationRunner
 	modelReviewer    ModelReviewer
 	cfg              ReviewConfig
+	eventEmitter     events.EventEmitter
 }
 
 // NewDefaultPatchReviewManager creates a new DefaultPatchReviewManager.
@@ -137,11 +139,30 @@ func NewDefaultPatchReviewManager(
 		validationRunner: validationRunner,
 		modelReviewer:    modelReviewer,
 		cfg:              cfg,
+		eventEmitter:     &events.NoopEventEmitter{},
+	}
+}
+
+// SetEventEmitter sets the optional event emitter for review events.
+func (m *DefaultPatchReviewManager) SetEventEmitter(emitter events.EventEmitter) {
+	if emitter != nil {
+		m.eventEmitter = emitter
 	}
 }
 
 // Review executes the full review pipeline.
 func (m *DefaultPatchReviewManager) Review(ctx context.Context, req PatchReviewRequest) (PatchReviewReport, error) {
+	reviewStartedAt := time.Now().UTC()
+	events.SafeEmit(m.eventEmitter, ctx, events.RunEvent{
+		ID:        mustGenerateReviewEventID(),
+		Type:      events.EventReviewerStarted,
+		Source:    "review",
+		Status:    "started",
+		Message:   "Patch review started",
+		StartedAt: reviewStartedAt,
+		Metadata:  map[string]string{"worktree_id": req.WorktreeID},
+	})
+
 	// 1. Generate PatchPreview via PatchManager
 	preview, err := m.patchMgr.Preview(ctx, patch.PatchPreviewRequest{
 		RepoRoot:   req.RepoRoot,
@@ -149,6 +170,17 @@ func (m *DefaultPatchReviewManager) Review(ctx context.Context, req PatchReviewR
 		Contract:   req.Contract,
 	})
 	if err != nil {
+		events.SafeEmit(m.eventEmitter, ctx, events.RunEvent{
+			ID:         mustGenerateReviewEventID(),
+			Type:       events.EventReviewerFinished,
+			Source:     "review",
+			Status:     "failed",
+			Message:    "Patch review failed: preview error",
+			StartedAt:  reviewStartedAt,
+			FinishedAt: time.Now().UTC(),
+			DurationMs: time.Since(reviewStartedAt).Milliseconds(),
+			Error:      err.Error(),
+		})
 		return PatchReviewReport{}, fmt.Errorf("review: preview: %w", err)
 	}
 
@@ -227,6 +259,27 @@ func (m *DefaultPatchReviewManager) Review(ctx context.Context, req PatchReviewR
 
 	// 7. Compute deterministic recommendation
 	recommendation := computeRecommendation(preview, riskScore, findings, validation, modelReview)
+
+	reviewFinishedAt := time.Now().UTC()
+	reviewStatus := "succeeded"
+	if recommendation == RecommendationReject {
+		reviewStatus = "failed"
+	}
+	events.SafeEmit(m.eventEmitter, ctx, events.RunEvent{
+		ID:         mustGenerateReviewEventID(),
+		Type:       events.EventReviewerFinished,
+		Source:     "review",
+		Status:     reviewStatus,
+		Message:    fmt.Sprintf("Patch review completed: %s", recommendation),
+		StartedAt:  reviewStartedAt,
+		FinishedAt: reviewFinishedAt,
+		DurationMs: reviewFinishedAt.Sub(reviewStartedAt).Milliseconds(),
+		Metadata: map[string]string{
+			"recommendation": string(recommendation),
+			"risk_level":     riskScore.Level,
+			"worktree_id":    req.WorktreeID,
+		},
+	})
 
 	return PatchReviewReport{
 		WorktreeID:     req.WorktreeID,
@@ -331,4 +384,13 @@ func patchPreviewToPreviewData(p patch.PatchPreview) PreviewData {
 // PatchPreviewFromTaskContract creates a default TaskContract for review operations.
 func PatchPreviewFromTaskContract(repoRoot string) task.TaskContract {
 	return task.DefaultContract(repoRoot, "patch review")
+}
+
+// mustGenerateReviewEventID generates a unique event ID for review events.
+func mustGenerateReviewEventID() string {
+	id, err := events.GenerateEventID()
+	if err != nil {
+		return "evt_error"
+	}
+	return id
 }

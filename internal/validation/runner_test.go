@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/review"
 	"github.com/reasonforge/reasonforge/internal/tools"
 )
@@ -16,11 +17,13 @@ type mockToolRuntime struct {
 	err       error
 	callCount int
 	lastReq   *tools.ToolRequest
+	lastRC    events.RunContext
 }
 
 func (m *mockToolRuntime) Run(ctx context.Context, req tools.ToolRequest) (tools.ToolResponse, error) {
 	m.callCount++
 	m.lastReq = &req
+	m.lastRC = events.RunContextFrom(ctx)
 
 	if m.err != nil {
 		return tools.ToolResponse{}, m.err
@@ -36,6 +39,15 @@ func (m *mockToolRuntime) Run(ctx context.Context, req tools.ToolRequest) (tools
 		}, nil
 	}
 	return resp, nil
+}
+
+type validationCaptureEmitter struct {
+	events []events.RunEvent
+}
+
+func (e *validationCaptureEmitter) Emit(ctx context.Context, event events.RunEvent) error {
+	e.events = append(e.events, event)
+	return nil
 }
 
 func TestValidationRunner_Success(t *testing.T) {
@@ -183,6 +195,64 @@ func TestValidationRunner_UsesTestRunTool(t *testing.T) {
 
 	if rt.lastReq.ToolName != "test_run" {
 		t.Errorf("expected tool name test_run, got %s", rt.lastReq.ToolName)
+	}
+}
+
+func TestRunContextPropagationToValidationEvents(t *testing.T) {
+	emitter := &validationCaptureEmitter{}
+	rt := &mockToolRuntime{
+		responses: map[string]tools.ToolResponse{
+			"go-test": {Success: true, ExitCode: 0},
+		},
+	}
+	runner := NewValidationRunner(rt, DefaultValidationConfig())
+	runner.SetEventEmitter(emitter)
+
+	ctx := events.WithRunContext(context.Background(), events.RunContext{
+		RunID:      "run_validation_ctx",
+		TaskID:     "task_validation_ctx",
+		WorktreeID: "wt_validation_ctx",
+	})
+	_, err := runner.Validate(ctx, review.ValidationRequest{
+		RepoRoot:     "/tmp/worktree",
+		TaskID:       "task_validation_request",
+		TestCommands: []string{"go-test"},
+	})
+	if err != nil {
+		t.Fatalf("Validate() error: %v", err)
+	}
+
+	if rt.lastRC.RunID != "run_validation_ctx" {
+		t.Errorf("tool runtime RunContext RunID = %q, want run_validation_ctx", rt.lastRC.RunID)
+	}
+	if rt.lastRC.WorktreeID != "wt_validation_ctx" {
+		t.Errorf("tool runtime RunContext WorktreeID = %q, want wt_validation_ctx", rt.lastRC.WorktreeID)
+	}
+	if len(emitter.events) < 2 {
+		t.Fatalf("expected validation start/finish events, got %d", len(emitter.events))
+	}
+
+	seenStarted := false
+	seenFinished := false
+	for _, evt := range emitter.events {
+		if evt.Type == events.EventValidationStarted {
+			seenStarted = true
+		}
+		if evt.Type == events.EventValidationFinished {
+			seenFinished = true
+		}
+		if evt.RunID != "run_validation_ctx" {
+			t.Errorf("event %s RunID = %q, want run_validation_ctx", evt.Type, evt.RunID)
+		}
+		if evt.TaskID != "task_validation_ctx" {
+			t.Errorf("event %s TaskID = %q, want task_validation_ctx", evt.Type, evt.TaskID)
+		}
+		if evt.WorktreeID != "wt_validation_ctx" {
+			t.Errorf("event %s WorktreeID = %q, want wt_validation_ctx", evt.Type, evt.WorktreeID)
+		}
+	}
+	if !seenStarted || !seenFinished {
+		t.Fatalf("expected started and finished validation events, got %+v", emitter.events)
 	}
 }
 
