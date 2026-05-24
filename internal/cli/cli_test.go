@@ -15,9 +15,33 @@ import (
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/config"
 	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/reasonforge/reasonforge/internal/modelrouter"
+	"github.com/reasonforge/reasonforge/internal/multiagent"
 	webserver "github.com/reasonforge/reasonforge/internal/server"
+	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/worktree"
 )
+
+type cliSequenceModelRouter struct {
+	responses []string
+	calls     int
+}
+
+func (r *cliSequenceModelRouter) Complete(ctx context.Context, req modelrouter.CompletionRequest) (modelrouter.CompletionResponse, error) {
+	if len(r.responses) == 0 {
+		return modelrouter.CompletionResponse{}, errors.New("no model responses configured")
+	}
+	index := r.calls
+	if index >= len(r.responses) {
+		index = len(r.responses) - 1
+	}
+	r.calls++
+	return modelrouter.CompletionResponse{
+		Provider: "test",
+		Model:    "test-model",
+		Text:     r.responses[index],
+	}, nil
+}
 
 func TestVersion(t *testing.T) {
 	var stdout bytes.Buffer
@@ -615,6 +639,80 @@ func TestBuildAgentDependencies(t *testing.T) {
 	if deps.CheckpointStore == nil {
 		t.Error("deps.CheckpointStore is nil")
 	}
+	if deps.WorktreeMgr == nil {
+		t.Error("deps.WorktreeMgr is nil")
+	}
+	if deps.PatchMgr == nil {
+		t.Error("deps.PatchMgr is nil")
+	}
+}
+
+func TestBuildAgentDependenciesIncludesWorktreeManager(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	deps, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		t.Fatalf("buildAgentDependencies() error = %v", err)
+	}
+	defer cleanup()
+
+	if deps.WorktreeMgr == nil {
+		t.Fatal("deps.WorktreeMgr is nil")
+	}
+}
+
+func TestBuildAgentDependenciesIncludesPatchManager(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	deps, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		t.Fatalf("buildAgentDependencies() error = %v", err)
+	}
+	defer cleanup()
+
+	if deps.PatchMgr == nil {
+		t.Fatal("deps.PatchMgr is nil")
+	}
+}
+
+func TestBuildAgentDependenciesClosesWorktreeRegistry(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	_, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		t.Fatalf("buildAgentDependencies() error = %v", err)
+	}
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	cleanup()
+
+	if err := os.Remove(registryPath); err != nil {
+		t.Fatalf("worktree registry should be removable after cleanup: %v", err)
+	}
 }
 
 func TestBuildAgentDependenciesNoAPIKeyLeak(t *testing.T) {
@@ -926,6 +1024,50 @@ func TestRunWorktreeFlagNoPanic(t *testing.T) {
 	}()
 }
 
+func TestRunWorktreeNoMissingManagerError(t *testing.T) {
+	root := setupGitRepo(t)
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	commitTestPromptSources(t, root)
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	deps, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		t.Fatalf("buildAgentDependencies() error = %v", err)
+	}
+	defer cleanup()
+	deps.ModelRouter = &cliSequenceModelRouter{responses: []string{"OK"}}
+
+	contract := task.DefaultContract(root, "just reply OK")
+	rt := agent.NewSingleAgentRuntime(deps)
+	result, err := rt.Run(context.Background(), agent.AgentRunRequest{
+		TaskID:      "task_run_worktree_test",
+		RepoRoot:    root,
+		Goal:        "just reply OK",
+		Contract:    contract,
+		DryRun:      true,
+		UseWorktree: true,
+		MaxSteps:    1,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "worktree manager not configured") {
+			t.Fatalf("Run returned missing worktree manager error: %v", err)
+		}
+		t.Fatalf("Run returned unexpected error: %v", err)
+	}
+	if strings.Contains(result.Error, "worktree manager not configured") {
+		t.Fatalf("Run result has missing worktree manager error: %s", result.Error)
+	}
+	if result.WorktreeID == "" {
+		t.Fatal("Run with UseWorktree=true did not create a worktree")
+	}
+}
+
 func TestCLIDoesNotLeakAPIKey(t *testing.T) {
 	t.Setenv("REASONFORGE_API_KEY", "sk-super-secret-key-12345")
 
@@ -968,6 +1110,26 @@ func setupGitRepo(t *testing.T) string {
 	runGitCmd(t, root, "add", ".")
 	runGitCmd(t, root, "commit", "-m", "initial")
 	return root
+}
+
+func commitTestPromptSources(t *testing.T, root string) {
+	t.Helper()
+	files := map[string]string{
+		"prompts/system.md":       "You are a test assistant.\n",
+		"prompts/coding_rules.md": "Keep changes minimal and safe.\n",
+		"schemas/tools.json":      `{"tools":[]}` + "\n",
+	}
+	for relPath, content := range files {
+		absPath := filepath.Join(root, filepath.FromSlash(relPath))
+		if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitCmd(t, root, "add", "prompts", "schemas")
+	runGitCmd(t, root, "commit", "-m", "add test prompt sources")
 }
 
 func setupPatchCLIEventWorktree(t *testing.T, taskID string, files map[string]string) (string, worktree.WorktreeInfo) {
@@ -1716,6 +1878,62 @@ func TestMultiRunDefaultWorktreeAndDryRun(t *testing.T) {
 	}
 	if !strings.Contains(output, "worktree=true") {
 		t.Errorf("expected worktree=true in output, got: %s", output)
+	}
+}
+
+func TestMultiRunNoMissingWorktreeManagerError(t *testing.T) {
+	root := setupGitRepo(t)
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	commitTestPromptSources(t, root)
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+
+	agentDeps, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		t.Fatalf("buildAgentDependencies() error = %v", err)
+	}
+	defer cleanup()
+	agentDeps.ModelRouter = &cliSequenceModelRouter{
+		responses: []string{
+			`{"goal":"summarize README","steps":[{"index":0,"title":"Summarize","description":"Read README and summarize capabilities","target_paths":["README.md"],"expected_outcome":"Summary produced"}],"risk_level":"low"}`,
+			"OK",
+		},
+	}
+
+	multiDeps, multiCleanup, err := buildMultiAgentDependencies(root, cfg, agentDeps)
+	if err != nil {
+		t.Fatalf("buildMultiAgentDependencies() error = %v", err)
+	}
+	defer multiCleanup()
+
+	goal := "summarize README"
+	contract := task.DefaultContract(root, goal)
+	rt := multiagent.NewDefaultMultiAgentRuntime(multiDeps)
+	result, err := rt.Run(context.Background(), multiagent.MultiAgentRunRequest{
+		TaskID:        "task_multi_worktree_test",
+		RepoRoot:      root,
+		Goal:          goal,
+		Contract:      contract,
+		MaxIterations: 1,
+		DryRun:        true,
+		UseWorktree:   true,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "worktree manager not configured") {
+			t.Fatalf("multi-run returned missing worktree manager error: %v", err)
+		}
+		t.Fatalf("multi-run returned unexpected error: %v", err)
+	}
+	if strings.Contains(result.Error, "worktree manager not configured") {
+		t.Fatalf("multi-run result has missing worktree manager error: %s", result.Error)
+	}
+	if result.WorktreeID == "" {
+		t.Fatalf("multi-run with UseWorktree=true did not create a worktree: state=%s error=%s", result.State, result.Error)
 	}
 }
 

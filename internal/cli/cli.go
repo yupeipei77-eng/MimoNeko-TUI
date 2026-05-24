@@ -816,14 +816,23 @@ func runMultiAgent(args []string, env Env) int {
 
 // buildMultiAgentDependencies constructs multi-agent dependencies from project config and existing agent deps.
 func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.Dependencies) (multiagent.Dependencies, func(), error) {
-	// Build worktree manager
-	wtMgr, wtCleanup, err := buildWorktreeManager(root)
-	if err != nil {
-		return multiagent.Dependencies{}, nil, fmt.Errorf("worktree manager: %w", err)
+	// Reuse the single-agent worktree dependencies when available so the
+	// coder and reviewer share the same registry handle and configuration.
+	wtMgr := agentDeps.WorktreeMgr
+	wtCleanup := func() {}
+	var err error
+	if wtMgr == nil {
+		wtMgr, wtCleanup, err = buildWorktreeManagerFromConfig(root, cfg)
+		if err != nil {
+			return multiagent.Dependencies{}, nil, fmt.Errorf("worktree manager: %w", err)
+		}
 	}
 
 	// Build patch manager
-	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+	patchMgr := agentDeps.PatchMgr
+	if patchMgr == nil {
+		patchMgr = patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+	}
 
 	// Build validation runner
 	registry := tools.NewMemoryRegistry()
@@ -865,7 +874,9 @@ func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.
 
 	// Inject event emitter into sub-components.
 	if emitter != nil {
-		patchMgr.SetEventEmitter(emitter)
+		if setter, ok := patchMgr.(interface{ SetEventEmitter(events.EventEmitter) }); ok {
+			setter.SetEventEmitter(emitter)
+		}
 		valRunner.SetEventEmitter(emitter)
 		reviewMgr.SetEventEmitter(emitter)
 		toolRt.SetEventEmitter(emitter)
@@ -972,9 +983,17 @@ func buildAgentDependencies(root string, cfg *config.Root) (agent.Dependencies, 
 
 	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
 
+	wtMgr, wtCleanup, err := buildWorktreeManagerFromConfig(root, cfg)
+	if err != nil {
+		auditLog.Close()
+		return agent.Dependencies{}, nil, fmt.Errorf("worktree manager: %w", err)
+	}
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
 	checkpointPath := agent.DefaultCheckpointPath(root)
 	checkpointStore, err := agent.NewJSONLCheckpointStore(checkpointPath)
 	if err != nil {
+		wtCleanup()
 		auditLog.Close()
 		return agent.Dependencies{}, nil, fmt.Errorf("checkpoint store: %w", err)
 	}
@@ -987,17 +1006,24 @@ func buildAgentDependencies(root string, cfg *config.Root) (agent.Dependencies, 
 		ConversationLog: conversationLog,
 		Scratchpad:      scratch,
 		CheckpointStore: checkpointStore,
+		WorktreeMgr:     wtMgr,
+		PatchMgr:        patchMgr,
 	}
 
-	cleanup := func() { auditLog.Close() }
+	cleanup := func() {
+		wtCleanup()
+		auditLog.Close()
+	}
 
 	emitter, eventCleanup, err := buildEventEmitter(root, cfg)
 	if err != nil {
+		wtCleanup()
 		auditLog.Close()
 		return agent.Dependencies{}, nil, err
 	}
 	deps.EventEmitter = emitter
 	toolRt.SetEventEmitter(emitter)
+	patchMgr.SetEventEmitter(emitter)
 	prevCleanup := cleanup
 	cleanup = func() {
 		eventCleanup()
@@ -1786,15 +1812,25 @@ func validationConfigFromConfig(cfg *config.Root) validation.ValidationConfig {
 
 // buildWorktreeManager creates a WorktreeManager for the given root.
 func buildWorktreeManager(root string) (worktree.WorktreeManager, func(), error) {
+	return buildWorktreeManagerFromConfig(root, nil)
+}
+
+func buildWorktreeManagerFromConfig(root string, cfg *config.Root) (worktree.WorktreeManager, func(), error) {
 	registryPath := worktree.DefaultRegistryPath(root)
 	registry, err := worktree.NewRegistry(registryPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("worktree registry: %w", err)
 	}
 
-	cfg := worktree.DefaultGitWorktreeManagerConfig()
-	cleanup := func() { registry.Close() }
-	return worktree.NewGitWorktreeManager(registry, cfg), cleanup, nil
+	wtCfg := worktree.DefaultGitWorktreeManagerConfig()
+	if cfg != nil {
+		wtCfg.BranchPrefix = cfg.Worktree.BranchPrefix
+		wtCfg.MaxActive = cfg.Worktree.MaxActive
+		wtCfg.KeepFailed = cfg.Worktree.KeepFailed
+		wtCfg.KeepCancelled = cfg.Worktree.KeepCancelled
+	}
+	cleanup := func() { _ = registry.Close() }
+	return worktree.NewGitWorktreeManager(registry, wtCfg), cleanup, nil
 }
 
 // patchConfigFromConfig creates a GitPatchManagerConfig from the project config.
