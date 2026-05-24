@@ -243,3 +243,32 @@ type RunSummary struct {
 	// LastMessage is the message from the most recent event.
 	LastMessage string `json:"last_message,omitempty"`
 }
+
+// RunContext carries run identification through the call stack via context.Context.
+// All runtime components that emit events must read RunContext from ctx to populate
+// RunID, TaskID, and WorktreeID on their events.
+type RunContext struct {
+	RunID      string
+	TaskID     string
+	WorktreeID string
+}
+
+type runContextKey struct{}
+
+// WithRunContext returns a new context carrying the given RunContext.
+func WithRunContext(ctx context.Context, rc RunContext) context.Context {
+	return context.WithValue(ctx, runContextKey{}, rc)
+}
+
+// RunContextFrom extracts RunContext from ctx. Returns a zero-value RunContext
+// if no RunContext is present.
+func RunContextFrom(ctx context.Context) RunContext {
+	if ctx == nil {
+		return RunContext{}
+	}
+	rc, ok := ctx.Value(runContextKey{}).(RunContext)
+	if !ok {
+		return RunContext{}
+	}
+	return rc
+}

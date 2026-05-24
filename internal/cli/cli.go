@@ -469,6 +469,14 @@ func runToolRun(args []string, env Env) int {
 
 	runtime := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
 
+	emitter, eventCleanup, err := buildEventEmitter(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "tool-run failed: %v\n", err)
+		return 1
+	}
+	defer eventCleanup()
+	runtime.SetEventEmitter(emitter)
+
 	// Parse tool arguments from remaining flags
 	toolArgs := make(map[string]string)
 	for i := 1; i < len(remaining); i++ {
@@ -491,7 +499,11 @@ func runToolRun(args []string, env Env) int {
 		Metadata: map[string]string{"source": "cli"},
 	}
 
-	resp, err := runtime.Run(context.Background(), req)
+	// Generate a local run ID for tool-run context so events are properly attributed
+	localRunID := "run_tool_" + generateShortID()
+	ctx := events.WithRunContext(context.Background(), events.RunContext{RunID: localRunID})
+
+	resp, err := runtime.Run(ctx, req)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "tool-run failed: %v\n", err)
 		return 1
@@ -828,18 +840,30 @@ func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.
 	reviewCfg := reviewConfigFromConfig(cfg)
 	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, modelReviewerInst, reviewCfg)
 
-	// Inject event emitter into sub-components if available
-	if agentDeps.EventEmitter != nil {
-		emitter := agentDeps.EventEmitter
+	emitter := agentDeps.EventEmitter
+	eventCleanup := func() {}
+	if emitter == nil {
+		emitter, eventCleanup, err = buildEventEmitter(root, cfg)
+		if err != nil {
+			auditLog.Close()
+			wtCleanup()
+			return multiagent.Dependencies{}, nil, err
+		}
+	}
+
+	// Inject event emitter into sub-components.
+	if emitter != nil {
 		patchMgr.SetEventEmitter(emitter)
 		valRunner.SetEventEmitter(emitter)
 		reviewMgr.SetEventEmitter(emitter)
+		toolRt.SetEventEmitter(emitter)
 	}
 
 	// Build checkpoint store
 	cpPath := multiagent.DefaultMultiAgentCheckpointPath(root)
 	cpStore, err := multiagent.NewJSONLMultiAgentCheckpointStore(cpPath)
 	if err != nil {
+		eventCleanup()
 		auditLog.Close()
 		wtCleanup()
 		return multiagent.Dependencies{}, nil, fmt.Errorf("multi-agent checkpoint store: %w", err)
@@ -855,10 +879,11 @@ func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.
 		ReviewMgr:       reviewMgr,
 		WorktreeMgr:     wtMgr,
 		CheckpointStore: cpStore,
-		EventEmitter:    agentDeps.EventEmitter,
+		EventEmitter:    emitter,
 	}
 
 	cleanup := func() {
+		eventCleanup()
 		auditLog.Close()
 		wtCleanup()
 	}
@@ -954,28 +979,39 @@ func buildAgentDependencies(root string, cfg *config.Root) (agent.Dependencies, 
 
 	cleanup := func() { auditLog.Close() }
 
-	// Set up event system if enabled
-	if cfg.Events.Enabled {
-		eventStorePath := cfg.Events.StorePath
-		if !filepath.IsAbs(eventStorePath) {
-			eventStorePath = filepath.Join(root, eventStorePath)
-		}
-		eventStore, eventErr := events.NewJSONLRunEventStore(eventStorePath)
-		if eventErr == nil {
-			bus := events.NewDefaultEventBus(eventStore)
-			deps.EventEmitter = events.NewEventEmitter(bus)
-			// Close event store on cleanup
-			prevCleanup := cleanup
-			cleanup = func() {
-				eventStore.Close()
-				prevCleanup()
-			}
-		}
-		// EventStore initialization failure is non-fatal;
-		// the runtime proceeds without event recording.
+	emitter, eventCleanup, err := buildEventEmitter(root, cfg)
+	if err != nil {
+		auditLog.Close()
+		return agent.Dependencies{}, nil, err
+	}
+	deps.EventEmitter = emitter
+	toolRt.SetEventEmitter(emitter)
+	prevCleanup := cleanup
+	cleanup = func() {
+		eventCleanup()
+		prevCleanup()
 	}
 
 	return deps, cleanup, nil
+}
+
+func buildEventEmitter(root string, cfg *config.Root) (events.EventEmitter, func(), error) {
+	if !cfg.Events.Enabled {
+		return &events.NoopEventEmitter{}, func() {}, nil
+	}
+
+	eventStorePath := cfg.Events.StorePath
+	if !filepath.IsAbs(eventStorePath) {
+		eventStorePath = filepath.Join(root, eventStorePath)
+	}
+	eventStore, err := events.NewJSONLRunEventStore(eventStorePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("event store: %w", err)
+	}
+
+	bus := events.NewDefaultEventBus(eventStore)
+	cleanup := func() { _ = eventStore.Close() }
+	return events.NewEventEmitter(bus), cleanup, nil
 }
 
 func generateShortID() string {

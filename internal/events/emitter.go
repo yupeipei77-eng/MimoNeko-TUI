@@ -1,6 +1,9 @@
 package events
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // EventEmitter is the interface that runtime components use to emit events.
 // When nil, event emission is disabled and the runtime behaves as if
@@ -29,13 +32,38 @@ var _ EventEmitter = (*NoopEventEmitter)(nil)
 // SafeEmit calls emitter.Emit if the emitter is non-nil, logging any error.
 // If emitter is nil, the call is a no-op. This is the recommended way to
 // emit events from runtime components.
+// Events with an empty RunID are skipped to prevent
+// polluting the EventStore with orphan events.
 func SafeEmit(emitter EventEmitter, ctx context.Context, event RunEvent) {
 	if emitter == nil {
+		return
+	}
+	// Enrich from context if fields are empty
+	EnrichFromCtx(ctx, &event)
+	// Skip events with empty RunID (would be rejected by EventStore anyway).
+	if strings.TrimSpace(event.RunID) == "" {
 		return
 	}
 	// Sanitize before emission
 	event = SanitizeEvent(event)
 	_ = emitter.Emit(ctx, event)
+}
+
+// EnrichFromCtx populates RunID, TaskID, and WorktreeID on the event
+// from RunContext stored in ctx, but only if the event fields are empty.
+// This allows callers to explicitly set IDs while still falling back
+// to context propagation.
+func EnrichFromCtx(ctx context.Context, event *RunEvent) {
+	rc := RunContextFrom(ctx)
+	if event.RunID == "" {
+		event.RunID = rc.RunID
+	}
+	if event.TaskID == "" {
+		event.TaskID = rc.TaskID
+	}
+	if event.WorktreeID == "" {
+		event.WorktreeID = rc.WorktreeID
+	}
 }
 
 // NewEventEmitter creates an EventEmitter from an EventBus and optional EventStore.

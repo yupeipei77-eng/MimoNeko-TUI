@@ -112,7 +112,13 @@ func (s *JSONLRunEventStore) loadExisting() error {
 
 // Append persists an event to the JSONL store (append-only).
 // SanitizeEvent() should be called before Append to ensure redaction.
+// Events with an empty RunID are rejected to prevent polluting run
+// aggregation with orphan events.
 func (s *JSONLRunEventStore) Append(ctx context.Context, event RunEvent) error {
+	if strings.TrimSpace(event.RunID) == "" {
+		return fmt.Errorf("events: reject event with empty run_id (type=%s)", event.Type)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -169,6 +175,9 @@ func (s *JSONLRunEventStore) ListRuns(ctx context.Context) ([]RunSummary, error)
 	// Group events by RunID
 	runEvents := make(map[string][]RunEvent)
 	for _, evt := range s.contents {
+		if strings.TrimSpace(evt.RunID) == "" {
+			continue
+		}
 		runEvents[evt.RunID] = append(runEvents[evt.RunID], evt)
 	}
 
@@ -188,6 +197,10 @@ func (s *JSONLRunEventStore) ListRuns(ctx context.Context) ([]RunSummary, error)
 
 // ListEvents returns all events for a given run, ordered by time.
 func (s *JSONLRunEventStore) ListEvents(ctx context.Context, runID string) ([]RunEvent, error) {
+	if strings.TrimSpace(runID) == "" {
+		return nil, nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -344,8 +357,14 @@ var _ EventSink = (*JSONLRunEventStore)(nil)
 // Useful for testing or when events are disabled.
 type NoopEventStore struct{}
 
-// Append discards the event.
-func (n *NoopEventStore) Append(ctx context.Context, event RunEvent) error { return nil }
+// Append discards the event. Returns an error if the event has an empty
+// RunID, to enforce consistency.
+func (n *NoopEventStore) Append(ctx context.Context, event RunEvent) error {
+	if strings.TrimSpace(event.RunID) == "" {
+		return fmt.Errorf("events: reject event with empty run_id (type=%s)", event.Type)
+	}
+	return nil
+}
 
 // ListRuns returns an empty list.
 func (n *NoopEventStore) ListRuns(ctx context.Context) ([]RunSummary, error) { return nil, nil }
@@ -360,8 +379,10 @@ func (n *NoopEventStore) GetTimeline(ctx context.Context, runID string) (RunTime
 	return RunTimeline{}, nil
 }
 
-// Write discards the event.
-func (n *NoopEventStore) Write(ctx context.Context, event RunEvent) error { return nil }
+// Write discards the event after applying the same validation as Append.
+func (n *NoopEventStore) Write(ctx context.Context, event RunEvent) error {
+	return n.Append(ctx, event)
+}
 
 // Ensure NoopEventStore implements EventStore and EventSink.
 var _ EventStore = (*NoopEventStore)(nil)

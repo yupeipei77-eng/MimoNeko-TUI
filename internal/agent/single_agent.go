@@ -142,6 +142,15 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 		Metadata:   map[string]string{"goal": req.Goal, "dry_run": fmt.Sprintf("%v", req.DryRun)},
 	})
 
+	// Wrap ctx with RunContext so downstream components (ToolRuntime, PatchManager, etc.)
+	// can emit events with correct RunID/TaskID/WorktreeID.
+	rc := events.RunContext{
+		RunID:      runID,
+		TaskID:     req.TaskID,
+		WorktreeID: result.WorktreeID,
+	}
+	ctx = events.WithRunContext(ctx, rc)
+
 	// 4. Agent loop
 	toolCallCount := 0
 	currentInput := []byte(req.Goal)
@@ -295,7 +304,9 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 		}
 
 		// 4d. Execute the tool
-		// Emit tool.started event
+		// Note: tool.started/tool.finished events are now emitted by ToolRuntime.
+		// The agent emits step-level events (step.started/step.finished) instead
+		// to avoid duplicate tool events.
 		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
 			ID:         mustGenerateEventID(),
 			RunID:      runID,
@@ -303,10 +314,10 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 			WorktreeID: result.WorktreeID,
 			StepID:     mustGenerateStepID(),
 			ParentID:   runID,
-			Type:       events.EventToolStarted,
-			Source:     "tool",
+			Type:       events.EventCoderStarted,
+			Source:     "agent",
 			Status:     "started",
-			Message:    fmt.Sprintf("Tool %s started", toolCall.Name),
+			Message:    fmt.Sprintf("Agent step %d: tool %s", stepIndex, toolCall.Name),
 			StartedAt:  time.Now().UTC(),
 			Metadata:   map[string]string{"tool_name": toolCall.Name, "step_index": fmt.Sprintf("%d", stepIndex)},
 		})
@@ -314,12 +325,12 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 		toolStep := rt.executeTool(ctx, req, toolCall, stepIndex)
 		result.Steps = append(result.Steps, toolStep)
 
-		// Emit tool.finished event
-		toolStatus := "succeeded"
-		toolError := ""
+		// Emit step finished event
+		stepStatus := "succeeded"
+		stepError := ""
 		if toolStep.State == AgentStateFailed {
-			toolStatus = "failed"
-			toolError = toolStep.Error
+			stepStatus = "failed"
+			stepError = toolStep.Error
 		}
 		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
 			ID:         mustGenerateEventID(),
@@ -328,14 +339,14 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 			WorktreeID: result.WorktreeID,
 			StepID:     toolStep.StepID,
 			ParentID:   runID,
-			Type:       events.EventToolFinished,
-			Source:     "tool",
-			Status:     toolStatus,
-			Message:    fmt.Sprintf("Tool %s finished", toolCall.Name),
+			Type:       events.EventCoderFinished,
+			Source:     "agent",
+			Status:     stepStatus,
+			Message:    fmt.Sprintf("Agent step %d completed: tool %s", stepIndex, toolCall.Name),
 			StartedAt:  toolStep.StartedAt,
 			FinishedAt: toolStep.FinishedAt,
 			DurationMs: toolStep.FinishedAt.Sub(toolStep.StartedAt).Milliseconds(),
-			Error:      toolError,
+			Error:      stepError,
 			Metadata:   map[string]string{"tool_name": toolCall.Name, "step_index": fmt.Sprintf("%d", stepIndex)},
 		})
 

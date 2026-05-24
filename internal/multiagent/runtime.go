@@ -93,6 +93,14 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 		Metadata:  map[string]string{"goal": req.Goal, "max_iterations": fmt.Sprintf("%d", maxIter)},
 	})
 
+	// Wrap ctx with RunContext so downstream components (ToolRuntime, PatchManager,
+	// ReviewManager, ValidationRunner, etc.) can emit events with correct IDs.
+	rc := events.RunContext{
+		RunID:  runID,
+		TaskID: req.TaskID,
+	}
+	ctx = events.WithRunContext(ctx, rc)
+
 	// Build agents
 	planner := NewPlannerAgent(rt.deps.ModelRouter, rt.deps.ContextEngine, req.Model)
 	coder := NewCoderAgent(rt.deps.SingleAgent)
@@ -242,6 +250,10 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 		result.WorktreeID = worktreeID
 		sharedCtx.WorktreeID = worktreeID
 		sharedCtx.AddMessage(coderResult.Message)
+
+		// Update RunContext with worktreeID now that it's available
+		rc.WorktreeID = worktreeID
+		ctx = events.WithRunContext(ctx, rc)
 
 		events.SafeEmit(rt.deps.EventEmitter, ctx, events.RunEvent{
 			ID:         mustGenerateMultiAgentEventID(),

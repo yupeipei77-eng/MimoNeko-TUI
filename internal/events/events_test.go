@@ -1286,6 +1286,304 @@ func TestSanitizeEventEmptyFields(t *testing.T) {
 }
 
 // Test that SortSlice works correctly for RunSummary ordering
+// captureEmitter is a test EventEmitter that captures emitted events.
+type captureEmitter struct {
+	events []RunEvent
+}
+
+func (c *captureEmitter) Emit(ctx context.Context, event RunEvent) error {
+	c.events = append(c.events, event)
+	return nil
+}
+
+func TestRunContextPropagationToPatchPreviewEvents(t *testing.T) {
+	emitter := &captureEmitter{}
+	rc := RunContext{RunID: "run_test001", TaskID: "task_42", WorktreeID: "wt_abc"}
+	ctx := WithRunContext(context.Background(), rc)
+
+	// Simulate what GitPatchManager.Preview does: SafeEmit with patch.preview.started
+	SafeEmit(emitter, ctx, RunEvent{
+		ID:     "evt_pp1",
+		Type:   EventPatchPreviewStarted,
+		Source: "patch",
+		Status: "started",
+	})
+
+	// The event should have been enriched with RunContext fields
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(emitter.events))
+	}
+	evt := emitter.events[0]
+	if evt.RunID != "run_test001" {
+		t.Errorf("RunID = %q, want run_test001", evt.RunID)
+	}
+	if evt.TaskID != "task_42" {
+		t.Errorf("TaskID = %q, want task_42", evt.TaskID)
+	}
+	if evt.WorktreeID != "wt_abc" {
+		t.Errorf("WorktreeID = %q, want wt_abc", evt.WorktreeID)
+	}
+}
+
+func TestRunContextPropagationToReviewEvents(t *testing.T) {
+	emitter := &captureEmitter{}
+	rc := RunContext{RunID: "run_rev001", TaskID: "task_99"}
+	ctx := WithRunContext(context.Background(), rc)
+
+	// Simulate what PatchReviewManager.Review does: SafeEmit with reviewer.started
+	SafeEmit(emitter, ctx, RunEvent{
+		ID:     "evt_rv1",
+		Type:   EventReviewerStarted,
+		Source: "review",
+		Status: "started",
+	})
+
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(emitter.events))
+	}
+	evt := emitter.events[0]
+	if evt.RunID != "run_rev001" {
+		t.Errorf("RunID = %q, want run_rev001", evt.RunID)
+	}
+	if evt.TaskID != "task_99" {
+		t.Errorf("TaskID = %q, want task_99", evt.TaskID)
+	}
+}
+
+func TestRunContextPropagationToValidationEvents(t *testing.T) {
+	emitter := &captureEmitter{}
+	rc := RunContext{RunID: "run_val001", TaskID: "task_77", WorktreeID: "wt_xyz"}
+	ctx := WithRunContext(context.Background(), rc)
+
+	// Simulate what ValidationRunner.Run does: SafeEmit with validation.started
+	SafeEmit(emitter, ctx, RunEvent{
+		ID:     "evt_v1",
+		Type:   EventValidationStarted,
+		Source: "validation",
+		Status: "started",
+	})
+
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(emitter.events))
+	}
+	evt := emitter.events[0]
+	if evt.RunID != "run_val001" {
+		t.Errorf("RunID = %q, want run_val001", evt.RunID)
+	}
+	if evt.TaskID != "task_77" {
+		t.Errorf("TaskID = %q, want task_77", evt.TaskID)
+	}
+	if evt.WorktreeID != "wt_xyz" {
+		t.Errorf("WorktreeID = %q, want wt_xyz", evt.WorktreeID)
+	}
+}
+
+func TestEventStoreRejectsEmptyRunID(t *testing.T) {
+	t.Run("JSONLRunEventStore", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "events.jsonl")
+		store, err := NewJSONLRunEventStore(path)
+		if err != nil {
+			t.Fatalf("NewJSONLRunEventStore() error: %v", err)
+		}
+		defer store.Close()
+
+		ctx := context.Background()
+		err = store.Append(ctx, RunEvent{
+			ID:     "evt_orphan",
+			Type:   EventToolStarted,
+			Source: "tool",
+			Status: "started",
+		})
+		if err == nil {
+			t.Fatal("expected error for event with empty RunID, got nil")
+		}
+	})
+
+	t.Run("NoopEventStore", func(t *testing.T) {
+		store := &NoopEventStore{}
+		ctx := context.Background()
+		err := store.Append(ctx, RunEvent{
+			ID:     "evt_orphan",
+			Type:   EventToolStarted,
+			Source: "tool",
+			Status: "started",
+		})
+		if err == nil {
+			t.Fatal("expected error for event with empty RunID, got nil")
+		}
+	})
+
+	t.Run("EmptyTypeWithEmptyRunID_isRejected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "events.jsonl")
+		store, err := NewJSONLRunEventStore(path)
+		if err != nil {
+			t.Fatalf("NewJSONLRunEventStore() error: %v", err)
+		}
+		defer store.Close()
+
+		ctx := context.Background()
+		err = store.Append(ctx, RunEvent{ID: "evt_zero"})
+		if err == nil {
+			t.Error("expected error for zero-type event with empty RunID")
+		}
+	})
+}
+
+func TestListRunsDoesNotIncludeEmptyRunID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events.jsonl")
+
+	// Write events directly to file: one valid run and one with empty RunID
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	// Valid run event
+	f.WriteString(`{"id":"evt_1","run_id":"run_valid","type":"run.started","status":"started"}` + "\n")
+	// Orphan event with empty run_id (should not appear in ListRuns)
+	f.WriteString(`{"id":"evt_2","run_id":"","type":"tool.started","status":"started"}` + "\n")
+	// Another valid run
+	f.WriteString(`{"id":"evt_3","run_id":"run_valid2","type":"run.succeeded","status":"succeeded"}` + "\n")
+	f.Close()
+
+	store, err := NewJSONLRunEventStore(path)
+	if err != nil {
+		t.Fatalf("NewJSONLRunEventStore() error: %v", err)
+	}
+	defer store.Close()
+
+	summaries, err := store.ListRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListRuns() error: %v", err)
+	}
+
+	for _, s := range summaries {
+		if s.RunID == "" {
+			t.Error("ListRuns() returned a summary with empty RunID")
+		}
+	}
+
+	// Should only have 2 runs (run_valid and run_valid2), not the empty one.
+	if len(summaries) != 2 {
+		t.Fatalf("ListRuns() returned %d runs, want 2", len(summaries))
+	}
+
+	foundValid := false
+	foundValid2 := false
+	for _, s := range summaries {
+		if s.RunID == "run_valid" {
+			foundValid = true
+		}
+		if s.RunID == "run_valid2" {
+			foundValid2 = true
+		}
+	}
+	if !foundValid {
+		t.Error("run_valid not found in ListRuns()")
+	}
+	if !foundValid2 {
+		t.Error("run_valid2 not found in ListRuns()")
+	}
+}
+
+func TestSafeEmitSkipsEmptyRunID(t *testing.T) {
+	emitter := &captureEmitter{}
+	ctx := context.Background() // No RunContext
+
+	// Event with non-empty Type but empty RunID should be silently skipped
+	SafeEmit(emitter, ctx, RunEvent{
+		ID:     "evt_orphan",
+		Type:   EventToolStarted,
+		Source: "tool",
+		Status: "started",
+	})
+
+	if len(emitter.events) != 0 {
+		t.Errorf("expected 0 events (orphan skipped), got %d", len(emitter.events))
+	}
+
+	// Event with RunID should be emitted
+	SafeEmit(emitter, ctx, RunEvent{
+		ID:     "evt_valid",
+		RunID:  "run_001",
+		Type:   EventToolStarted,
+		Source: "tool",
+		Status: "started",
+	})
+
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(emitter.events))
+	}
+	if emitter.events[0].RunID != "run_001" {
+		t.Errorf("RunID = %q, want run_001", emitter.events[0].RunID)
+	}
+}
+
+func TestEnrichFromCtx(t *testing.T) {
+	rc := RunContext{RunID: "run_enrich", TaskID: "task_enrich", WorktreeID: "wt_enrich"}
+	ctx := WithRunContext(context.Background(), rc)
+
+	t.Run("populates empty fields", func(t *testing.T) {
+		event := &RunEvent{ID: "e1", Type: EventRunStarted}
+		EnrichFromCtx(ctx, event)
+		if event.RunID != "run_enrich" {
+			t.Errorf("RunID = %q, want run_enrich", event.RunID)
+		}
+		if event.TaskID != "task_enrich" {
+			t.Errorf("TaskID = %q, want task_enrich", event.TaskID)
+		}
+		if event.WorktreeID != "wt_enrich" {
+			t.Errorf("WorktreeID = %q, want wt_enrich", event.WorktreeID)
+		}
+	})
+
+	t.Run("does not overwrite existing fields", func(t *testing.T) {
+		event := &RunEvent{ID: "e2", RunID: "run_explicit", Type: EventRunStarted}
+		EnrichFromCtx(ctx, event)
+		if event.RunID != "run_explicit" {
+			t.Errorf("RunID = %q, want run_explicit (should not be overwritten)", event.RunID)
+		}
+		if event.TaskID != "task_enrich" {
+			t.Errorf("TaskID = %q, want task_enrich (should be populated from ctx)", event.TaskID)
+		}
+	})
+
+	t.Run("nil context returns zero RunContext", func(t *testing.T) {
+		event := &RunEvent{ID: "e3", Type: EventRunStarted}
+		EnrichFromCtx(nil, event)
+		if event.RunID != "" {
+			t.Errorf("RunID = %q, want empty", event.RunID)
+		}
+	})
+}
+
+func TestRunContextFromContext(t *testing.T) {
+	t.Run("returns zero value when no RunContext", func(t *testing.T) {
+		rc := RunContextFrom(context.Background())
+		if rc.RunID != "" || rc.TaskID != "" || rc.WorktreeID != "" {
+			t.Errorf("expected zero RunContext, got %+v", rc)
+		}
+	})
+
+	t.Run("returns zero value for nil context", func(t *testing.T) {
+		rc := RunContextFrom(nil)
+		if rc.RunID != "" || rc.TaskID != "" || rc.WorktreeID != "" {
+			t.Errorf("expected zero RunContext, got %+v", rc)
+		}
+	})
+
+	t.Run("round-trip WithRunContext/RunContextFrom", func(t *testing.T) {
+		original := RunContext{RunID: "run_rt", TaskID: "task_rt", WorktreeID: "wt_rt"}
+		ctx := WithRunContext(context.Background(), original)
+		got := RunContextFrom(ctx)
+		if got != original {
+			t.Errorf("round-trip: got %+v, want %+v", got, original)
+		}
+	})
+}
+
 func TestListRunsSortedDescending(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events.jsonl")

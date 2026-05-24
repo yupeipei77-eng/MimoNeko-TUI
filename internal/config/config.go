@@ -323,6 +323,7 @@ func Load(root string) (*Root, error) {
 		return nil, err
 	}
 	// events.yaml is optional (Phase 8 addition).
+	cfg.Events = defaultEventsConfig()
 	if err := loadYAMLOptional(filepath.Join(dir, "events.yaml"), &cfg.Events); err != nil {
 		return nil, err
 	}
@@ -558,8 +559,6 @@ func (cfg *Root) applyMultiAgentDefaults() {
 
 // applyEventsDefaults fills in safe defaults for EventsConfig.
 func (cfg *Root) applyEventsDefaults() {
-	// Default to enabled
-	cfg.Events.Enabled = true
 	if cfg.Events.StorePath == "" {
 		cfg.Events.StorePath = ".reasonforge/events/run_events.jsonl"
 	}
@@ -569,10 +568,19 @@ func (cfg *Root) applyEventsDefaults() {
 	if cfg.Events.MaxMetadataValueBytes == 0 {
 		cfg.Events.MaxMetadataValueBytes = 512
 	}
-	cfg.Events.EmitToolEvents = true
-	cfg.Events.EmitModelEvents = true
-	cfg.Events.EmitPatchEvents = true
-	cfg.Events.EmitValidationEvents = true
+}
+
+func defaultEventsConfig() EventsConfig {
+	return EventsConfig{
+		Enabled:               true,
+		StorePath:             ".reasonforge/events/run_events.jsonl",
+		MaxMessageBytes:       2048,
+		MaxMetadataValueBytes: 512,
+		EmitToolEvents:        true,
+		EmitModelEvents:       true,
+		EmitPatchEvents:       true,
+		EmitValidationEvents:  true,
+	}
 }
 
 func isAllowedImmutableSourceKind(kind string) bool {

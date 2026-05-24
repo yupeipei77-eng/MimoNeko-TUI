@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/reasonforge/reasonforge/internal/events"
 	"github.com/reasonforge/reasonforge/internal/task"
 	"github.com/reasonforge/reasonforge/internal/worktree"
 )
@@ -119,6 +120,69 @@ func TestPreviewListsChangedFiles(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected README.md in changed files, got %v", preview.FilesChanged)
+	}
+}
+
+type patchCaptureEmitter struct {
+	events []events.RunEvent
+}
+
+func (e *patchCaptureEmitter) Emit(ctx context.Context, event events.RunEvent) error {
+	e.events = append(e.events, event)
+	return nil
+}
+
+func TestRunContextPropagationToPatchPreviewEvents(t *testing.T) {
+	root, patchMgr, wtID := setupPatchTest(t)
+	emitter := &patchCaptureEmitter{}
+	patchMgr.SetEventEmitter(emitter)
+
+	contract := task.TaskContract{
+		ID:        "tc_patch_events",
+		Goal:      "test patch events",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+	ctx := events.WithRunContext(context.Background(), events.RunContext{
+		RunID:      "run_patch_ctx",
+		TaskID:     "task_patch_ctx",
+		WorktreeID: wtID,
+	})
+
+	if _, err := patchMgr.Preview(ctx, PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: wtID,
+		Contract:   contract,
+	}); err != nil {
+		t.Fatalf("Preview() error: %v", err)
+	}
+
+	if len(emitter.events) < 2 {
+		t.Fatalf("expected patch preview start/finish events, got %d", len(emitter.events))
+	}
+
+	seenStarted := false
+	seenFinished := false
+	for _, evt := range emitter.events {
+		if evt.Type == events.EventPatchPreviewStarted {
+			seenStarted = true
+		}
+		if evt.Type == events.EventPatchPreviewFinished {
+			seenFinished = true
+		}
+		if evt.RunID != "run_patch_ctx" {
+			t.Errorf("event %s RunID = %q, want run_patch_ctx", evt.Type, evt.RunID)
+		}
+		if evt.TaskID != "task_patch_ctx" {
+			t.Errorf("event %s TaskID = %q, want task_patch_ctx", evt.Type, evt.TaskID)
+		}
+		if evt.WorktreeID != wtID {
+			t.Errorf("event %s WorktreeID = %q, want %q", evt.Type, evt.WorktreeID, wtID)
+		}
+	}
+	if !seenStarted || !seenFinished {
+		t.Fatalf("expected started and finished patch events, got %+v", emitter.events)
 	}
 }
 
