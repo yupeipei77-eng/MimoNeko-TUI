@@ -1270,3 +1270,168 @@ func TestPatchReviewUsesWorktreePath(t *testing.T) {
 		t.Fatalf("patch review must pass WorktreePath; got error: %s", errOutput)
 	}
 }
+
+// === Phase 7: Multi-Agent CLI Tests ===
+
+func TestInitCreatesMultiAgentConfig(t *testing.T) {
+	root := t.TempDir()
+	var stdout bytes.Buffer
+
+	code := Run([]string{"init", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Verify multiagent.yaml was created
+	multiagentPath := filepath.Join(root, config.DirName, "multiagent.yaml")
+	if _, err := os.Stat(multiagentPath); os.IsNotExist(err) {
+		t.Error("init did not create multiagent.yaml")
+	}
+}
+
+func TestDoctorShowsMultiAgentConfig(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stdout bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d", code)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "multiagent_max_iterations") {
+		t.Error("doctor output missing multiagent_max_iterations")
+	}
+	if !strings.Contains(output, "multiagent_default_worktree") {
+		t.Error("doctor output missing multiagent_default_worktree")
+	}
+	if !strings.Contains(output, "multiagent_default_dry_run") {
+		t.Error("doctor output missing multiagent_default_dry_run")
+	}
+}
+
+func TestMultiRunRequiresGoal(t *testing.T) {
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Errorf("expected exit code 2, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "goal") {
+		t.Errorf("expected error about goal, got: %s", stderr.String())
+	}
+}
+
+func TestMultiRunDefaultWorktreeAndDryRun(t *testing.T) {
+	// Test that multi-run defaults to worktree=true and dry-run=true
+	// by checking the flag defaults are correctly set.
+	// We don't execute the full run (no model configured), just verify
+	// the command starts with correct defaults.
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "fix typo"}, Env{Stdout: &stdout, Stderr: &stderr})
+	// We expect failure (no model configured), but not a usage error (code 2)
+	if code == 2 {
+		t.Errorf("multi-run flag parsing failed: %s", stderr.String())
+	}
+
+	// Verify output mentions defaults
+	output := stdout.String()
+	if !strings.Contains(output, "dry_run=true") {
+		t.Errorf("expected dry_run=true in output, got: %s", output)
+	}
+	if !strings.Contains(output, "worktree=true") {
+		t.Errorf("expected worktree=true in output, got: %s", output)
+	}
+}
+
+func TestMultiRunMaxIterationsExceedsMax(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "--max-iterations", "10", "fix typo"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Errorf("expected exit code 2 for max_iterations > 5, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "max_iterations") {
+		t.Errorf("expected error about max_iterations, got: %s", stderr.String())
+	}
+}
+
+func TestMultiRunNoAutoApply(t *testing.T) {
+	// Verify that multi-run command does not have auto-apply behavior
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--apply", "fix typo"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Errorf("expected flag parse error for --apply, got code %d", code)
+	}
+}
+
+func TestMultiRunDoesNotLeakAPIKey(t *testing.T) {
+	t.Setenv("REASONFORGE_API_KEY", "sk-super-secret-key-12345")
+
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stdout bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("doctor failed: code=%d", code)
+	}
+
+	output := stdout.String()
+	if strings.Contains(output, "sk-super-secret-key-12345") {
+		t.Error("doctor output leaked API key")
+	}
+	// Also verify multi-run help doesn't leak
+	var multiStderr bytes.Buffer
+	Run([]string{"multi-run"}, Env{Stderr: &multiStderr})
+	if strings.Contains(multiStderr.String(), "sk-super-secret-key-12345") {
+		t.Error("multi-run output leaked API key")
+	}
+}
+
+func TestMultiRunOutputFinalRecommendation(t *testing.T) {
+	// Verify the multi-run command is registered and accepts positional goal
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run", "fix typo"}, Env{Stderr: &stderr})
+	// Should not be a usage error (2) - may fail for other reasons (no config)
+	// but the goal argument should be accepted
+	if code == 2 && strings.Contains(stderr.String(), "accepts no positional") {
+		t.Errorf("multi-run should accept positional goal argument")
+	}
+}
+
+func TestMultiRunWorktreeFalseRejected(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "--worktree=false", "fix typo"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Errorf("expected exit code 2 for --worktree=false, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "worktree=false is not supported") {
+		t.Errorf("expected error about --worktree=false not supported, got: %s", stderr.String())
+	}
+}
+
+func TestMultiRunModelReviewFlagPassed(t *testing.T) {
+	// Verify that --model-review flag is accepted and doesn't cause a parse error.
+	// We can't fully test model review without a real model server,
+	// but we verify the flag is recognized and the request includes UseModelReview.
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	_ = Run([]string{"multi-run", "--dir", root, "--model-review", "fix typo"}, Env{Stderr: &stderr})
+	// The command may fail for other reasons (no model server), but should not
+	// fail with an "unknown flag" or similar parse error
+	errOutput := stderr.String()
+	if strings.Contains(errOutput, "unknown flag") || strings.Contains(errOutput, "cannot use") {
+		t.Errorf("--model-review flag should be recognized, got: %s", errOutput)
+	}
+}

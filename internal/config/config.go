@@ -23,6 +23,7 @@ type Root struct {
 	Patch      PatchConfig
 	Review     ReviewConfig
 	Validation ValidationConfig
+	MultiAgent MultiAgentConfig
 }
 
 type ModelsConfig struct {
@@ -202,6 +203,33 @@ type ValidationConfig struct {
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 }
 
+// MultiAgentConfig configures the multi-agent runtime behavior (Phase 7).
+type MultiAgentConfig struct {
+	// MaxIterations is the default maximum number of Planner->Coder->Reviewer iterations.
+	MaxIterations int `yaml:"max_iterations"`
+
+	// MaxAllowedIterations is the hard upper bound for iterations (max 5).
+	MaxAllowedIterations int `yaml:"max_allowed_iterations"`
+
+	// DefaultWorktree controls whether worktree isolation is used by default.
+	DefaultWorktree bool `yaml:"default_worktree"`
+
+	// DefaultDryRun controls whether dry-run mode is on by default.
+	DefaultDryRun bool `yaml:"default_dry_run"`
+
+	// PlannerModel specifies an optional model override for the planner agent.
+	PlannerModel string `yaml:"planner_model"`
+
+	// CoderModel specifies an optional model override for the coder agent.
+	CoderModel string `yaml:"coder_model"`
+
+	// ReviewerModel specifies an optional model override for the reviewer agent.
+	ReviewerModel string `yaml:"reviewer_model"`
+
+	// ReviewerUseModelReview controls whether the reviewer uses AI model review.
+	ReviewerUseModelReview bool `yaml:"reviewer_use_model_review"`
+}
+
 func ConfigDir(root string) string {
 	return filepath.Join(root, DirName)
 }
@@ -262,10 +290,15 @@ func Load(root string) (*Root, error) {
 	if err := loadYAMLOptional(filepath.Join(dir, "validation.yaml"), &cfg.Validation); err != nil {
 		return nil, err
 	}
+	// multiagent.yaml is optional (Phase 7 addition).
+	if err := loadYAMLOptional(filepath.Join(dir, "multiagent.yaml"), &cfg.MultiAgent); err != nil {
+		return nil, err
+	}
 	cfg.applyWorktreeDefaults()
 	cfg.applyPatchDefaults()
 	cfg.applyReviewDefaults()
 	cfg.applyValidationDefaults()
+	cfg.applyMultiAgentDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -474,6 +507,22 @@ func (cfg *Root) applyValidationDefaults() {
 	}
 }
 
+// applyMultiAgentDefaults fills in safe defaults for MultiAgentConfig.
+func (cfg *Root) applyMultiAgentDefaults() {
+	if cfg.MultiAgent.MaxIterations == 0 {
+		cfg.MultiAgent.MaxIterations = 2
+	}
+	if cfg.MultiAgent.MaxAllowedIterations == 0 {
+		cfg.MultiAgent.MaxAllowedIterations = 5
+	}
+	// DefaultWorktree defaults to true (safe: always isolate)
+	cfg.MultiAgent.DefaultWorktree = true
+	// DefaultDryRun defaults to true (safe: no side effects by default)
+	cfg.MultiAgent.DefaultDryRun = true
+	// PlannerModel, CoderModel, ReviewerModel default to empty (use default model)
+	// ReviewerUseModelReview defaults to false
+}
+
 func isAllowedImmutableSourceKind(kind string) bool {
 	switch kind {
 	case "static_file", "generated_schema":
@@ -634,6 +683,20 @@ default_test_commands:
   - go-test
 max_output_bytes: 65536
 timeout_seconds: 120
+`,
+	},
+	{
+		Name: "multiagent.yaml",
+		Body: `# Multi-agent runtime configuration (Phase 7)
+# Controls how Planner->Coder->Reviewer iterations work.
+max_iterations: 2
+max_allowed_iterations: 5
+default_worktree: true
+default_dry_run: true
+planner_model: ""
+coder_model: ""
+reviewer_model: ""
+reviewer_use_model_review: false
 `,
 	},
 }
