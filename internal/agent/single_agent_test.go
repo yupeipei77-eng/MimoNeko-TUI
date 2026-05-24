@@ -830,3 +830,66 @@ func TestSingleAgentRuntime_CheckpointStoreNil(t *testing.T) {
 		t.Error("Run() should return error when checkpoint store is nil")
 	}
 }
+
+// failOnLastStore succeeds on all saves except the last one (final checkpoint).
+// This simulates a scenario where the agent succeeds but the final checkpoint fails.
+type failOnLastStore struct {
+	saves     int
+	failAfter int // fail on saves > failAfter
+}
+
+func (f *failOnLastStore) Save(ctx context.Context, cp Checkpoint) error {
+	f.saves++
+	if f.saves > f.failAfter {
+		return fmt.Errorf("disk full on final checkpoint")
+	}
+	return nil
+}
+func (f *failOnLastStore) Load(ctx context.Context, runID string) (Checkpoint, error) {
+	return Checkpoint{}, fmt.Errorf("not found")
+}
+func (f *failOnLastStore) List(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func TestSingleAgentRuntime_FinalCheckpointFailureMarksFailed(t *testing.T) {
+	deps := testDeps()
+	// Model completes immediately (no tool call), so agent loop succeeds with 1 model step.
+	// Checkpoints: 1 initial + 1 final = 2 total.
+	// We let the first save succeed (initial) but fail on the second (final).
+	deps.CheckpointStore = &failOnLastStore{failAfter: 1}
+	deps.ModelRouter = &mockModelRouter{
+		responses: []modelrouter.CompletionResponse{
+			{
+				Provider: "mock",
+				Model:    "mock-model",
+				Text:     "I have completed the task successfully.",
+			},
+		},
+	}
+
+	rt := NewSingleAgentRuntime(deps)
+	contract := task.TaskContract{
+		ID:       "tc_final_cp_fail",
+		Goal:     "test final checkpoint failure",
+		RepoRoot: "/repo",
+		MaxSteps: 5,
+	}
+
+	result, err := rt.Run(context.Background(), AgentRunRequest{
+		TaskID:   "task_final_cp_fail",
+		RepoRoot: "/repo",
+		Goal:     "test final checkpoint failure",
+		Contract: contract,
+	})
+	if err != nil {
+		t.Fatalf("Run() should not return error, got: %v", err)
+	}
+	// State MUST be failed even though the agent loop succeeded
+	if result.State != AgentStateFailed {
+		t.Errorf("State = %q, want %q (final checkpoint failure must override succeeded)", result.State, AgentStateFailed)
+	}
+	if !strings.Contains(result.Error, "final checkpoint failed") {
+		t.Errorf("Error = %q, want to contain 'final checkpoint failed'", result.Error)
+	}
+}

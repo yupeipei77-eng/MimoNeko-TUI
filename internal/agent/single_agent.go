@@ -278,12 +278,8 @@ func (rt *SingleAgentRuntime) Run(ctx context.Context, req AgentRunRequest) (Age
 
 	// Save final checkpoint
 	if cpErr := rt.saveCheckpoint(ctx, result, req.Contract.ID); cpErr != nil {
-		if !result.State.IsTerminal() {
-			result.State = AgentStateFailed
-		}
-		if result.Error == "" {
-			result.Error = fmt.Sprintf("final checkpoint failed: %v", cpErr)
-		}
+		result.State = AgentStateFailed
+		result.Error = fmt.Sprintf("final checkpoint failed: %v", cpErr)
 	}
 
 	return result, nil
