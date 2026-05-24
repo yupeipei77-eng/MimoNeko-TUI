@@ -72,36 +72,39 @@ func (m *GitPatchManager) Preview(ctx context.Context, req PatchPreviewRequest) 
 		return PatchPreview{}, fmt.Errorf("patch: get worktree: %w", err)
 	}
 
-	// 2. Generate diff
-	diff, err := m.generateDiff(ctx, info.RepoRoot, info.Path)
-	if err != nil {
-		return PatchPreview{}, fmt.Errorf("patch: generate diff: %w", err)
-	}
-
-	// Truncate diff if too large
-	truncated := false
-	if len(diff) > m.maxDiffBytes {
-		diff = diff[:m.maxDiffBytes]
-		truncated = true
-	}
-
-	// 3. Parse file changes
+	// 2. Parse file changes FIRST (no file content read yet)
 	filesChanged, err := m.parseChangedFiles(ctx, info.RepoRoot, info.Path)
 	if err != nil {
 		return PatchPreview{}, fmt.Errorf("patch: parse changed files: %w", err)
 	}
 
-	// 4. Compute summary
-	summary := m.computeSummary(filesChanged, diff)
-
-	// 5. Check for violations
+	// 3. Check for violations BEFORE generating any diff content
 	violations := m.checkViolations(filesChanged, req.Contract)
 
-	// 6. Determine risk level
+	// 4. Compute summary (from file metadata only, not diff content)
+	summary := m.computeSummary(filesChanged)
+
+	// 5. Determine risk level
 	riskLevel := m.assessRisk(filesChanged, violations, summary)
 
-	if truncated {
-		riskLevel = "high" // truncated diff is always high risk
+	// 6. Generate diff only if there are no violations.
+	// If violations exist, the diff is redacted to prevent leaking
+	// sensitive file content (.env, *.pem, etc.) through Preview.Diff.
+	var diff string
+	if len(violations) > 0 {
+		diff = "[diff redacted due to policy violations]"
+		riskLevel = "high"
+	} else {
+		diff, err = m.generateDiff(ctx, info.RepoRoot, info.Path)
+		if err != nil {
+			return PatchPreview{}, fmt.Errorf("patch: generate diff: %w", err)
+		}
+
+		// Truncate diff if too large
+		if len(diff) > m.maxDiffBytes {
+			diff = diff[:m.maxDiffBytes]
+			riskLevel = "high" // truncated diff is always high risk
+		}
 	}
 
 	preview := PatchPreview{
@@ -473,7 +476,7 @@ func (m *GitPatchManager) parseChangedFiles(ctx context.Context, repoRoot, workt
 }
 
 // computeSummary aggregates file changes into a summary.
-func (m *GitPatchManager) computeSummary(files []FileChange, diff string) DiffSummary {
+func (m *GitPatchManager) computeSummary(files []FileChange) DiffSummary {
 	summary := DiffSummary{
 		FilesChanged: len(files),
 	}

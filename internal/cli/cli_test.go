@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/reasonforge/reasonforge/internal/worktree"
 )
 
 func TestVersion(t *testing.T) {
@@ -856,5 +858,68 @@ func runGitCmd(t *testing.T, dir string, args ...string) {
 	cmd.Dir = dir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, string(output))
+	}
+}
+
+func TestCLIPatchPreviewDoesNotLeakSensitiveDiff(t *testing.T) {
+	root := t.TempDir()
+	runGitCmd(t, root, "init")
+	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "add", ".")
+	runGitCmd(t, root, "commit", "-m", "initial")
+
+	// Init reasonforge project
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree directly via worktree manager
+	registryPath := filepath.Join(root, ".reasonforge", "worktrees", "registry.jsonl")
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "leak-test",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create worktree: %v", err)
+	}
+
+	// Write .env with secret content in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("SECRET_VALUE=super_secret_data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run patch preview via CLI
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	patchCode := Run([]string{"patch", "preview", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+	_ = patchCode // May return non-zero due to violations; we just check output
+
+	output := stdout.String() + stderr.String()
+
+	// Output must NOT contain the secret content
+	if strings.Contains(output, "SECRET_VALUE") {
+		t.Fatal("CLI patch preview must not expose content of sensitive files")
+	}
+	if strings.Contains(output, "super_secret_data") {
+		t.Fatal("CLI patch preview must not expose content of sensitive files")
+	}
+
+	// Output should show violation info
+	if !strings.Contains(output, "violation") && !strings.Contains(output, ".env") {
+		t.Fatalf("expected violation info in output, got:\n%s", output)
 	}
 }

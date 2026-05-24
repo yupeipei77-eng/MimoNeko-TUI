@@ -1057,3 +1057,384 @@ func TestApplyStateUpdateFailureObservable(t *testing.T) {
 		t.Fatalf("StateUpdateError = %q, want to contain 'registry write failed'", result.StateUpdateError)
 	}
 }
+
+func TestPreviewSensitiveUntrackedFileDoesNotExposeContent(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "secret-untracked",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create .env with secret content in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("SECRET_VALUE=super_secret_data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// Must have violations
+	if len(preview.Violations) == 0 {
+		t.Fatal("expected violations for .env")
+	}
+
+	// Diff must NOT contain the secret content
+	if strings.Contains(preview.Diff, "SECRET_VALUE") {
+		t.Fatal("Preview.Diff must not expose content of sensitive files")
+	}
+	if strings.Contains(preview.Diff, "super_secret_data") {
+		t.Fatal("Preview.Diff must not expose content of sensitive files")
+	}
+
+	// Diff should be redacted marker
+	if !strings.Contains(preview.Diff, "redacted") {
+		t.Fatalf("Preview.Diff should contain redacted marker, got %q", preview.Diff)
+	}
+}
+
+func TestPreviewSafeUntrackedFileStillIncludesDiff(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "safe-new-file",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create a safe new file in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, "safe.txt"), []byte("safe content here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// No violations for safe file
+	if len(preview.Violations) != 0 {
+		t.Fatalf("expected no violations for safe file, got %v", preview.Violations)
+	}
+
+	// Diff must contain new-file markers
+	if !strings.Contains(preview.Diff, "new file mode") {
+		t.Fatal("expected 'new file mode' in diff for safe untracked file")
+	}
+	if !strings.Contains(preview.Diff, "/dev/null") {
+		t.Fatal("expected '/dev/null' in diff for safe untracked file")
+	}
+
+	// Diff must contain the safe file content
+	if !strings.Contains(preview.Diff, "safe content here") {
+		t.Fatal("expected safe.txt content in diff")
+	}
+}
+
+func TestApplySafeUntrackedFileStillWorks(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "apply-safe-new",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create a safe new untracked file in the worktree
+	safeContent := "safe apply content\n"
+	if err := os.WriteFile(filepath.Join(info.Path, "safe_apply.txt"), []byte(safeContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	// Apply should succeed
+	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !result.Applied {
+		t.Fatal("expected patch to be applied")
+	}
+
+	// Verify main workspace has the safe new file
+	appliedContent, err := os.ReadFile(filepath.Join(root, "safe_apply.txt"))
+	if err != nil {
+		t.Fatalf("safe_apply.txt should exist in main workspace: %v", err)
+	}
+	got := strings.ReplaceAll(string(appliedContent), "\r\n", "\n")
+	if got != safeContent {
+		t.Fatalf("content mismatch: got %q, want %q", got, safeContent)
+	}
+}
+
+func TestApplySensitiveUntrackedFileRejected(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "reject-sensitive",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create sensitive files in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("DB_PASSWORD=hunter2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(info.Path, "server.pem"), []byte("-----BEGIN PRIVATE KEY-----\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	// Preview should have violations
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if len(preview.Violations) == 0 {
+		t.Fatal("expected violations for sensitive files")
+	}
+
+	// Apply should refuse
+	_, err = patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err == nil {
+		t.Fatal("expected error when applying sensitive files")
+	}
+	if !strings.Contains(err.Error(), "violations") {
+		t.Fatalf("error = %q, want 'violations'", err.Error())
+	}
+
+	// Main workspace must not have .env or server.pem
+	if _, err := os.Stat(filepath.Join(root, ".env")); !os.IsNotExist(err) {
+		t.Fatal(".env should not exist in main workspace")
+	}
+	if _, err := os.Stat(filepath.Join(root, "server.pem")); !os.IsNotExist(err) {
+		t.Fatal("server.pem should not exist in main workspace")
+	}
+}
+
+func TestPreviewTrackedSensitiveModificationDoesNotExposeContent(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	// Create and commit a tracked .env file
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("OLD_KEY=old_value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial with .env")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "tracked-secret-mod",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Modify the tracked .env file in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("NEW_SECRET=leaked_value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// Must have violations for .env
+	foundEnvViolation := false
+	for _, v := range preview.Violations {
+		if v.Path == ".env" {
+			foundEnvViolation = true
+			break
+		}
+	}
+	if !foundEnvViolation {
+		t.Fatalf("expected .env violation, got %v", preview.Violations)
+	}
+
+	// Diff must NOT contain the sensitive content
+	if strings.Contains(preview.Diff, "NEW_SECRET") {
+		t.Fatal("Preview.Diff must not expose content of modified sensitive files")
+	}
+	if strings.Contains(preview.Diff, "leaked_value") {
+		t.Fatal("Preview.Diff must not expose content of modified sensitive files")
+	}
+	if strings.Contains(preview.Diff, "OLD_KEY") {
+		t.Fatal("Preview.Diff must not expose old content of sensitive files either")
+	}
+
+	// Diff should be redacted marker
+	if !strings.Contains(preview.Diff, "redacted") {
+		t.Fatalf("Preview.Diff should contain redacted marker, got %q", preview.Diff)
+	}
+}

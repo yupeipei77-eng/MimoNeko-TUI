@@ -831,7 +831,7 @@ func runPatchPreview(args []string, env Env) int {
 		fmt.Fprintf(env.Stdout, "  file: path=%s status=%s additions=%d deletions=%d\n", f.Path, f.Status, f.Additions, f.Deletions)
 	}
 
-	if preview.Diff != "" {
+	if preview.Diff != "" && len(preview.Violations) == 0 {
 		fmt.Fprintln(env.Stdout, "--- diff ---")
 		// Truncate diff output to respect max_output_bytes
 		maxBytes := cfg.Patch.MaxDiffBytes
