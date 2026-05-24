@@ -967,6 +967,284 @@ func setupGitRepo(t *testing.T) string {
 	return root
 }
 
+func setupPatchCLIEventWorktree(t *testing.T, taskID string, files map[string]string) (string, worktree.WorktreeInfo) {
+	t.Helper()
+	root := setupGitRepo(t)
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	registry, err := worktree.NewRegistry(worktree.DefaultRegistryPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   taskID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for relPath, content := range files {
+		absPath := filepath.Join(info.Path, filepath.FromSlash(relPath))
+		if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	return root, info
+}
+
+func loadPatchCLIEvents(t *testing.T, root string) []events.RunEvent {
+	t.Helper()
+	path := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	evts, corrupted, err := events.LoadEventsFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadEventsFromFile() error = %v", err)
+	}
+	if len(corrupted) > 0 {
+		t.Fatalf("event store has corrupted lines: %+v", corrupted)
+	}
+	return evts
+}
+
+func patchCLIEventsForRun(evts []events.RunEvent, runID string) []events.RunEvent {
+	var result []events.RunEvent
+	for _, evt := range evts {
+		if evt.RunID == runID {
+			result = append(result, evt)
+		}
+	}
+	return result
+}
+
+func findPatchCLIRunID(t *testing.T, evts []events.RunEvent, prefix string) string {
+	t.Helper()
+	for _, evt := range evts {
+		if strings.HasPrefix(evt.RunID, prefix) {
+			return evt.RunID
+		}
+	}
+	t.Fatalf("no run ID with prefix %q in events: %+v", prefix, evts)
+	return ""
+}
+
+func requirePatchCLIEventType(t *testing.T, evts []events.RunEvent, typ events.EventType) {
+	t.Helper()
+	for _, evt := range evts {
+		if evt.Type == typ {
+			return
+		}
+	}
+	t.Fatalf("missing event type %s in events: %+v", typ, evts)
+}
+
+func requirePatchCLIContext(t *testing.T, evts []events.RunEvent, runID, taskID, worktreeID string) {
+	t.Helper()
+	for _, evt := range evts {
+		if evt.RunID != runID {
+			t.Fatalf("event RunID = %q, want %q: %+v", evt.RunID, runID, evt)
+		}
+		if evt.TaskID != taskID {
+			t.Fatalf("event TaskID = %q, want %q: %+v", evt.TaskID, taskID, evt)
+		}
+		if evt.WorktreeID != worktreeID {
+			t.Fatalf("event WorktreeID = %q, want %q: %+v", evt.WorktreeID, worktreeID, evt)
+		}
+	}
+}
+
+func TestPatchPreviewCLIEmitsEvents(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_preview_cli_events", map[string]string{
+		"preview.txt": "preview change\n",
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"patch", "preview", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("Run(patch preview) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	evts := loadPatchCLIEvents(t, root)
+	runID := findPatchCLIRunID(t, evts, "patch_preview_")
+	runEvents := patchCLIEventsForRun(evts, runID)
+	requirePatchCLIContext(t, runEvents, runID, info.TaskID, info.ID)
+	requirePatchCLIEventType(t, runEvents, events.EventRunStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventPatchPreviewStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventPatchPreviewFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventRunSucceeded)
+}
+
+func TestPatchValidateCLIEmitsEvents(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_validate_cli_events", map[string]string{
+		"validate.txt": "validate change\n",
+	})
+
+	var stdout, stderr bytes.Buffer
+	_ = Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+
+	evts := loadPatchCLIEvents(t, root)
+	runID := findPatchCLIRunID(t, evts, "patch_validate_")
+	runEvents := patchCLIEventsForRun(evts, runID)
+	requirePatchCLIContext(t, runEvents, runID, info.TaskID, info.ID)
+	requirePatchCLIEventType(t, runEvents, events.EventRunStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventPatchPreviewStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventPatchPreviewFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventReviewerStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventReviewerFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventValidationStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventValidationFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventToolStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventToolFinished)
+}
+
+func TestPatchReviewCLIEmitsEvents(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_review_cli_events", map[string]string{
+		"review_events.txt": "review change\n",
+	})
+
+	var stdout, stderr bytes.Buffer
+	_ = Run([]string{"patch", "review", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+
+	evts := loadPatchCLIEvents(t, root)
+	runID := findPatchCLIRunID(t, evts, "patch_review_")
+	runEvents := patchCLIEventsForRun(evts, runID)
+	requirePatchCLIContext(t, runEvents, runID, info.TaskID, info.ID)
+	requirePatchCLIEventType(t, runEvents, events.EventRunStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventPatchPreviewStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventPatchPreviewFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventReviewerStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventReviewerFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventValidationStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventValidationFinished)
+	requirePatchCLIEventType(t, runEvents, events.EventToolStarted)
+	requirePatchCLIEventType(t, runEvents, events.EventToolFinished)
+}
+
+func TestPatchPreviewEventsVisibleInRuns(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_preview_visible", map[string]string{
+		"visible.txt": "visible in runs\n",
+	})
+
+	var previewStdout, previewStderr bytes.Buffer
+	code := Run([]string{"patch", "preview", "--dir", root, info.ID}, Env{Stdout: &previewStdout, Stderr: &previewStderr})
+	if code != 0 {
+		t.Fatalf("Run(patch preview) code = %d, stderr = %q", code, previewStderr.String())
+	}
+
+	var runsOut, runsErr bytes.Buffer
+	code = Run([]string{"runs", "--dir", root}, Env{Stdout: &runsOut, Stderr: &runsErr})
+	if code != 0 {
+		t.Fatalf("Run(runs) code = %d, stderr = %q", code, runsErr.String())
+	}
+	output := runsOut.String()
+	if !strings.Contains(output, "patch_preview_") {
+		t.Fatalf("runs output should include patch_preview_ run, got:\n%s", output)
+	}
+	if !strings.Contains(output, "succeeded") {
+		t.Fatalf("runs output should show succeeded state, got:\n%s", output)
+	}
+}
+
+func TestPatchValidateEventsVisibleInRunEvents(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_validate_visible", map[string]string{
+		"run_events.txt": "visible in run events\n",
+	})
+
+	var validateStdout, validateStderr bytes.Buffer
+	_ = Run([]string{"patch", "validate", "--dir", root, info.ID}, Env{Stdout: &validateStdout, Stderr: &validateStderr})
+
+	evts := loadPatchCLIEvents(t, root)
+	runID := findPatchCLIRunID(t, evts, "patch_validate_")
+
+	var eventsOut, eventsErr bytes.Buffer
+	code := Run([]string{"run-events", "--dir", root, runID}, Env{Stdout: &eventsOut, Stderr: &eventsErr})
+	if code != 0 {
+		t.Fatalf("Run(run-events) code = %d, stderr = %q", code, eventsErr.String())
+	}
+	output := eventsOut.String()
+	if !strings.Contains(output, string(events.EventValidationStarted)) {
+		t.Fatalf("run-events output should include validation.started, got:\n%s", output)
+	}
+	if !strings.Contains(output, string(events.EventToolStarted)) {
+		t.Fatalf("run-events output should include tool.started, got:\n%s", output)
+	}
+}
+
+func TestPatchReviewDoesNotLeakSensitiveDiffInEvents(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_review_sensitive_events", map[string]string{
+		".env": "API_KEY=sk-phase82-secret\nDB_PASSWORD=super-secret-password\n",
+	})
+
+	var stdout, stderr bytes.Buffer
+	_ = Run([]string{"patch", "review", "--dir", root, info.ID, "--no-tests"}, Env{Stdout: &stdout, Stderr: &stderr})
+
+	eventStorePath := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	raw, err := os.ReadFile(eventStorePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	rawEvents := string(raw)
+	for _, secret := range []string{"sk-phase82-secret", "super-secret-password", "API_KEY=", "DB_PASSWORD="} {
+		if strings.Contains(rawEvents, secret) {
+			t.Fatalf("event store leaked sensitive diff content %q:\n%s", secret, rawEvents)
+		}
+	}
+}
+
+func TestPatchCLIEventsDisabledUsesNoop(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_events_disabled", map[string]string{
+		"disabled.txt": "events disabled\n",
+	})
+
+	eventsYAML := filepath.Join(root, ".reasonforge", "events.yaml")
+	if err := os.WriteFile(eventsYAML, []byte("enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"patch", "preview", "--dir", root, info.ID}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("Run(patch preview) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	eventStorePath := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	if _, err := os.Stat(eventStorePath); !os.IsNotExist(err) {
+		t.Fatalf("event store path exists with events disabled: err=%v", err)
+	}
+}
+
+func TestPatchCLIEventsEnabledStoreFailureReturnsError(t *testing.T) {
+	root, info := setupPatchCLIEventWorktree(t, "task_patch_events_store_failure", map[string]string{
+		"store_failure.txt": "store failure\n",
+	})
+
+	blocker := filepath.Join(root, "event-store-blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eventsYAML := filepath.Join(root, ".reasonforge", "events.yaml")
+	if err := os.WriteFile(eventsYAML, []byte("enabled: true\nstore_path: event-store-blocker/events.jsonl\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	code := Run([]string{"patch", "preview", "--dir", root, info.ID}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(patch preview) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "event store") {
+		t.Fatalf("stderr = %q, want event store error", stderr.String())
+	}
+}
+
 func TestCLIPatchPreviewDoesNotLeakSensitiveDiff(t *testing.T) {
 	root := t.TempDir()
 	runGitCmd(t, root, "init")

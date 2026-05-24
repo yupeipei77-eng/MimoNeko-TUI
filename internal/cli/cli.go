@@ -1014,6 +1014,75 @@ func buildEventEmitter(root string, cfg *config.Root) (events.EventEmitter, func
 	return events.NewEventEmitter(bus), cleanup, nil
 }
 
+type patchCLIEventRun struct {
+	ctx       context.Context
+	emitter   events.EventEmitter
+	startedAt time.Time
+}
+
+func beginPatchCLIEventRun(ctx context.Context, emitter events.EventEmitter, runIDPrefix, taskID, worktreeID, message string) patchCLIEventRun {
+	runID := runIDPrefix + "_" + generateShortID()
+	if taskID == "" {
+		taskID = "task_" + runID
+	}
+	ctx = events.WithRunContext(ctx, events.RunContext{
+		RunID:      runID,
+		TaskID:     taskID,
+		WorktreeID: worktreeID,
+	})
+
+	startedAt := time.Now().UTC()
+	events.SafeEmit(emitter, ctx, events.RunEvent{
+		ID:        mustGenerateCLIEventID(),
+		Type:      events.EventRunStarted,
+		Source:    "cli",
+		Status:    "started",
+		Message:   message,
+		StartedAt: startedAt,
+		Metadata:  map[string]string{"worktree_id": worktreeID},
+	})
+
+	return patchCLIEventRun{
+		ctx:       ctx,
+		emitter:   emitter,
+		startedAt: startedAt,
+	}
+}
+
+func (r patchCLIEventRun) finish(success bool, message string, runErr error) {
+	eventType := events.EventRunSucceeded
+	status := "succeeded"
+	errMsg := ""
+	if !success {
+		eventType = events.EventRunFailed
+		status = "failed"
+		if runErr != nil {
+			errMsg = runErr.Error()
+		}
+	}
+
+	finishedAt := time.Now().UTC()
+	events.SafeEmit(r.emitter, r.ctx, events.RunEvent{
+		ID:         mustGenerateCLIEventID(),
+		Type:       eventType,
+		Source:     "cli",
+		Status:     status,
+		Message:    message,
+		StartedAt:  r.startedAt,
+		FinishedAt: finishedAt,
+		DurationMs: finishedAt.Sub(r.startedAt).Milliseconds(),
+		Error:      errMsg,
+	})
+}
+
+func mustGenerateCLIEventID() string {
+	id, err := events.GenerateEventID()
+	if err != nil {
+		return "evt_error"
+	}
+	return id
+}
+
 func generateShortID() string {
 	b := make([]byte, 4)
 	// Use crypto/rand for uniqueness but fall back to timestamp
@@ -1121,6 +1190,13 @@ func runPatchPreview(args []string, env Env) int {
 		return 1
 	}
 
+	emitter, eventCleanup, err := buildEventEmitter(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
+		return 1
+	}
+	defer eventCleanup()
+
 	wtMgr, cleanup, err := buildWorktreeManager(root)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
@@ -1130,17 +1206,31 @@ func runPatchPreview(args []string, env Env) int {
 
 	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
 
-	contract := task.DefaultContract(root, "patch preview")
+	wtInfo, err := wtMgr.Get(context.Background(), wtID)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
+		return 1
+	}
 
-	preview, err := patchMgr.Preview(context.Background(), patch.PatchPreviewRequest{
+	eventRun := beginPatchCLIEventRun(context.Background(), emitter, "patch_preview", wtInfo.TaskID, wtID, "Preview command started")
+	patchMgr.SetEventEmitter(eventRun.emitter)
+
+	contract := task.DefaultContract(root, "patch preview")
+	if wtInfo.TaskID != "" {
+		contract.ID = wtInfo.TaskID
+	}
+
+	preview, err := patchMgr.Preview(eventRun.ctx, patch.PatchPreviewRequest{
 		RepoRoot:   root,
 		WorktreeID: wtID,
 		Contract:   contract,
 	})
 	if err != nil {
+		eventRun.finish(false, "Preview command failed", err)
 		fmt.Fprintf(env.Stderr, "patch preview failed: %v\n", err)
 		return 1
 	}
+	eventRun.finish(true, "Preview command succeeded", nil)
 
 	fmt.Fprintf(env.Stdout, "worktree_id=%s\n", preview.WorktreeID)
 	fmt.Fprintf(env.Stdout, "files_changed=%d\n", preview.Summary.FilesChanged)
@@ -1327,6 +1417,13 @@ func runPatchValidate(args []string, env Env) int {
 		return 1
 	}
 
+	emitter, eventCleanup, err := buildEventEmitter(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
+		return 1
+	}
+	defer eventCleanup()
+
 	wtMgr, cleanup, err := buildWorktreeManager(root)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
@@ -1341,12 +1438,16 @@ func runPatchValidate(args []string, env Env) int {
 		return 1
 	}
 
+	eventRun := beginPatchCLIEventRun(context.Background(), emitter, "patch_validate", wtInfo.TaskID, wtID, "Validate command started")
+
 	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+	patchMgr.SetEventEmitter(eventRun.emitter)
 
 	// Build validation runner
 	registry := tools.NewMemoryRegistry()
 	testCmds := tools.TestCommandsFromConfig(cfg)
 	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		eventRun.finish(false, "Validate command failed", err)
 		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
 		return 1
 	}
@@ -1355,17 +1456,21 @@ func runPatchValidate(args []string, env Env) int {
 	auditPath := tools.DefaultAuditLogPath(root)
 	auditLog, err := tools.NewAuditLog(auditPath)
 	if err != nil {
+		eventRun.finish(false, "Validate command failed", err)
 		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
 		return 1
 	}
 	defer auditLog.Close()
 	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+	toolRt.SetEventEmitter(eventRun.emitter)
 
 	valCfg := validationConfigFromConfig(cfg)
 	valRunner := validation.NewValidationRunner(toolRt, valCfg)
+	valRunner.SetEventEmitter(eventRun.emitter)
 
 	reviewCfg := reviewConfigFromConfig(cfg)
 	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, nil, reviewCfg)
+	reviewMgr.SetEventEmitter(eventRun.emitter)
 
 	// Use default test commands if none specified
 	if len(testCommands) == 0 {
@@ -1373,8 +1478,11 @@ func runPatchValidate(args []string, env Env) int {
 	}
 
 	contract := task.DefaultContract(root, "patch validate")
+	if wtInfo.TaskID != "" {
+		contract.ID = wtInfo.TaskID
+	}
 
-	report, err := reviewMgr.Review(context.Background(), review.PatchReviewRequest{
+	report, err := reviewMgr.Review(eventRun.ctx, review.PatchReviewRequest{
 		RepoRoot:       root,
 		WorktreeID:     wtID,
 		WorktreePath:   wtInfo.Path, // Validation runs in worktree, not main workspace
@@ -1385,6 +1493,7 @@ func runPatchValidate(args []string, env Env) int {
 		MaxDiffBytes:   cfg.Review.MaxDiffBytes,
 	})
 	if err != nil {
+		eventRun.finish(false, "Validate command failed", err)
 		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
 		return 1
 	}
@@ -1392,11 +1501,14 @@ func runPatchValidate(args []string, env Env) int {
 	printReviewReport(env, report, cfg)
 
 	if report.Recommendation == review.RecommendationReject {
+		eventRun.finish(false, "Validate command rejected", fmt.Errorf("recommendation=%s", report.Recommendation))
 		return 1
 	}
 	if report.Recommendation == review.RecommendationRequestChanges {
+		eventRun.finish(false, "Validate command requested changes", fmt.Errorf("recommendation=%s", report.Recommendation))
 		return 1
 	}
+	eventRun.finish(true, "Validate command succeeded", nil)
 	return 0
 }
 
@@ -1441,6 +1553,13 @@ func runPatchReview(args []string, env Env) int {
 		return 1
 	}
 
+	emitter, eventCleanup, err := buildEventEmitter(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
+		return 1
+	}
+	defer eventCleanup()
+
 	wtMgr, cleanup, err := buildWorktreeManager(root)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
@@ -1455,12 +1574,16 @@ func runPatchReview(args []string, env Env) int {
 		return 1
 	}
 
+	eventRun := beginPatchCLIEventRun(context.Background(), emitter, "patch_review", wtInfo.TaskID, wtID, "Review command started")
+
 	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+	patchMgr.SetEventEmitter(eventRun.emitter)
 
 	// Build validation runner
 	registry := tools.NewMemoryRegistry()
 	testCmds := tools.TestCommandsFromConfig(cfg)
 	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		eventRun.finish(false, "Review command failed", err)
 		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
 		return 1
 	}
@@ -1469,14 +1592,17 @@ func runPatchReview(args []string, env Env) int {
 	auditPath := tools.DefaultAuditLogPath(root)
 	auditLog, err := tools.NewAuditLog(auditPath)
 	if err != nil {
+		eventRun.finish(false, "Review command failed", err)
 		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
 		return 1
 	}
 	defer auditLog.Close()
 	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+	toolRt.SetEventEmitter(eventRun.emitter)
 
 	valCfg := validationConfigFromConfig(cfg)
 	valRunner := validation.NewValidationRunner(toolRt, valCfg)
+	valRunner.SetEventEmitter(eventRun.emitter)
 
 	// Build model reviewer if requested
 	var modelReviewerInst review.ModelReviewer
@@ -1507,6 +1633,7 @@ func runPatchReview(args []string, env Env) int {
 
 	reviewCfg := reviewConfigFromConfig(cfg)
 	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, modelReviewerInst, reviewCfg)
+	reviewMgr.SetEventEmitter(eventRun.emitter)
 
 	// Use default test commands if none specified
 	if len(testCommands) == 0 {
@@ -1516,8 +1643,11 @@ func runPatchReview(args []string, env Env) int {
 	runTests := !*noTests
 
 	contract := task.DefaultContract(root, "patch review")
+	if wtInfo.TaskID != "" {
+		contract.ID = wtInfo.TaskID
+	}
 
-	report, err := reviewMgr.Review(context.Background(), review.PatchReviewRequest{
+	report, err := reviewMgr.Review(eventRun.ctx, review.PatchReviewRequest{
 		RepoRoot:       root,
 		WorktreeID:     wtID,
 		WorktreePath:   wtInfo.Path,
@@ -1529,6 +1659,7 @@ func runPatchReview(args []string, env Env) int {
 		MaxDiffBytes:   cfg.Review.MaxDiffBytes,
 	})
 	if err != nil {
+		eventRun.finish(false, "Review command failed", err)
 		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
 		return 1
 	}
@@ -1536,11 +1667,14 @@ func runPatchReview(args []string, env Env) int {
 	printReviewReport(env, report, cfg)
 
 	if report.Recommendation == review.RecommendationReject {
+		eventRun.finish(false, "Review command rejected", fmt.Errorf("recommendation=%s", report.Recommendation))
 		return 1
 	}
 	if report.Recommendation == review.RecommendationRequestChanges {
+		eventRun.finish(false, "Review command requested changes", fmt.Errorf("recommendation=%s", report.Recommendation))
 		return 1
 	}
+	eventRun.finish(true, "Review command succeeded", nil)
 	return 0
 }
 
