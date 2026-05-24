@@ -1180,3 +1180,93 @@ func TestDoctorShowsReviewAndValidationConfig(t *testing.T) {
 		t.Fatalf("doctor should show validation_timeout_seconds, got:\n%s", output)
 	}
 }
+
+func TestPatchValidateUsesWorktreePath(t *testing.T) {
+	root := setupGitRepo(t)
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "task_validate_wt_path",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make a change in the worktree
+	testFile := filepath.Join(info.Path, "change.txt")
+	if err := os.WriteFile(testFile, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run patch validate with --test-command; the CLI must pass WorktreePath
+	// so the manager does not return "WorktreePath is required" error.
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "validate", "--dir", root, info.ID, "--test-command", "echo ok"}, Env{
+		Stderr: &stderr,
+	})
+	// The command may fail for other reasons (e.g. test_run tool not registered),
+	// but it must NOT fail with "WorktreePath is required"
+	errOutput := stderr.String()
+	if strings.Contains(errOutput, "WorktreePath is required") {
+		t.Fatalf("patch validate must pass WorktreePath; got error: %s", errOutput)
+	}
+}
+
+func TestPatchReviewUsesWorktreePath(t *testing.T) {
+	root := setupGitRepo(t)
+
+	code := Run([]string{"init", "--dir", root}, Env{})
+	if code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	// Create a worktree
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "task_review_wt_path",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make a change in the worktree
+	testFile := filepath.Join(info.Path, "change.txt")
+	if err := os.WriteFile(testFile, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run patch review with --test-command; the CLI must pass WorktreePath
+	// so the manager does not return "WorktreePath is required" error.
+	var stderr bytes.Buffer
+	code = Run([]string{"patch", "review", "--dir", root, info.ID, "--test-command", "echo ok"}, Env{
+		Stderr: &stderr,
+	})
+	// The command may fail for other reasons (e.g. test_run tool not registered),
+	// but it must NOT fail with "WorktreePath is required"
+	errOutput := stderr.String()
+	if strings.Contains(errOutput, "WorktreePath is required") {
+		t.Fatalf("patch review must pass WorktreePath; got error: %s", errOutput)
+	}
+}

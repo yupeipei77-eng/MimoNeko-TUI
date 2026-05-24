@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,6 +184,7 @@ func TestReview_ValidationFails_RequestChanges(t *testing.T) {
 	report, err := mgr.Review(context.Background(), PatchReviewRequest{
 		RepoRoot:     "/tmp/repo",
 		WorktreeID:   "wt_test",
+		WorktreePath: "/tmp/worktree",
 		Contract:     task.DefaultContract("/tmp/repo", "review"),
 		RunTests:     true,
 		TestCommands: []string{"go-test"},
@@ -215,6 +217,7 @@ func TestReview_ValidationSucceeds_Approve(t *testing.T) {
 	report, err := mgr.Review(context.Background(), PatchReviewRequest{
 		RepoRoot:     "/tmp/repo",
 		WorktreeID:   "wt_test",
+		WorktreePath: "/tmp/worktree",
 		Contract:     task.DefaultContract("/tmp/repo", "review"),
 		RunTests:     true,
 		TestCommands: []string{"go-test"},
@@ -547,5 +550,76 @@ func TestComputeRecommendation_Deterministic(t *testing.T) {
 				t.Errorf("got %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+// recordingValidationRunner captures the RepoRoot from ValidationRequest.
+type recordingValidationRunner struct {
+	capturedRepoRoot string
+	result           ValidationResult
+	err              error
+}
+
+func (r *recordingValidationRunner) Validate(ctx context.Context, req ValidationRequest) (ValidationResult, error) {
+	r.capturedRepoRoot = req.RepoRoot
+	return r.result, r.err
+}
+
+func TestPatchReviewManagerValidationUsesWorktreePath(t *testing.T) {
+	runner := &recordingValidationRunner{
+		result: ValidationResult{
+			Success: true,
+			Commands: []CommandValidationResult{
+				{CommandName: "go-test", Success: true, ExitCode: 0},
+			},
+			Summary: "all tests passed",
+		},
+	}
+
+	mgr := NewDefaultPatchReviewManager(
+		&mockPatchManager{preview: makeLowRiskPreview()},
+		runner,
+		nil,
+		DefaultReviewConfig(),
+	)
+
+	_, err := mgr.Review(context.Background(), PatchReviewRequest{
+		RepoRoot:     "/tmp/main-repo",
+		WorktreeID:   "wt_test",
+		WorktreePath: "/tmp/worktree-path",
+		Contract:     task.DefaultContract("/tmp/main-repo", "review"),
+		RunTests:     true,
+		TestCommands: []string{"go-test"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if runner.capturedRepoRoot != "/tmp/worktree-path" {
+		t.Errorf("validation RepoRoot = %q, want %q", runner.capturedRepoRoot, "/tmp/worktree-path")
+	}
+}
+
+func TestPatchReviewManagerRunTestsRequiresWorktreePath(t *testing.T) {
+	mgr := NewDefaultPatchReviewManager(
+		&mockPatchManager{preview: makeLowRiskPreview()},
+		&mockValidationRunner{result: ValidationResult{Success: true}},
+		nil,
+		DefaultReviewConfig(),
+	)
+
+	_, err := mgr.Review(context.Background(), PatchReviewRequest{
+		RepoRoot:     "/tmp/main-repo",
+		WorktreeID:   "wt_test",
+		WorktreePath: "", // Empty - must error
+		Contract:     task.DefaultContract("/tmp/main-repo", "review"),
+		RunTests:     true,
+		TestCommands: []string{"go-test"},
+	})
+	if err == nil {
+		t.Fatal("expected error when RunTests=true and WorktreePath is empty")
+	}
+	if !strings.Contains(err.Error(), "WorktreePath") {
+		t.Errorf("error should mention WorktreePath, got: %v", err)
 	}
 }

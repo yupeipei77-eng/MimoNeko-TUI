@@ -103,11 +103,17 @@ type ModelReviewResult struct {
 
 // PatchReviewRequest is the input to PatchReviewManager.Review.
 type PatchReviewRequest struct {
-	// RepoRoot is the main repository root.
+	// RepoRoot is the main repository root, used for PatchManager.Preview and metadata.
 	RepoRoot string
 
 	// WorktreeID identifies the worktree to review.
 	WorktreeID string
+
+	// WorktreePath is the filesystem path of the isolated worktree.
+	// When RunTests is true and TestCommands is non-empty, this must be set
+	// so that ValidationRunner executes test_run in the worktree (not the main workspace).
+	// If RunTests=true and WorktreePath is empty, Review() returns an error.
+	WorktreePath string
 
 	// Contract defines the execution boundary for violation checking.
 	Contract task.TaskContract

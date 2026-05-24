@@ -164,16 +164,19 @@ func (m *DefaultPatchReviewManager) Review(ctx context.Context, req PatchReviewR
 	// 5. Optional test validation
 	var validation *ValidationResult
 	if req.RunTests && len(req.TestCommands) > 0 {
-		// Get worktree path from PatchPreview's WorktreeID
-		// Use the PatchPreview data to construct validation request
-		valReq := ValidationRequest{
-			RepoRoot:       req.RepoRoot, // Will be overridden with worktree path
-			TaskID:         req.Contract.ID,
-			TestCommands:   req.TestCommands,
-			MaxOutputBytes: 65536,
-			TimeoutSeconds: 120,
+		// WorktreePath is required for test validation.
+		// Tests must execute in the isolated worktree, not the main workspace.
+		if req.WorktreePath == "" {
+			return PatchReviewReport{}, fmt.Errorf("review: WorktreePath is required when RunTests=true with TestCommands")
 		}
 		if m.validationRunner != nil {
+			valReq := ValidationRequest{
+				RepoRoot:       req.WorktreePath, // Use worktree path, NOT main repo root
+				TaskID:         req.Contract.ID,
+				TestCommands:   req.TestCommands,
+				MaxOutputBytes: 65536,
+				TimeoutSeconds: 120,
+			}
 			valResult, err := m.validationRunner.Validate(ctx, valReq)
 			if err != nil {
 				findings = append(findings, ReviewFinding{

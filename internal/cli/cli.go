@@ -978,8 +978,6 @@ func runPatchValidate(args []string, env Env) int {
 	fs := flag.NewFlagSet("patch validate", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	dir := fs.String("dir", "", "project root")
-	maxOutputBytes := fs.Int("max-output-bytes", 0, "max output bytes per test command")
-	timeoutSeconds := fs.Int("timeout-seconds", 0, "validation timeout in seconds")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -1063,6 +1061,7 @@ func runPatchValidate(args []string, env Env) int {
 	report, err := reviewMgr.Review(context.Background(), review.PatchReviewRequest{
 		RepoRoot:       root,
 		WorktreeID:     wtID,
+		WorktreePath:   wtInfo.Path, // Validation runs in worktree, not main workspace
 		Contract:       contract,
 		RunTests:       true,
 		TestCommands:   testCommands,
@@ -1072,32 +1071,6 @@ func runPatchValidate(args []string, env Env) int {
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "patch validate failed: %v\n", err)
 		return 1
-	}
-
-	// Override validation RepoRoot with worktree path
-	// Re-run validation with correct worktree path if needed
-	if report.Validation == nil && len(testCommands) > 0 {
-		valReq := review.ValidationRequest{
-			RepoRoot:       wtInfo.Path,
-			TaskID:         contract.ID,
-			TestCommands:   testCommands,
-			MaxOutputBytes: *maxOutputBytes,
-			TimeoutSeconds: *timeoutSeconds,
-		}
-		if valReq.MaxOutputBytes <= 0 {
-			valReq.MaxOutputBytes = cfg.Validation.MaxOutputBytes
-		}
-		if valReq.TimeoutSeconds <= 0 {
-			valReq.TimeoutSeconds = cfg.Validation.TimeoutSeconds
-		}
-		valResult, valErr := valRunner.Validate(context.Background(), valReq)
-		if valErr != nil {
-			fmt.Fprintf(env.Stderr, "patch validate: validation failed: %v\n", valErr)
-		} else {
-			report.Validation = &valResult
-			// Recompute recommendation
-			report.Recommendation = recomputeRecommendation(report)
-		}
 	}
 
 	printReviewReport(env, report, cfg)
@@ -1120,8 +1093,6 @@ func runPatchReview(args []string, env Env) int {
 	modelReview := fs.Bool("model-review", false, "use AI model review")
 	model := fs.String("model", "", "model name for review (default: from config)")
 	noTests := fs.Bool("no-tests", false, "skip test validation")
-	maxOutputBytes := fs.Int("max-output-bytes", 0, "max output bytes per test command")
-	timeoutSeconds := fs.Int("timeout-seconds", 0, "validation timeout in seconds")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -1233,6 +1204,7 @@ func runPatchReview(args []string, env Env) int {
 	report, err := reviewMgr.Review(context.Background(), review.PatchReviewRequest{
 		RepoRoot:       root,
 		WorktreeID:     wtID,
+		WorktreePath:   wtInfo.Path,
 		Contract:       contract,
 		RunTests:       runTests,
 		TestCommands:   testCommands,
@@ -1243,28 +1215,6 @@ func runPatchReview(args []string, env Env) int {
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "patch review failed: %v\n", err)
 		return 1
-	}
-
-	// Re-run validation with worktree path if needed
-	if runTests && len(testCommands) > 0 && report.Validation != nil {
-		valReq := review.ValidationRequest{
-			RepoRoot:       wtInfo.Path,
-			TaskID:         contract.ID,
-			TestCommands:   testCommands,
-			MaxOutputBytes: *maxOutputBytes,
-			TimeoutSeconds: *timeoutSeconds,
-		}
-		if valReq.MaxOutputBytes <= 0 {
-			valReq.MaxOutputBytes = cfg.Validation.MaxOutputBytes
-		}
-		if valReq.TimeoutSeconds <= 0 {
-			valReq.TimeoutSeconds = cfg.Validation.TimeoutSeconds
-		}
-		valResult, valErr := valRunner.Validate(context.Background(), valReq)
-		if valErr == nil {
-			report.Validation = &valResult
-			report.Recommendation = recomputeRecommendation(report)
-		}
 	}
 
 	printReviewReport(env, report, cfg)
@@ -1347,35 +1297,6 @@ func printReviewReport(env Env, report review.PatchReviewReport, cfg *config.Roo
 		}
 		fmt.Fprint(env.Stdout, diff)
 	}
-}
-
-// recomputeRecommendation recomputes the recommendation based on the full report.
-func recomputeRecommendation(report review.PatchReviewReport) review.ReviewRecommendation {
-	// Check for critical findings
-	for _, f := range report.Findings {
-		if f.Severity == review.SeverityCritical {
-			return review.RecommendationReject
-		}
-	}
-	if len(report.Preview.Violations) > 0 {
-		return review.RecommendationReject
-	}
-	if report.Validation != nil && !report.Validation.Success {
-		return review.RecommendationRequestChanges
-	}
-	if report.RiskScore.Level == "critical" {
-		return review.RecommendationReject
-	}
-	if report.RiskScore.Level == "high" {
-		return review.RecommendationRequestChanges
-	}
-	if report.ModelReview != nil && report.ModelReview.Recommendation == review.RecommendationReject {
-		return review.RecommendationReject
-	}
-	if report.ModelReview != nil && report.ModelReview.Recommendation == review.RecommendationRequestChanges {
-		return review.RecommendationRequestChanges
-	}
-	return review.RecommendationApprove
 }
 
 // reviewConfigFromConfig creates a ReviewConfig from the project config.
