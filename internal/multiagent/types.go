@@ -102,15 +102,17 @@ type MultiAgentIteration struct {
 
 // MultiAgentRunRequest is the input to MultiAgentRuntime.Run.
 type MultiAgentRunRequest struct {
-	TaskID        string            `json:"task_id"`
-	RepoRoot      string            `json:"repo_root"`
-	Goal          string            `json:"goal"`
-	Contract      task.TaskContract `json:"contract"`
-	MaxIterations int               `json:"max_iterations"`
-	DryRun        bool              `json:"dry_run"`
-	UseWorktree   bool              `json:"use_worktree"`
-	Model         string            `json:"model,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+	TaskID         string            `json:"task_id"`
+	RepoRoot       string            `json:"repo_root"`
+	Goal           string            `json:"goal"`
+	Contract       task.TaskContract `json:"contract"`
+	MaxIterations  int               `json:"max_iterations"`
+	DryRun         bool              `json:"dry_run"`
+	UseWorktree    bool              `json:"use_worktree"`
+	UseModelReview bool              `json:"use_model_review"`
+	Model          string            `json:"model,omitempty"`
+	TestCommands   []string          `json:"test_commands,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 // MultiAgentRunResult is the output of MultiAgentRuntime.Run.

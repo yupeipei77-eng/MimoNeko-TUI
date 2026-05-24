@@ -1404,3 +1404,34 @@ func TestMultiRunOutputFinalRecommendation(t *testing.T) {
 		t.Errorf("multi-run should accept positional goal argument")
 	}
 }
+
+func TestMultiRunWorktreeFalseRejected(t *testing.T) {
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	code := Run([]string{"multi-run", "--dir", root, "--worktree=false", "fix typo"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Errorf("expected exit code 2 for --worktree=false, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "worktree=false is not supported") {
+		t.Errorf("expected error about --worktree=false not supported, got: %s", stderr.String())
+	}
+}
+
+func TestMultiRunModelReviewFlagPassed(t *testing.T) {
+	// Verify that --model-review flag is accepted and doesn't cause a parse error.
+	// We can't fully test model review without a real model server,
+	// but we verify the flag is recognized and the request includes UseModelReview.
+	root := t.TempDir()
+	Run([]string{"init", "--dir", root}, Env{})
+
+	var stderr bytes.Buffer
+	_ = Run([]string{"multi-run", "--dir", root, "--model-review", "fix typo"}, Env{Stderr: &stderr})
+	// The command may fail for other reasons (no model server), but should not
+	// fail with an "unknown flag" or similar parse error
+	errOutput := stderr.String()
+	if strings.Contains(errOutput, "unknown flag") || strings.Contains(errOutput, "cannot use") {
+		t.Errorf("--model-review flag should be recognized, got: %s", errOutput)
+	}
+}

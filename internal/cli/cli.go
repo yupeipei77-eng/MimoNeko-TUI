@@ -642,6 +642,12 @@ func runMultiAgent(args []string, env Env) int {
 	}
 	goal := remaining[0]
 
+	// multi-run requires worktree isolation; --worktree=false is not supported
+	if !*useWorktree {
+		fmt.Fprintln(env.Stderr, "multi-run requires worktree isolation; --worktree=false is not supported")
+		return 2
+	}
+
 	root, err := resolveRoot(*dir, env)
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
@@ -697,15 +703,16 @@ func runMultiAgent(args []string, env Env) int {
 	rt := multiagent.NewDefaultMultiAgentRuntime(multiDeps)
 
 	req := multiagent.MultiAgentRunRequest{
-		TaskID:        taskID,
-		RepoRoot:      root,
-		Goal:          goal,
-		Contract:      contract,
-		MaxIterations: validatedMaxIter,
-		DryRun:        *dryRun,
-		UseWorktree:   *useWorktree,
-		Model:         *model,
-		Metadata:      map[string]string{"source": "cli"},
+		TaskID:         taskID,
+		RepoRoot:       root,
+		Goal:           goal,
+		Contract:       contract,
+		MaxIterations:  validatedMaxIter,
+		DryRun:         *dryRun,
+		UseWorktree:    *useWorktree,
+		UseModelReview: *modelReview,
+		Model:          *model,
+		Metadata:       map[string]string{"source": "cli"},
 	}
 
 	fmt.Fprintf(env.Stdout, "ReasonForge Multi-Agent\n")
@@ -798,16 +805,9 @@ func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.
 	valCfg := validationConfigFromConfig(cfg)
 	valRunner := validation.NewValidationRunner(toolRt, valCfg)
 
-	// Build optional model reviewer
+	// Build model reviewer - always create so --model-review CLI flag can enable it
 	var modelReviewerInst review.ModelReviewer
-	reviewModel := cfg.MultiAgent.ReviewerModel
-	if reviewModel == "" {
-		reviewModel = cfg.Models.Routing.DefaultModel
-	}
-	// Model reviewer is only created if explicitly requested via config
-	if cfg.MultiAgent.ReviewerUseModelReview {
-		modelReviewerInst = review.NewDefaultModelReviewer(agentDeps.ModelRouter)
-	}
+	modelReviewerInst = review.NewDefaultModelReviewer(agentDeps.ModelRouter)
 
 	reviewCfg := reviewConfigFromConfig(cfg)
 	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, modelReviewerInst, reviewCfg)

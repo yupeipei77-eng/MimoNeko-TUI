@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -568,6 +569,188 @@ func TestCheckpointFailureCausesFailed(t *testing.T) {
 	})
 	if result.State != MultiAgentStateFailed {
 		t.Errorf("expected failed state on checkpoint failure, got %q", result.State)
+	}
+	if !strings.Contains(result.Error, "checkpoint failed") {
+		t.Errorf("expected error to contain 'checkpoint failed', got %q", result.Error)
+	}
+}
+
+// === Checkpoint failure override tests ===
+
+// selectiveFailingCheckpointStore fails on specified phases only.
+type selectiveFailingCheckpointStore struct {
+	failPhases map[string]bool
+	saved      []string
+}
+
+func (s *selectiveFailingCheckpointStore) Save(ctx context.Context, cp MultiAgentCheckpoint) error {
+	s.saved = append(s.saved, cp.Phase)
+	if s.failPhases[cp.Phase] {
+		return fmt.Errorf("checkpoint write failed for phase %s", cp.Phase)
+	}
+	return nil
+}
+func (s *selectiveFailingCheckpointStore) Load(ctx context.Context, runID string) (MultiAgentCheckpoint, error) {
+	return MultiAgentCheckpoint{}, fmt.Errorf("not found")
+}
+func (s *selectiveFailingCheckpointStore) List(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func TestMultiAgentRuntime_FinalCheckpointFailureMarksFailed(t *testing.T) {
+	// Normal approve → succeeded, but final loop_end checkpoint fails.
+	// The result must be overridden to failed with "checkpoint failed" in Error.
+	deps := buildTestDependencies(review.RecommendationApprove)
+	deps.CheckpointStore = &selectiveFailingCheckpointStore{
+		failPhases: map[string]bool{"loop_end": true},
+	}
+	rt := NewDefaultMultiAgentRuntime(deps)
+
+	result, _ := rt.Run(context.Background(), MultiAgentRunRequest{
+		Goal:          "Fix bug",
+		RepoRoot:      "/tmp/repo",
+		Contract:      task.DefaultContract("/tmp/repo", "Fix bug"),
+		MaxIterations: 2,
+		UseWorktree:   true,
+		DryRun:        true,
+	})
+	if result.State != MultiAgentStateFailed {
+		t.Errorf("expected failed state when final checkpoint fails, got %q", result.State)
+	}
+	if !strings.Contains(result.Error, "checkpoint failed") {
+		t.Errorf("expected error to contain 'checkpoint failed', got %q", result.Error)
+	}
+}
+
+func TestMultiAgentRuntime_CoderFailedCheckpointFailureMarksFailed(t *testing.T) {
+	// Coder fails → coder_failed checkpoint also fails.
+	// The result must be failed with "checkpoint failed" in Error.
+	deps := buildTestDependenciesWithReviewMgr(&fixedReviewMgr{
+		report: review.PatchReviewReport{
+			WorktreeID:     "wt_mock",
+			Recommendation: review.RecommendationApprove,
+			RiskScore:      review.RiskScore{Level: "low", Score: 10},
+			Preview:        patch.PatchPreview{WorktreeID: "wt_mock"},
+			CreatedAt:      time.Now().UTC(),
+		},
+	})
+	deps.SingleAgent = &mockSingleAgent{err: fmt.Errorf("coder error")}
+	deps.CheckpointStore = &selectiveFailingCheckpointStore{
+		failPhases: map[string]bool{"coder_failed": true},
+	}
+	rt := NewDefaultMultiAgentRuntime(deps)
+
+	result, _ := rt.Run(context.Background(), MultiAgentRunRequest{
+		Goal:          "Fix bug",
+		RepoRoot:      "/tmp/repo",
+		Contract:      task.DefaultContract("/tmp/repo", "Fix bug"),
+		MaxIterations: 2,
+		UseWorktree:   true,
+		DryRun:        true,
+	})
+	if result.State != MultiAgentStateFailed {
+		t.Errorf("expected failed state when coder_failed checkpoint fails, got %q", result.State)
+	}
+	if !strings.Contains(result.Error, "checkpoint failed") {
+		t.Errorf("expected error to contain 'checkpoint failed', got %q", result.Error)
+	}
+}
+
+func TestMultiAgentRuntime_CancelledCheckpointFailureMarksFailed(t *testing.T) {
+	// Context cancelled → cancelled checkpoint also fails.
+	// The result must be failed with "checkpoint failed" in Error.
+	deps := buildTestDependencies(review.RecommendationApprove)
+	deps.CheckpointStore = &selectiveFailingCheckpointStore{
+		failPhases: map[string]bool{"cancelled": true},
+	}
+	rt := NewDefaultMultiAgentRuntime(deps)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	result, _ := rt.Run(ctx, MultiAgentRunRequest{
+		Goal:          "Fix bug",
+		RepoRoot:      "/tmp/repo",
+		Contract:      task.DefaultContract("/tmp/repo", "Fix bug"),
+		MaxIterations: 2,
+		UseWorktree:   true,
+		DryRun:        true,
+	})
+	if result.State != MultiAgentStateFailed {
+		t.Errorf("expected failed state when cancelled checkpoint fails, got %q", result.State)
+	}
+	if !strings.Contains(result.Error, "checkpoint failed") {
+		t.Errorf("expected error to contain 'checkpoint failed', got %q", result.Error)
+	}
+}
+
+// === UseModelReview propagation test ===
+
+// recordingReviewMgr records whether UseModelReview was set in the request.
+type recordingReviewMgr struct {
+	report          review.PatchReviewReport
+	lastUseModelRev bool
+}
+
+func (m *recordingReviewMgr) Review(ctx context.Context, req review.PatchReviewRequest) (review.PatchReviewReport, error) {
+	m.lastUseModelRev = req.UseModelReview
+	return m.report, nil
+}
+
+func TestMultiAgentRuntimePassesUseModelReviewToReviewer(t *testing.T) {
+	recMgr := &recordingReviewMgr{
+		report: review.PatchReviewReport{
+			WorktreeID:     "wt_mock",
+			Recommendation: review.RecommendationApprove,
+			RiskScore:      review.RiskScore{Level: "low", Score: 10},
+			Preview:        patch.PatchPreview{WorktreeID: "wt_mock"},
+			CreatedAt:      time.Now().UTC(),
+		},
+	}
+	deps := buildTestDependenciesWithReviewMgr(recMgr)
+	rt := NewDefaultMultiAgentRuntime(deps)
+
+	_, _ = rt.Run(context.Background(), MultiAgentRunRequest{
+		Goal:           "Fix bug",
+		RepoRoot:       "/tmp/repo",
+		Contract:       task.DefaultContract("/tmp/repo", "Fix bug"),
+		MaxIterations:  2,
+		UseWorktree:    true,
+		DryRun:         true,
+		UseModelReview: true,
+		Model:          "test-model",
+	})
+
+	if !recMgr.lastUseModelRev {
+		t.Error("expected UseModelReview=true to be passed to PatchReviewManager")
+	}
+}
+
+func TestMultiAgentRuntimePassesUseModelReviewFalseToReviewer(t *testing.T) {
+	recMgr := &recordingReviewMgr{
+		report: review.PatchReviewReport{
+			WorktreeID:     "wt_mock",
+			Recommendation: review.RecommendationApprove,
+			RiskScore:      review.RiskScore{Level: "low", Score: 10},
+			Preview:        patch.PatchPreview{WorktreeID: "wt_mock"},
+			CreatedAt:      time.Now().UTC(),
+		},
+	}
+	deps := buildTestDependenciesWithReviewMgr(recMgr)
+	rt := NewDefaultMultiAgentRuntime(deps)
+
+	_, _ = rt.Run(context.Background(), MultiAgentRunRequest{
+		Goal:           "Fix bug",
+		RepoRoot:       "/tmp/repo",
+		Contract:       task.DefaultContract("/tmp/repo", "Fix bug"),
+		MaxIterations:  2,
+		UseWorktree:    true,
+		DryRun:         true,
+		UseModelReview: false,
+	})
+
+	if recMgr.lastUseModelRev {
+		t.Error("expected UseModelReview=false to be passed to PatchReviewManager")
 	}
 }
 

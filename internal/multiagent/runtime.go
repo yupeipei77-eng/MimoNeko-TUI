@@ -88,7 +88,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 		result.State = MultiAgentStateFailed
 		result.Error = fmt.Sprintf("planner failed: %v", err)
 		result.FinishedAt = time.Now().UTC()
-		rt.saveCheckpoint(ctx, result, "planner_failed")
+		rt.saveCheckpointOrFail(ctx, &result, "planner_failed")
 		return result, nil
 	}
 
@@ -112,7 +112,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			result.State = MultiAgentStateCancelled
 			result.Error = fmt.Sprintf("context cancelled at iteration %d: %v", iterIndex, err)
 			result.FinishedAt = time.Now().UTC()
-			rt.saveCheckpoint(ctx, result, "cancelled")
+			rt.saveCheckpointOrFail(ctx, &result, "cancelled")
 			return result, nil
 		}
 
@@ -144,7 +144,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			result.State = MultiAgentStateFailed
 			result.Error = fmt.Sprintf("coder failed at iteration %d: %v", iterIndex, err)
 			result.FinishedAt = time.Now().UTC()
-			rt.saveCheckpoint(ctx, result, "coder_failed")
+			rt.saveCheckpointOrFail(ctx, &result, "coder_failed")
 			return result, nil
 		}
 
@@ -162,19 +162,21 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 
 		// === Reviewer ===
 		reviewResult, err := reviewer.Review(ctx, ReviewRequest{
-			CoderResult:  coderResult.Result,
-			Contract:     req.Contract,
-			RepoRoot:     req.RepoRoot,
-			WorktreeID:   worktreeID,
-			TaskID:       req.TaskID,
-			RunTests:     true,
-			TestCommands: nil, // will use defaults from review manager config
+			CoderResult:    coderResult.Result,
+			Contract:       req.Contract,
+			RepoRoot:       req.RepoRoot,
+			WorktreeID:     worktreeID,
+			TaskID:         req.TaskID,
+			RunTests:       true,
+			TestCommands:   req.TestCommands,
+			UseModelReview: req.UseModelReview,
+			Model:          req.Model,
 		})
 		if err != nil {
 			result.State = MultiAgentStateFailed
 			result.Error = fmt.Sprintf("reviewer failed at iteration %d: %v", iterIndex, err)
 			result.FinishedAt = time.Now().UTC()
-			rt.saveCheckpoint(ctx, result, "reviewer_failed")
+			rt.saveCheckpointOrFail(ctx, &result, "reviewer_failed")
 			return result, nil
 		}
 
@@ -201,7 +203,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			result.FinalRecommendation = review.RecommendationApprove
 			result.FinalMessage = reviewResult.Message.Content
 			result.FinishedAt = time.Now().UTC()
-			rt.saveCheckpoint(ctx, result, "loop_end")
+			rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 			return result, nil
 
 		case review.RecommendationReject:
@@ -209,7 +211,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 			result.FinalRecommendation = review.RecommendationReject
 			result.FinalMessage = reviewResult.Message.Content
 			result.FinishedAt = time.Now().UTC()
-			rt.saveCheckpoint(ctx, result, "loop_end")
+			rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 			return result, nil
 
 		case review.RecommendationRequestChanges:
@@ -219,7 +221,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 				result.FinalRecommendation = review.RecommendationRequestChanges
 				result.FinalMessage = fmt.Sprintf("Max iterations (%d) reached with request_changes recommendation", maxIter)
 				result.FinishedAt = time.Now().UTC()
-				rt.saveCheckpoint(ctx, result, "loop_end")
+				rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 				return result, nil
 			}
 			// Otherwise, continue to next iteration with feedback
@@ -230,7 +232,7 @@ func (rt *DefaultMultiAgentRuntime) Run(ctx context.Context, req MultiAgentRunRe
 	result.State = MultiAgentStateFailed
 	result.Error = fmt.Sprintf("iteration loop exited unexpectedly after %d iterations", maxIter)
 	result.FinishedAt = time.Now().UTC()
-	rt.saveCheckpoint(ctx, result, "loop_end")
+	rt.saveCheckpointOrFail(ctx, &result, "loop_end")
 	return result, nil
 }
 
@@ -269,4 +271,14 @@ func (rt *DefaultMultiAgentRuntime) saveCheckpoint(ctx context.Context, result M
 	}
 
 	return nil
+}
+
+// saveCheckpointOrFail persists a checkpoint and overrides the result state to
+// failed if the save fails. This ensures no checkpoint error is silently ignored.
+func (rt *DefaultMultiAgentRuntime) saveCheckpointOrFail(ctx context.Context, result *MultiAgentRunResult, phase string) {
+	if err := rt.saveCheckpoint(ctx, *result, phase); err != nil {
+		result.State = MultiAgentStateFailed
+		result.Error = fmt.Sprintf("checkpoint failed (%s): %v", phase, err)
+		result.FinishedAt = time.Now().UTC()
+	}
 }
