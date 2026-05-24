@@ -195,17 +195,19 @@ func (m *GitPatchManager) Apply(ctx context.Context, req PatchApplyRequest) (Pat
 	}
 
 	// 7. Update worktree state
+	var stateUpdateErr string
 	if err := m.worktreeMgr.UpdateState(ctx, req.WorktreeID, worktree.WorktreeStateApplied); err != nil {
-		// Patch was applied but state update failed - don't fail the operation
-		// The user can still see the changes
-		_ = err
+		// Patch was applied but state update failed - don't fail the operation,
+		// but surface the error so callers can observe the inconsistency.
+		stateUpdateErr = err.Error()
 	}
 
 	return PatchApplyResult{
-		WorktreeID:   req.WorktreeID,
-		Applied:      true,
-		FilesChanged: preview.FilesChanged,
-		Summary:      preview.Summary,
+		WorktreeID:       req.WorktreeID,
+		Applied:          true,
+		FilesChanged:     preview.FilesChanged,
+		Summary:          preview.Summary,
+		StateUpdateError: stateUpdateErr,
 	}, nil
 }
 
@@ -230,19 +232,119 @@ func (m *GitPatchManager) Discard(ctx context.Context, req PatchDiscardRequest) 
 	return nil
 }
 
-// generateDiff runs git diff between the main workspace and the worktree.
+// generateDiff runs git diff between the main workspace and the worktree,
+// including untracked new files which are not covered by plain git diff.
 func (m *GitPatchManager) generateDiff(ctx context.Context, repoRoot, worktreePath string) (string, error) {
+	// 1. Tracked changes via git diff
+	var trackedDiff string
 	cmd := exec.CommandContext(ctx, "git", "diff")
 	cmd.Dir = worktreePath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// git diff returns exit code 1 when there are differences
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return string(output), nil
+			// git diff may return exit code 1 when there are differences
+			trackedDiff = string(output)
+		} else {
+			return "", fmt.Errorf("git diff: %w: %s", err, string(output))
 		}
-		return "", fmt.Errorf("git diff: %w: %s", err, string(output))
+	} else {
+		trackedDiff = string(output)
 	}
-	return string(output), nil
+
+	// 2. Untracked new files - not included in git diff output
+	newFileDiff, err := m.generateNewFileDiffs(ctx, worktreePath)
+	if err != nil {
+		return "", fmt.Errorf("generate new file diffs: %w", err)
+	}
+
+	return trackedDiff + newFileDiff, nil
+}
+
+// generateNewFileDiffs generates unified diff entries for untracked (new) files
+// in the worktree. These are not included in git diff output but must be part
+// of the complete patch so that git apply can create them in the main workspace.
+func (m *GitPatchManager) generateNewFileDiffs(ctx context.Context, worktreePath string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "--others", "--exclude-standard")
+	cmd.Dir = worktreePath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git ls-files --others: %w: %s", err, string(output))
+	}
+
+	var buf strings.Builder
+	for _, relPath := range strings.Split(string(output), "\n") {
+		relPath = strings.TrimSpace(relPath)
+		if relPath == "" {
+			continue
+		}
+
+		absPath := filepath.Join(worktreePath, filepath.FromSlash(relPath))
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			return "", fmt.Errorf("read new file %s: %w", relPath, err)
+		}
+
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n", relPath, relPath)
+		fmt.Fprintf(&buf, "new file mode 100644\n")
+
+		if isBinaryContent(content) {
+			fmt.Fprintf(&buf, "Binary files /dev/null and b/%s differ\n", relPath)
+			continue
+		}
+
+		fmt.Fprintf(&buf, "--- /dev/null\n")
+		fmt.Fprintf(&buf, "+++ b/%s\n", relPath)
+
+		lineCount := countLines(content)
+		if lineCount == 0 {
+			// Empty new file - just the header, no hunk
+			continue
+		}
+
+		fmt.Fprintf(&buf, "@@ -0,0 +1,%d @@\n", lineCount)
+
+		lines := strings.Split(string(content), "\n")
+		for i, line := range lines {
+			if i == len(lines)-1 && line == "" {
+				// Trailing newline produces an empty final element; skip it
+				break
+			}
+			fmt.Fprintf(&buf, "+%s\n", line)
+		}
+
+		if len(content) > 0 && content[len(content)-1] != '\n' {
+			buf.WriteString("\\ No newline at end of file\n")
+		}
+	}
+
+	return buf.String(), nil
+}
+
+// isBinaryContent checks whether data appears to be binary by looking for
+// null bytes within the first 8 KB.
+func isBinaryContent(data []byte) bool {
+	n := len(data)
+	if n > 8192 {
+		n = 8192
+	}
+	for i := 0; i < n; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// countLines returns the number of lines in data.
+func countLines(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	n := strings.Count(string(data), "\n")
+	if data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
 }
 
 // parseChangedFiles extracts the list of changed files from git diff.
@@ -302,10 +404,23 @@ func (m *GitPatchManager) parseChangedFiles(ctx context.Context, repoRoot, workt
 			if line == "" {
 				continue
 			}
-			files = append(files, FileChange{
+
+			fc := FileChange{
 				Path:   line,
 				Status: "added",
-			})
+			}
+
+			// Count lines and detect binary for untracked files
+			absPath := filepath.Join(worktreePath, filepath.FromSlash(line))
+			if content, readErr := os.ReadFile(absPath); readErr == nil {
+				if isBinaryContent(content) {
+					fc.Status = "binary"
+				} else {
+					fc.Additions = countLines(content)
+				}
+			}
+
+			files = append(files, fc)
 		}
 	}
 

@@ -2,6 +2,7 @@ package patch
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -602,4 +603,457 @@ func TestSensitiveFileViolation(t *testing.T) {
 // timeNow returns current time for test convenience.
 func timeNow() time.Time {
 	return time.Now().UTC()
+}
+
+// failingUpdateStateManager wraps a WorktreeManager and always returns an
+// error from UpdateState. All other methods are delegated.
+type failingUpdateStateManager struct {
+	worktree.WorktreeManager
+	failErr error
+}
+
+func (m *failingUpdateStateManager) UpdateState(_ context.Context, _ string, _ worktree.WorktreeState) error {
+	return m.failErr
+}
+
+func TestApplyNewUntrackedFileSuccess(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "new-file-test",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create a new untracked file in the worktree
+	newContent := "brand new file content\nline two\n"
+	if err := os.WriteFile(filepath.Join(info.Path, "brand_new.txt"), []byte(newContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	// Preview should see the file as added
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	foundAdded := false
+	for _, f := range preview.FilesChanged {
+		if f.Path == "brand_new.txt" && f.Status == "added" {
+			foundAdded = true
+			break
+		}
+	}
+	if !foundAdded {
+		t.Fatalf("expected brand_new.txt as added, got %v", preview.FilesChanged)
+	}
+
+	// Apply should create the file in main workspace
+	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !result.Applied {
+		t.Fatal("expected patch to be applied")
+	}
+
+	// Verify main workspace has the new file with correct content
+	appliedContent, err := os.ReadFile(filepath.Join(root, "brand_new.txt"))
+	if err != nil {
+		t.Fatalf("new file should exist in main workspace: %v", err)
+	}
+	// Normalize line endings (git apply may convert LF to CRLF on Windows)
+	got := strings.ReplaceAll(string(appliedContent), "\r\n", "\n")
+	if got != newContent {
+		t.Fatalf("content mismatch: got %q, want %q", got, newContent)
+	}
+}
+
+func TestPreviewDiffIncludesUntrackedFile(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "diff-new-file",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create a new untracked file in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, "new_file.txt"), []byte("hello world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// The diff must contain new-file markers for the untracked file
+	if !strings.Contains(preview.Diff, "new file mode") {
+		t.Fatal("expected 'new file mode' in diff for untracked file")
+	}
+	if !strings.Contains(preview.Diff, "/dev/null") {
+		t.Fatal("expected '/dev/null' in diff for untracked file")
+	}
+	if !strings.Contains(preview.Diff, "new_file.txt") {
+		t.Fatal("expected 'new_file.txt' in diff")
+	}
+}
+
+func TestApplyNewSensitiveFileRejected(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "sensitive-new",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create .env in worktree (sensitive new file)
+	if err := os.WriteFile(filepath.Join(info.Path, ".env"), []byte("SECRET=leaked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	// Preview should detect violation
+	preview, err := patchMgr.Preview(context.Background(), PatchPreviewRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	foundEnvViolation := false
+	for _, v := range preview.Violations {
+		if v.Path == ".env" {
+			foundEnvViolation = true
+			break
+		}
+	}
+	if !foundEnvViolation {
+		t.Fatalf("expected .env violation, got %v", preview.Violations)
+	}
+
+	// Apply should refuse
+	_, err = patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err == nil {
+		t.Fatal("expected error when applying with sensitive new file")
+	}
+	if !strings.Contains(err.Error(), "violations") {
+		t.Fatalf("error = %q, want 'violations'", err.Error())
+	}
+
+	// Main workspace must not have .env
+	if _, err := os.Stat(filepath.Join(root, ".env")); !os.IsNotExist(err) {
+		t.Fatal(".env should not exist in main workspace after rejected apply")
+	}
+}
+
+func TestApplyNewFileDryRunDoesNotWrite(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "dryrun-new",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Create a new untracked file in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, "dry_new.txt"), []byte("dry run content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("Apply dry-run: %v", err)
+	}
+	if result.Applied {
+		t.Fatal("dry-run should not apply changes")
+	}
+
+	// Main workspace must not have the new file
+	if _, err := os.Stat(filepath.Join(root, "dry_new.txt")); !os.IsNotExist(err) {
+		t.Fatal("dry_new.txt should not exist in main workspace after dry-run")
+	}
+}
+
+func TestApplyStateUpdatedToApplied(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+	patchMgr := NewGitPatchManager(wtMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "state-test",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Modify a tracked file in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, "README.md"), []byte("# Updated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !result.Applied {
+		t.Fatal("expected patch to be applied")
+	}
+	if result.StateUpdateError != "" {
+		t.Fatalf("unexpected state update error: %s", result.StateUpdateError)
+	}
+
+	// Verify registry shows state=applied
+	updated, err := wtMgr.Get(context.Background(), info.ID)
+	if err != nil {
+		t.Fatalf("Get after apply: %v", err)
+	}
+	if updated.State != worktree.WorktreeStateApplied {
+		t.Fatalf("state = %q, want %q", updated.State, worktree.WorktreeStateApplied)
+	}
+}
+
+func TestApplyStateUpdateFailureObservable(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	registryPath := worktree.DefaultRegistryPath(root)
+	registry, err := worktree.NewRegistry(registryPath)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(func() { registry.Close() })
+
+	wtMgr := worktree.NewGitWorktreeManager(registry, worktree.DefaultGitWorktreeManagerConfig())
+
+	// Wrap with a manager that fails UpdateState
+	failErr := fmt.Errorf("registry write failed")
+	failingMgr := &failingUpdateStateManager{
+		WorktreeManager: wtMgr,
+		failErr:         failErr,
+	}
+
+	patchMgr := NewGitPatchManager(failingMgr, DefaultGitPatchManagerConfig())
+
+	info, err := wtMgr.Create(context.Background(), worktree.CreateWorktreeRequest{
+		RepoRoot: root,
+		TaskID:   "state-fail",
+		BaseRef:  "HEAD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Modify a tracked file in the worktree
+	if err := os.WriteFile(filepath.Join(info.Path, "README.md"), []byte("# Updated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: info.ID,
+		Contract:   contract,
+	})
+	if err != nil {
+		t.Fatalf("Apply should succeed even if state update fails: %v", err)
+	}
+	if !result.Applied {
+		t.Fatal("patch should be applied even if state update failed")
+	}
+	if result.StateUpdateError == "" {
+		t.Fatal("expected StateUpdateError to be populated when state update fails")
+	}
+	if !strings.Contains(result.StateUpdateError, "registry write failed") {
+		t.Fatalf("StateUpdateError = %q, want to contain 'registry write failed'", result.StateUpdateError)
+	}
 }

@@ -113,6 +113,11 @@ type PatchApplyResult struct {
 
 	// Summary is the aggregate summary of applied changes.
 	Summary DiffSummary `json:"summary"`
+
+	// StateUpdateError holds the error message if the worktree state update
+	// failed after a successful patch apply. The patch itself is not rolled
+	// back, but callers should be aware of this inconsistency.
+	StateUpdateError string `json:"state_update_error,omitempty"`
 }
 
 // PatchDiscardRequest is the input to PatchManager.Discard.
