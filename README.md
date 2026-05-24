@@ -15,6 +15,7 @@ reasonforge cache-report
 reasonforge tools
 reasonforge tool-run <tool-name> [--key value ...]
 reasonforge run --goal "read the README" [--dry-run] [--max-steps 5] [--auto-approve-medium] [--worktree]
+reasonforge multi-run "fix typo in README" [--max-iterations 2] [--dry-run] [--worktree] [--model-review]
 reasonforge patch list
 reasonforge patch preview <worktree_id>
 reasonforge patch validate <worktree_id> [--test-command go-test]
@@ -39,17 +40,22 @@ reasonforge patch discard <worktree_id>
 - Worktree paths must stay under .reasonforge/worktrees.
 - Patch review recommendation is deterministic; safety rules override model suggestions.
 - Sensitive diff content is never sent to AI models when violations exist.
+- Multi-agent iteration loop has a hard cap of 5 iterations.
+- Coder agent must use worktree isolation; never writes to main workspace.
+- Reviewer agent cannot override deterministic reject rules.
+- No auto-apply, auto-commit, or auto-push in multi-agent runs.
 
 ## Status
 
-Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), Phase 3 (Tool Runtime + Security Hardening), Phase 4 (Agent Runtime), and Phase 5 (Worktree Isolation + Patch Manager) are implemented.
+Phase 1 (Context Engine + Cache Engine), Phase 2 (Model Router + Usage Accounting), Phase 3 (Tool Runtime + Security Hardening), Phase 4 (Agent Runtime), Phase 5 (Worktree Isolation + Patch Manager), and Phase 6 (Patch Review + Validation Pipeline) are implemented.
 
-Phase 6 adds Patch Review and Validation Pipeline:
-- PatchReviewManager: full review pipeline (rule review → risk scoring → test validation → optional model review → recommendation)
-- RuleBasedReviewer: violation detection, diff size, file/line counts, binary files, sensitive paths, test coverage, generated files
-- RiskScorer: numeric risk score (0-100) with low/medium/high/critical levels
-- ValidationRunner: test execution through ToolRuntime (test_run), output truncation, API key sanitization
-- ModelReviewer: optional AI review via ModelRouter with sensitive diff guard
-- Deterministic recommendation: approve / request_changes / reject
-- CLI: `reasonforge patch validate`, `reasonforge patch review`
-- Configuration: review.yaml, validation.yaml with safe defaults
+Phase 7 adds Multi-Agent Runtime:
+- MultiAgentRuntime: orchestrates Planner -> Coder -> Reviewer agents in an iteration loop
+- PlannerAgent: generates TaskPlan via ModelRouter (strict JSON output, no tool calls, no file modifications)
+- CoderAgent: delegates to SingleAgentRuntime with UseWorktree=true (never writes main workspace)
+- ReviewerAgent: delegates to PatchReviewManager (deterministic reject cannot be overridden)
+- IterationLoop: approve ends loop, reject stops, request_changes continues (max 5 iterations)
+- SharedTaskContext: structured inter-agent communication with sensitive data redaction
+- MultiAgentCheckpointStore: JSONL append-only with API key sanitization
+- CLI: `reasonforge multi-run` (default worktree=true, dry-run=true, no auto-apply)
+- Configuration: multiagent.yaml with safe defaults

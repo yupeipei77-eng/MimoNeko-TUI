@@ -39,6 +39,7 @@ internal/patch/               Patch preview, apply, and discard manager
 internal/review/              Patch review pipeline (rule review, risk scoring, model review)
 internal/validation/          Test validation runner
 internal/agent/               Agent runtime orchestration contract
+internal/multiagent/          Multi-agent runtime (Planner → Coder → Reviewer loop)
 internal/version/             Version metadata
 docs/adr/                     Architecture decision records
 ```
@@ -179,6 +180,7 @@ TODO:
 - `patch.yaml` (Phase 5)
 - `review.yaml` (Phase 6)
 - `validation.yaml` (Phase 6)
+- `multiagent.yaml` (Phase 7)
 
 `reasonforge doctor` loads all files with strict YAML parsing and validates key safety constraints. The default model provider is OpenAI-compatible and local by default.
 
@@ -248,6 +250,67 @@ CLI commands:
 - `reasonforge patch review <id>` - Full review with optional model review
 
 See `docs/phase-6-patch-review-validation.md` for full documentation.
+
+## Multi-Agent Runtime
+
+The Multi-Agent Runtime (`internal/multiagent/`) orchestrates PlannerAgent → CoderAgent → ReviewerAgent in an iteration loop, producing a fully reviewed patch or a rejection with actionable feedback.
+
+### Architecture
+
+```mermaid
+flowchart TD
+  CLI["multi-run"] --> Runtime["DefaultMultiAgentRuntime"]
+  Runtime --> Planner["PlannerAgent"]
+  Runtime --> Coder["CoderAgent"]
+  Runtime --> Reviewer["ReviewerAgent"]
+  Planner -->|TaskPlan| Ctx["SharedTaskContext"]
+  Coder -->|delegates| Single["SingleAgentRuntime"]
+  Reviewer -->|delegates| ReviewMgr["PatchReviewManager"]
+  Reviewer -->|optional| ModelReview["ModelReviewer"]
+  Runtime -->|append| Checkpoint["MultiAgentCheckpointStore"]
+  Ctx -->|redact| Sensitive["API keys, violation diffs"]
+```
+
+### Agent Roles
+
+- **PlannerAgent**: Produces a `TaskPlan` (goal + steps + risk_level) via `ModelRouter.Complete`. Strict JSON output; no ToolRuntime access; no file modifications; cannot override the TaskContract goal.
+- **CoderAgent**: Delegates to `SingleAgentRuntime.Run()` with `UseWorktree=true`. Builds a goal from the plan and reviewer feedback. Reuses WorktreeID across iterations. No auto-apply/commit/push.
+- **ReviewerAgent**: Delegates to `PatchReviewManager.Review()`. Returns the deterministic recommendation. Optional model reviewer for natural language summaries, but cannot override deterministic reject.
+
+### Iteration Loop
+
+1. Validate request (max iterations hard cap = 5, default = 2).
+2. PlannerAgent produces `TaskPlan`.
+3. Loop:
+   - CoderAgent generates code in worktree.
+   - ReviewerAgent reviews the patch.
+   - Decision: `approve` → succeeded, `reject` → rejected, `request_changes` → next iteration (or failed if max reached).
+4. Context cancellation returns `cancelled`.
+5. Checkpoint failure causes `failed`.
+
+### SharedTaskContext
+
+Carries the TaskPlan, agent messages, and review reports across iterations. Sensitive data is redacted:
+- Diffs with violations are stripped from context.
+- API key patterns are sanitized before passing to model.
+
+### MultiAgentCheckpointStore
+
+Append-only JSONL store at `.reasonforge/checkpoints/multi_agent_runs.jsonl` with 0700/0600 permissions and API key scrubbing. Checkpoints are saved at key state transitions: init, planner_done, coder_done, reviewer_done, loop_end, cancelled, failed.
+
+### CLI
+
+```bash
+reasonforge multi-run <goal> [--dir .] [--model gpt-4] [--max-iterations 2] [--dry-run] [--worktree] [--approve-medium] [--model-review]
+```
+
+Safety: `--dry-run` defaults to `true`; `--worktree` defaults to `true`; no auto-apply/commit/push.
+
+### Configuration
+
+`multiagent.yaml` controls defaults for max iterations, worktree policy, dry-run, per-agent model selection, and model review toggle. Safe defaults are applied when the file is missing or partial.
+
+See `docs/phase-7-multi-agent-runtime.md` for full documentation.
 
 ## Observability
 

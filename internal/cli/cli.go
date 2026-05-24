@@ -18,6 +18,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/contextengine"
 	"github.com/reasonforge/reasonforge/internal/conversation"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
+	"github.com/reasonforge/reasonforge/internal/multiagent"
 	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/prefix"
 	"github.com/reasonforge/reasonforge/internal/review"
@@ -70,6 +71,8 @@ func Run(args []string, env Env) int {
 		return runAgent(args[1:], env)
 	case "patch":
 		return runPatch(args[1:], env)
+	case "multi-run":
+		return runMultiAgent(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -178,6 +181,10 @@ func runDoctor(args []string, env Env) int {
 	fmt.Fprintf(env.Stdout, "review_strict_model_review=%v\n", cfg.Review.StrictModelReview)
 	fmt.Fprintf(env.Stdout, "validation_max_output_bytes=%d\n", cfg.Validation.MaxOutputBytes)
 	fmt.Fprintf(env.Stdout, "validation_timeout_seconds=%d\n", cfg.Validation.TimeoutSeconds)
+	fmt.Fprintf(env.Stdout, "multiagent_max_iterations=%d\n", cfg.MultiAgent.MaxIterations)
+	fmt.Fprintf(env.Stdout, "multiagent_max_allowed_iterations=%d\n", cfg.MultiAgent.MaxAllowedIterations)
+	fmt.Fprintf(env.Stdout, "multiagent_default_worktree=%v\n", cfg.MultiAgent.DefaultWorktree)
+	fmt.Fprintf(env.Stdout, "multiagent_default_dry_run=%v\n", cfg.MultiAgent.DefaultDryRun)
 	return 0
 }
 
@@ -260,6 +267,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  tools        List available tools and their status")
 	fmt.Fprintln(w, "  tool-run     Execute a tool with arguments")
 	fmt.Fprintln(w, "  run          Run an agent task")
+	fmt.Fprintln(w, "  multi-run    Run multi-agent task (Planner->Coder->Reviewer)")
 	fmt.Fprintln(w, "  patch        Manage patches (list, preview, validate, review, apply, discard)")
 }
 
@@ -605,6 +613,232 @@ func runAgent(args []string, env Env) int {
 	default:
 		return 1
 	}
+}
+
+// runMultiAgent handles the "multi-run" command.
+// It runs the Planner->Coder->Reviewer multi-agent loop.
+// Default: worktree=true, dry-run=true, max_iterations=2.
+// Does NOT auto-apply, auto-commit, or auto-push.
+func runMultiAgent(args []string, env Env) int {
+	fs := flag.NewFlagSet("multi-run", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	model := fs.String("model", "", "model name (default: from config)")
+	maxIterations := fs.Int("max-iterations", 0, "max iterations (default: 2, max: 5)")
+	dryRun := fs.Bool("dry-run", true, "dry run mode (no side effects)")
+	useWorktree := fs.Bool("worktree", true, "run in isolated git worktree (default: true)")
+	approveMedium := fs.Bool("approve-medium", false, "auto-approve medium-risk tools for coder agent")
+	modelReview := fs.Bool("model-review", false, "use AI model review in reviewer agent")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	// Goal is the first positional argument
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		fmt.Fprintln(env.Stderr, "multi-run requires a goal argument")
+		fmt.Fprintln(env.Stderr, "Usage: reasonforge multi-run \"fix typo in README\"")
+		return 2
+	}
+	goal := remaining[0]
+
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)
+		return 1
+	}
+
+	// Apply multiagent config defaults
+	if *maxIterations == 0 {
+		*maxIterations = cfg.MultiAgent.MaxIterations
+	}
+	if !*modelReview {
+		*modelReview = cfg.MultiAgent.ReviewerUseModelReview
+	}
+
+	// Validate max iterations
+	validatedMaxIter, err := multiagent.ValidateMaxIterations(*maxIterations)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)
+		return 2
+	}
+
+	// Build task contract
+	contract := task.DefaultContract(root, goal)
+	contract.DryRun = *dryRun
+	if *approveMedium {
+		contract.RequireApprovalForRisk = []string{"high"}
+	}
+
+	taskID := "task_multi_" + generateShortID()
+
+	// Build agent dependencies
+	agentDeps, cleanup, err := buildAgentDependencies(root, cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)
+		return 1
+	}
+	defer cleanup()
+
+	// Build multi-agent dependencies
+	multiDeps, multiCleanup, err := buildMultiAgentDependencies(root, cfg, agentDeps)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)
+		return 1
+	}
+	defer multiCleanup()
+
+	rt := multiagent.NewDefaultMultiAgentRuntime(multiDeps)
+
+	req := multiagent.MultiAgentRunRequest{
+		TaskID:        taskID,
+		RepoRoot:      root,
+		Goal:          goal,
+		Contract:      contract,
+		MaxIterations: validatedMaxIter,
+		DryRun:        *dryRun,
+		UseWorktree:   *useWorktree,
+		Model:         *model,
+		Metadata:      map[string]string{"source": "cli"},
+	}
+
+	fmt.Fprintf(env.Stdout, "ReasonForge Multi-Agent\n")
+	fmt.Fprintf(env.Stdout, "goal=%q max_iterations=%d dry_run=%v worktree=%v\n",
+		goal, validatedMaxIter, *dryRun, *useWorktree)
+
+	result, err := rt.Run(context.Background(), req)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)
+		return 1
+	}
+
+	// Output results
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintf(env.Stdout, "run_id=%s\n", result.RunID)
+	fmt.Fprintf(env.Stdout, "state=%s\n", result.State)
+	if result.WorktreeID != "" {
+		fmt.Fprintf(env.Stdout, "worktree_id=%s\n", result.WorktreeID)
+	}
+
+	// Plan summary
+	if len(result.Plan.Steps) > 0 {
+		fmt.Fprintf(env.Stdout, "plan_steps=%d risk_level=%s\n", len(result.Plan.Steps), result.Plan.RiskLevel)
+		for _, step := range result.Plan.Steps {
+			fmt.Fprintf(env.Stdout, "  step %d: %s\n", step.Index, step.Title)
+		}
+	}
+
+	// Iteration results
+	for _, iter := range result.Iterations {
+		fmt.Fprintf(env.Stdout, "iteration %d: recommendation=%s\n", iter.Index, iter.Recommendation)
+	}
+
+	// Final recommendation
+	fmt.Fprintf(env.Stdout, "final_recommendation=%s\n", result.FinalRecommendation)
+
+	if result.Error != "" {
+		fmt.Fprintf(env.Stdout, "error=%s\n", result.Error)
+	}
+
+	// If approved, suggest next steps (do NOT auto-apply)
+	if result.State == multiagent.MultiAgentStateSucceeded && result.WorktreeID != "" {
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintf(env.Stdout, "To apply changes, run:\n")
+		fmt.Fprintf(env.Stdout, "  reasonforge patch apply %s\n", result.WorktreeID)
+	}
+
+	switch result.State {
+	case multiagent.MultiAgentStateSucceeded:
+		return 0
+	case multiagent.MultiAgentStateRejected, multiagent.MultiAgentStateFailed:
+		return 1
+	case multiagent.MultiAgentStateCancelled:
+		return 130
+	case multiagent.MultiAgentStateRequestChanges:
+		return 1
+	default:
+		return 1
+	}
+}
+
+// buildMultiAgentDependencies constructs multi-agent dependencies from project config and existing agent deps.
+func buildMultiAgentDependencies(root string, cfg *config.Root, agentDeps agent.Dependencies) (multiagent.Dependencies, func(), error) {
+	// Build worktree manager
+	wtMgr, wtCleanup, err := buildWorktreeManager(root)
+	if err != nil {
+		return multiagent.Dependencies{}, nil, fmt.Errorf("worktree manager: %w", err)
+	}
+
+	// Build patch manager
+	patchMgr := patch.NewGitPatchManager(wtMgr, patchConfigFromConfig(cfg))
+
+	// Build validation runner
+	registry := tools.NewMemoryRegistry()
+	testCmds := tools.TestCommandsFromConfig(cfg)
+	if err := tools.RegisterBuiltinTools(registry, testCmds); err != nil {
+		wtCleanup()
+		return multiagent.Dependencies{}, nil, fmt.Errorf("tool registry: %w", err)
+	}
+	enabledMap := tools.EnabledToolsFromConfig(cfg)
+	guard := tools.SafetyGuardFromConfig(cfg)
+	auditPath := tools.DefaultAuditLogPath(root)
+	auditLog, err := tools.NewAuditLog(auditPath)
+	if err != nil {
+		wtCleanup()
+		return multiagent.Dependencies{}, nil, fmt.Errorf("audit log: %w", err)
+	}
+	toolRt := tools.NewDefaultToolRuntime(registry, guard, auditLog, enabledMap)
+
+	valCfg := validationConfigFromConfig(cfg)
+	valRunner := validation.NewValidationRunner(toolRt, valCfg)
+
+	// Build optional model reviewer
+	var modelReviewerInst review.ModelReviewer
+	reviewModel := cfg.MultiAgent.ReviewerModel
+	if reviewModel == "" {
+		reviewModel = cfg.Models.Routing.DefaultModel
+	}
+	// Model reviewer is only created if explicitly requested via config
+	if cfg.MultiAgent.ReviewerUseModelReview {
+		modelReviewerInst = review.NewDefaultModelReviewer(agentDeps.ModelRouter)
+	}
+
+	reviewCfg := reviewConfigFromConfig(cfg)
+	reviewMgr := review.NewDefaultPatchReviewManager(patchMgr, valRunner, modelReviewerInst, reviewCfg)
+
+	// Build checkpoint store
+	cpPath := multiagent.DefaultMultiAgentCheckpointPath(root)
+	cpStore, err := multiagent.NewJSONLMultiAgentCheckpointStore(cpPath)
+	if err != nil {
+		auditLog.Close()
+		wtCleanup()
+		return multiagent.Dependencies{}, nil, fmt.Errorf("multi-agent checkpoint store: %w", err)
+	}
+
+	// Build single agent runtime for the coder
+	singleAgent := agent.NewSingleAgentRuntime(agentDeps)
+
+	deps := multiagent.Dependencies{
+		ContextEngine:   agentDeps.ContextEngine,
+		ModelRouter:     agentDeps.ModelRouter,
+		SingleAgent:     singleAgent,
+		ReviewMgr:       reviewMgr,
+		WorktreeMgr:     wtMgr,
+		CheckpointStore: cpStore,
+	}
+
+	cleanup := func() {
+		auditLog.Close()
+		wtCleanup()
+	}
+
+	return deps, cleanup, nil
 }
 
 // buildAgentDependencies constructs all agent dependencies from the project config.
