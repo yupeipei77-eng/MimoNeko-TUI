@@ -14,8 +14,9 @@ func TestInitAndLoadDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	if len(written) != len(defaultConfigFiles) {
-		t.Fatalf("Init() wrote %d files, want %d", len(written), len(defaultConfigFiles))
+	wantWritten := len(defaultConfigFiles) + len(defaultScaffoldFiles)
+	if len(written) != wantWritten {
+		t.Fatalf("Init() wrote %d files, want %d", len(written), wantWritten)
 	}
 
 	cfg, err := Load(root)
@@ -28,6 +29,84 @@ func TestInitAndLoadDefaultConfig(t *testing.T) {
 	}
 	if len(cfg.Prefix.ImmutableSources) != 3 {
 		t.Fatalf("immutable source count = %d", len(cfg.Prefix.ImmutableSources))
+	}
+}
+
+func TestInitCreatesPromptAndSchemaFiles(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	for _, rel := range []string{"prompts/system.md", "prompts/coding_rules.md", "schemas/tools.json"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected %s to exist after init: %v", rel, err)
+		}
+	}
+}
+
+func TestInitDoesNotOverwriteExistingPrompts(t *testing.T) {
+	root := t.TempDir()
+	customSystem := filepath.Join(root, "prompts", "system.md")
+	if err := os.MkdirAll(filepath.Dir(customSystem), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(customSystem, []byte("custom system prompt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	got, err := os.ReadFile(customSystem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "custom system prompt\n" {
+		t.Fatalf("Init() overwrote existing system prompt: %q", string(got))
+	}
+}
+
+func TestInitCreatesSystemPrompt(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "prompts", "system.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "You are ReasonForge") {
+		t.Fatalf("system prompt = %q, want ReasonForge default", string(content))
+	}
+}
+
+func TestInitCreatesCodingRules(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "prompts", "coding_rules.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "Coding rules:") {
+		t.Fatalf("coding rules = %q, want default heading", string(content))
+	}
+}
+
+func TestInitCreatesToolsSchema(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "schemas", "tools.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(content)) != "[]" {
+		t.Fatalf("tools schema = %q, want []", string(content))
 	}
 }
 

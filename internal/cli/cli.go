@@ -129,6 +129,7 @@ func runInit(args []string, env Env) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	dir := fs.String("dir", "", "project root")
+	repair := fs.Bool("repair", false, "repair missing ReasonForge scaffolding without overwriting existing files")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -142,22 +143,42 @@ func runInit(args []string, env Env) int {
 		return 1
 	}
 
-	written, err := config.Init(root)
+	result, err := config.InitDetailed(root)
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
 		return 1
 	}
 
-	if len(written) == 0 {
+	if *repair {
+		fmt.Fprintf(env.Stdout, "Repaired ReasonForge scaffolding at %s\n", config.ConfigDir(root))
+	} else if len(result.Created) == 0 {
 		fmt.Fprintf(env.Stdout, "ReasonForge already initialized at %s\n", config.ConfigDir(root))
-		return 0
+	} else {
+		fmt.Fprintf(env.Stdout, "Initialized ReasonForge at %s\n", config.ConfigDir(root))
 	}
-
-	fmt.Fprintf(env.Stdout, "Initialized ReasonForge at %s\n", config.ConfigDir(root))
-	for _, path := range written {
+	for _, path := range result.Created {
 		fmt.Fprintf(env.Stdout, "created %s\n", filepath.ToSlash(path))
 	}
+	for _, path := range result.Skipped {
+		fmt.Fprintf(env.Stdout, "skipped %s\n", filepath.ToSlash(path))
+	}
+	printInitNextSteps(env.Stdout)
 	return 0
+}
+
+func printInitNextSteps(w io.Writer) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Next steps:")
+	fmt.Fprintln(w, "1. Set up a model:")
+	fmt.Fprintln(w, "   reasonforge model setup")
+	fmt.Fprintln(w, "2. Test the model:")
+	fmt.Fprintln(w, "   reasonforge model test")
+	fmt.Fprintln(w, "3. Run a safe task:")
+	fmt.Fprintln(w, "   reasonforge run --goal \"Reply OK\" --dry-run")
+	fmt.Fprintln(w, "4. Start dashboard:")
+	fmt.Fprintln(w, "   reasonforge serve")
+	fmt.Fprintln(w, "Windows API key example:")
+	fmt.Fprintln(w, "   setx MIMO_API_KEY \"your-key\"")
 }
 
 func runDoctor(args []string, env Env) int {
@@ -180,6 +201,19 @@ func runDoctor(args []string, env Env) int {
 	cfg, err := config.Load(root)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "doctor failed: %v\n", err)
+		return 1
+	}
+	missingSources, err := config.MissingRequiredPrefixSources(root, cfg.Prefix)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "doctor failed: %v\n", err)
+		return 1
+	}
+	if len(missingSources) > 0 {
+		for _, path := range missingSources {
+			fmt.Fprintf(env.Stderr, "missing required prefix source: %s\n", path)
+		}
+		fmt.Fprintln(env.Stderr, "Run:")
+		fmt.Fprintln(env.Stderr, "reasonforge init --repair")
 		return 1
 	}
 

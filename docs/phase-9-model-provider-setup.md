@@ -19,6 +19,12 @@ The existing `reasonforge models` command remains available and unchanged.
 
 Interactive setup prompts for a provider preset, provider name, base URL, API key environment variable, model name, purpose, output limit, prefix-cache support, and whether to set the model as default.
 
+For first-run use, run `reasonforge init` first. It creates the prompt and schema files required by the Context Engine before model calls:
+
+- `prompts/system.md`
+- `prompts/coding_rules.md`
+- `schemas/tools.json`
+
 Non-interactive example for Mimo:
 
 ```sh

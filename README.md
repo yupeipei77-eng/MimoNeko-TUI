@@ -9,6 +9,7 @@ The current repository is intentionally an MVP skeleton. It defines stable contr
 ```sh
 reasonforge version
 reasonforge init
+reasonforge init --repair
 reasonforge doctor
 reasonforge models
 reasonforge model setup
@@ -59,6 +60,34 @@ setx MIMO_API_KEY "your-key"
 ```
 
 `models.yaml` stores `api_key_env: MIMO_API_KEY`, not the key value. ReasonForge does not modify shell profiles or write secrets to EventStore, checkpoints, or logs.
+
+## First Run
+
+`reasonforge init` creates both `.reasonforge/*.yaml` config files and the default prefix source scaffolding:
+
+- `prompts/system.md`
+- `prompts/coding_rules.md`
+- `schemas/tools.json`
+
+If an older checkout is missing these files, run:
+
+```sh
+reasonforge init --repair
+```
+
+Windows first-run example:
+
+```bat
+cd /d D:\Desktop\ReasonForge
+reasonforge init
+reasonforge model setup --preset mimo --provider mimo --model mimo-v2.5-pro --set-default
+setx MIMO_API_KEY "your-key"
+reasonforge model test --provider mimo --model mimo-v2.5-pro --prompt "只回复 OK"
+reasonforge run --goal "只回复 OK，用来测试模型连接。" --dry-run
+reasonforge serve
+```
+
+`init` and `init --repair` never write API key values and never overwrite existing user prompts, schemas, or model provider configuration.
 
 ## Local Dashboards
 

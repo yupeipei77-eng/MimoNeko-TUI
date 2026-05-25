@@ -258,32 +258,72 @@ type EventsConfig struct {
 	EmitValidationEvents bool `yaml:"emit_validation_events"`
 }
 
+type InitResult struct {
+	Created []string
+	Skipped []string
+}
+
+type scaffoldFile struct {
+	Path string
+	Body string
+	Mode os.FileMode
+}
+
 func ConfigDir(root string) string {
 	return filepath.Join(root, DirName)
 }
 
 func Init(root string) ([]string, error) {
+	result, err := InitDetailed(root)
+	if err != nil {
+		return result.Created, err
+	}
+	return result.Created, nil
+}
+
+func InitDetailed(root string) (InitResult, error) {
 	dir := ConfigDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("create config dir: %w", err)
+		return InitResult{}, fmt.Errorf("create config dir: %w", err)
 	}
 
-	written := make([]string, 0, len(defaultConfigFiles))
+	result := InitResult{
+		Created: make([]string, 0, len(defaultConfigFiles)+len(defaultScaffoldFiles)),
+		Skipped: make([]string, 0, len(defaultConfigFiles)+len(defaultScaffoldFiles)),
+	}
 	for _, file := range defaultConfigFiles {
 		path := filepath.Join(dir, file.Name)
 		if _, err := os.Stat(path); err == nil {
+			result.Skipped = append(result.Skipped, path)
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return written, fmt.Errorf("stat %s: %w", path, err)
+			return result, fmt.Errorf("stat %s: %w", path, err)
 		}
 
 		if err := os.WriteFile(path, []byte(file.Body), 0o600); err != nil {
-			return written, fmt.Errorf("write %s: %w", path, err)
+			return result, fmt.Errorf("write %s: %w", path, err)
 		}
-		written = append(written, path)
+		result.Created = append(result.Created, path)
 	}
 
-	return written, nil
+	for _, file := range defaultScaffoldFiles {
+		path := filepath.Join(root, filepath.FromSlash(file.Path))
+		if _, err := os.Stat(path); err == nil {
+			result.Skipped = append(result.Skipped, path)
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return result, fmt.Errorf("stat %s: %w", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return result, fmt.Errorf("create scaffold dir: %w", err)
+		}
+		if err := os.WriteFile(path, []byte(file.Body), file.Mode); err != nil {
+			return result, fmt.Errorf("write %s: %w", path, err)
+		}
+		result.Created = append(result.Created, path)
+	}
+
+	return result, nil
 }
 
 func Load(root string) (*Root, error) {
@@ -339,6 +379,53 @@ func Load(root string) (*Root, error) {
 	}
 
 	return cfg, nil
+}
+
+func MissingRequiredPrefixSources(root string, prefix PrefixConfig) ([]string, error) {
+	var missing []string
+	for _, source := range prefix.ImmutableSources {
+		if !source.Required {
+			continue
+		}
+		if source.Kind != "static_file" && source.Kind != "generated_schema" {
+			continue
+		}
+		path, err := safePrefixSourcePath(root, source.Path)
+		if err != nil {
+			return missing, fmt.Errorf("prefix source %q: %w", source.Path, err)
+		}
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if errors.Is(err, os.ErrNotExist) {
+			missing = append(missing, filepath.ToSlash(source.Path))
+			continue
+		} else {
+			return missing, fmt.Errorf("stat prefix source %q: %w", source.Path, err)
+		}
+	}
+	return missing, nil
+}
+
+func safePrefixSourcePath(root, rel string) (string, error) {
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path %q is absolute, must be relative", rel)
+	}
+	if len(rel) > 0 && rel[0] == '/' {
+		return "", fmt.Errorf("path %q starts with /, must be relative", rel)
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve root: %w", err)
+	}
+	joined := filepath.Join(absRoot, rel)
+	absJoined, err := filepath.Abs(joined)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	if !strings.HasPrefix(absJoined, absRoot+string(os.PathSeparator)) && absJoined != absRoot {
+		return "", fmt.Errorf("path %q escapes root %q", rel, absRoot)
+	}
+	return absJoined, nil
 }
 
 func (cfg *Root) Validate() error {
@@ -595,6 +682,34 @@ func isAllowedImmutableSourceKind(kind string) bool {
 type defaultConfigFile struct {
 	Name string
 	Body string
+}
+
+var defaultScaffoldFiles = []scaffoldFile{
+	{
+		Path: "prompts/system.md",
+		Body: `You are ReasonForge, a safe local coding agent.
+Follow the user goal, keep changes minimal, and never expose secrets.
+Do not automatically commit, push, or apply patches.
+`,
+		Mode: 0o644,
+	},
+	{
+		Path: "prompts/coding_rules.md",
+		Body: `Coding rules:
+
+* Prefer minimal, focused changes.
+* Respect dry-run and worktree isolation.
+* Do not edit secrets or credential files.
+* Do not auto-commit or auto-push.
+* Explain results clearly.
+`,
+		Mode: 0o644,
+	},
+	{
+		Path: "schemas/tools.json",
+		Body: "[]\n",
+		Mode: 0o644,
+	},
 }
 
 var defaultConfigFiles = []defaultConfigFile{
