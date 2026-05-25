@@ -71,7 +71,7 @@ Model profiles can also store optional capability metadata such as `max_context_
 
 ## NekoForge Terminal Console
 
-NekoForge is ReasonForge's local terminal AI coding workbench. It keeps ReasonForge as the underlying engine and adds a cat-themed console entry point:
+NekoForge is ReasonForge's local terminal AI coding workbench. It keeps ReasonForge as the underlying engine and adds a cool silver-cyan floating cat mascot console entry point:
 
 ```sh
 neko
@@ -96,6 +96,8 @@ Inside the console:
 ```
 
 Defaults are safe: `dry-run=true`, multi-agent mode uses worktree isolation, and NekoForge does not auto-apply, auto-commit, or auto-push. Patch application remains an explicit CLI action outside the console. Token usage and CNY cost are estimates from local usage and configured model pricing; if pricing is missing, cost is shown as unavailable.
+
+The terminal header uses a compact silver-cyan floating cat mascot, a soft-white title, and a header-only startup animation when color output is enabled. `--no-color` keeps the same layout without ANSI escape codes.
 
 ## First Run
 

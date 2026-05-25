@@ -9,8 +9,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/reasonforge/reasonforge/internal/modelprofile"
+	"github.com/reasonforge/reasonforge/internal/neko/animation"
+	"github.com/reasonforge/reasonforge/internal/neko/branding"
+	"github.com/reasonforge/reasonforge/internal/neko/layout"
 )
 
 type Options struct {
@@ -21,6 +25,7 @@ type Options struct {
 	DryRun    bool
 	DryRunSet bool
 	NoColor   bool
+	Animate   bool
 	In        io.Reader
 	Out       io.Writer
 	Err       io.Writer
@@ -92,12 +97,20 @@ func Run(ctx context.Context, opt Options) int {
 }
 
 type Console struct {
-	Session Session
-	Options Options
+	Session  Session
+	Options  Options
+	Messages layout.MessageRenderer
+	Input    layout.InputRenderer
 }
 
 func (c *Console) Run(ctx context.Context) int {
-	RenderHeader(c.Options.Out, c.Session)
+	if c.Options.Animate && !c.Session.NoColor {
+		regions := layout.NewRegionLayout(branding.HeaderLineCount())
+		animator := animation.NewFrameAnimator(branding.NewRenderer(false), regions, 90*time.Millisecond)
+		animator.RenderStartup(c.Options.Out, HeaderDataFromSession(c.Session))
+	} else {
+		RenderHeader(c.Options.Out, c.Session)
+	}
 	scanner := bufio.NewScanner(c.Options.In)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -184,8 +197,11 @@ func (c *Console) runGoal(ctx context.Context, goal string) {
 	if goal == "" {
 		return
 	}
+	c.Messages.Add("User", goal)
+	c.Messages.RenderLast(c.Options.Out)
 	if c.Options.Runner == nil {
-		fmt.Fprintln(c.Options.Out, "run unavailable in this console")
+		c.Messages.Add("Assistant", "run unavailable in this console")
+		c.Messages.RenderLast(c.Options.Out)
 		return
 	}
 	result, err := c.Options.Runner(ctx, RunRequest{
@@ -201,40 +217,46 @@ func (c *Console) runGoal(ctx context.Context, goal string) {
 		c.Session.Usage = NormalizeUsage(result.Usage)
 	}
 	if err != nil {
-		fmt.Fprintf(c.Options.Out, "Run completed:\nstate=failed\nerror=%s\n", SanitizeOutput(err.Error()))
+		var msg strings.Builder
+		fmt.Fprintf(&msg, "Run completed:\nstate=failed\nerror=%s", SanitizeOutput(err.Error()))
 		if result.Output != "" {
-			fmt.Fprintln(c.Options.Out, SanitizeOutput(result.Output))
+			fmt.Fprintf(&msg, "\n%s", SanitizeOutput(result.Output))
 		}
+		c.Messages.Add("Assistant", msg.String())
+		c.Messages.RenderLast(c.Options.Out)
 		return
 	}
 	state := result.State
 	if state == "" {
 		state = "succeeded"
 	}
-	fmt.Fprintln(c.Options.Out, "Run completed:")
+	var msg strings.Builder
+	fmt.Fprintln(&msg, "Run completed:")
 	if result.RunID != "" {
-		fmt.Fprintf(c.Options.Out, "run_id=%s\n", result.RunID)
+		fmt.Fprintf(&msg, "run_id=%s\n", result.RunID)
 	}
-	fmt.Fprintf(c.Options.Out, "state=%s\n", state)
+	fmt.Fprintf(&msg, "state=%s\n", state)
 	if result.WorktreeID != "" {
-		fmt.Fprintf(c.Options.Out, "worktree_id=%s\n", result.WorktreeID)
+		fmt.Fprintf(&msg, "worktree_id=%s\n", result.WorktreeID)
 	}
 	if result.Recommendation != "" {
-		fmt.Fprintf(c.Options.Out, "recommendation=%s\n", result.Recommendation)
+		fmt.Fprintf(&msg, "recommendation=%s\n", result.Recommendation)
 	}
-	fmt.Fprintf(c.Options.Out, "tokens=%s\n", FormatTokens(c.Session.Usage))
-	fmt.Fprintf(c.Options.Out, "cost=%s\n", FormatCost(ComputeCost(c.Session.Usage, c.Session.Pricing)))
+	fmt.Fprintf(&msg, "tokens=%s\n", FormatTokens(c.Session.Usage))
+	fmt.Fprintf(&msg, "cost=%s\n", FormatCost(ComputeCost(c.Session.Usage, c.Session.Pricing)))
 	if result.Output != "" {
-		fmt.Fprintln(c.Options.Out, SanitizeOutput(result.Output))
+		fmt.Fprintln(&msg, SanitizeOutput(result.Output))
 	}
 	if result.WorktreeID != "" {
-		fmt.Fprintln(c.Options.Out, "Next:")
-		fmt.Fprintf(c.Options.Out, "/preview %s\n", result.WorktreeID)
-		fmt.Fprintf(c.Options.Out, "/review %s\n", result.WorktreeID)
-		fmt.Fprintf(c.Options.Out, "/discard %s\n", result.WorktreeID)
-		fmt.Fprintln(c.Options.Out, "CLI apply:")
-		fmt.Fprintf(c.Options.Out, "reasonforge patch apply %s\n", result.WorktreeID)
+		fmt.Fprintln(&msg, "Next:")
+		fmt.Fprintf(&msg, "/preview %s\n", result.WorktreeID)
+		fmt.Fprintf(&msg, "/review %s\n", result.WorktreeID)
+		fmt.Fprintf(&msg, "/discard %s\n", result.WorktreeID)
+		fmt.Fprintln(&msg, "CLI apply:")
+		fmt.Fprintf(&msg, "reasonforge patch apply %s\n", result.WorktreeID)
 	}
+	c.Messages.Add("Assistant", msg.String())
+	c.Messages.RenderLast(c.Options.Out)
 }
 
 func (c *Console) callSimple(ctx context.Context, handler SimpleHandler, unavailable string) {

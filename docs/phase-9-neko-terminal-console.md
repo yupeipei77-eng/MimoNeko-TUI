@@ -16,6 +16,8 @@ neko --no-color
 reasonforge neko
 ```
 
+The startup header uses a compact silver-cyan floating cat mascot, a soft-white `NekoForge` title, and a restrained header-only micro animation in interactive color terminals. `--no-color` keeps the same layout without ANSI escape codes.
+
 Defaults are intentionally safe:
 
 - `mode=multi`

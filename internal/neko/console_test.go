@@ -23,8 +23,11 @@ func TestNekoRendersBranding(t *testing.T) {
 	session := newTestSession(t, nil, Options{NoColor: true, DryRun: true, DryRunSet: true})
 	var out bytes.Buffer
 	RenderHeader(&out, session)
-	if !strings.Contains(out.String(), "NekoForge") || !strings.Contains(out.String(), "powered by ReasonForge") {
+	if !strings.Contains(out.String(), "NekoForge") || !strings.Contains(out.String(), "local AI coding workspace") {
 		t.Fatalf("branding output = %q", out.String())
+	}
+	if strings.Contains(out.String(), "( o.o )") {
+		t.Fatalf("branding should not use old large ASCII mark: %q", out.String())
 	}
 }
 
@@ -140,12 +143,15 @@ func TestNekoDisplaysReasoningLevel(t *testing.T) {
 	}
 }
 
-func TestNekoUsesYellowTheme(t *testing.T) {
+func TestNekoUsesColdPalette(t *testing.T) {
 	session := newTestSession(t, nil, Options{DryRun: true, DryRunSet: true})
 	var out bytes.Buffer
 	RenderHeader(&out, session)
-	if !strings.Contains(out.String(), "\x1b[33m") && !strings.Contains(out.String(), "\x1b[93m") {
-		t.Fatalf("output = %q, want yellow ANSI theme", out.String())
+	if !strings.Contains(out.String(), "\x1b[36m") || !strings.Contains(out.String(), "\x1b[96m") || !strings.Contains(out.String(), "\x1b[97m") {
+		t.Fatalf("output = %q, want cold cyan/silver ANSI theme", out.String())
+	}
+	if strings.Contains(out.String(), "\x1b[33m") || strings.Contains(out.String(), "\x1b[93m") {
+		t.Fatalf("output = %q, should not use yellow/amber primary theme", out.String())
 	}
 }
 
@@ -164,6 +170,22 @@ func TestNekoDisplaysTokenUsage(t *testing.T) {
 	})
 	if !strings.Contains(output, "tokens=input=10 cached=5 output=3 total=18") {
 		t.Fatalf("output = %q, want token usage", output)
+	}
+}
+
+func TestAssistantMessagesRemainVisible(t *testing.T) {
+	output := runTestConsole(t, "/run summarize README\n/exit\n", Options{
+		Runner: func(ctx context.Context, req RunRequest) (RunResult, error) {
+			return RunResult{RunID: "run_visible", State: "succeeded", Output: "Assistant result stays visible."}, nil
+		},
+	})
+	for _, want := range []string{"User:", "summarize README", "Assistant:", "Assistant result stays visible.", "run_id=run_visible"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output = %q, want visible message %q", output, want)
+		}
+	}
+	if strings.Contains(output, "\x1b[2J") || strings.Contains(output, "\x1b[H") {
+		t.Fatalf("console output contains screen clear/move-home sequence: %q", output)
 	}
 }
 

@@ -387,6 +387,7 @@ func runNeko(args []string, env Env) int {
 		DryRun:    *dryRun,
 		DryRunSet: true,
 		NoColor:   *noColor,
+		Animate:   shouldAnimateNeko(env.Stdout, *noColor),
 		In:        env.Stdin,
 		Out:       env.Stdout,
 		Err:       env.Stderr,
@@ -528,6 +529,21 @@ func hasHelpFlag(args []string) bool {
 		}
 	}
 	return false
+}
+
+func shouldAnimateNeko(w io.Writer, noColor bool) bool {
+	if noColor {
+		return false
+	}
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func runModels(args []string, env Env) int {

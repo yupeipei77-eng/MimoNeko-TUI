@@ -5,7 +5,8 @@
 Scope:
 
 - standard-library terminal I/O
-- cat-themed ANSI rendering with `--no-color`
+- premium silver-cyan floating cat ANSI branding with `--no-color`
+- compact frame-based branding animation
 - slash command parsing
 - model/profile display without API key leakage
 - token and configured-pricing cost display
