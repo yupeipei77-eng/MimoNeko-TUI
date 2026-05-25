@@ -9,10 +9,13 @@ The current repository is intentionally an MVP skeleton. It defines stable contr
 ```sh
 reasonforge version
 reasonforge init
+reasonforge init --repair
 reasonforge doctor
 reasonforge models
 reasonforge model setup
 reasonforge model discover --provider mimo
+reasonforge model discover --provider mimo --write-capabilities
+reasonforge model enrich --provider mimo
 reasonforge model test [--prompt "只回复 OK"]
 reasonforge model use mimo-v2.5-pro
 reasonforge cache-report
@@ -26,6 +29,8 @@ reasonforge run-status <run_id>
 reasonforge run-events <run_id>
 reasonforge dashboard
 reasonforge serve [--port 9000] [--open]
+neko
+reasonforge neko
 reasonforge patch list
 reasonforge patch preview <worktree_id>
 reasonforge patch validate <worktree_id> [--test-command go-test]
@@ -47,6 +52,8 @@ reasonforge model setup ^
   --set-default
 reasonforge model list
 reasonforge model discover --provider mimo
+reasonforge model discover --provider mimo --write-capabilities
+reasonforge model enrich --provider mimo
 reasonforge model test
 reasonforge model test --prompt "只回复 OK"
 reasonforge model use mimo-v2.5-pro
@@ -59,6 +66,64 @@ setx MIMO_API_KEY "your-key"
 ```
 
 `models.yaml` stores `api_key_env: MIMO_API_KEY`, not the key value. ReasonForge does not modify shell profiles or write secrets to EventStore, checkpoints, or logs.
+
+Model profiles can also store optional capability metadata such as `max_context_tokens`, `reasoning_level`, `capability_source`, and `pricing`. ReasonForge only writes known capability presets or user-provided values; it does not guess unknown model limits and does not hardcode pricing. Pricing is used only for local estimated display.
+
+## NekoForge Terminal Console
+
+NekoForge is ReasonForge's local terminal AI coding workbench. It keeps ReasonForge as the underlying engine and adds a cat-themed console entry point:
+
+```sh
+neko
+neko --mode single --dry-run
+neko --mode multi --model mimo-v2.5-pro --reasoning high
+neko --no-color
+reasonforge neko
+```
+
+Inside the console:
+
+```text
+/model
+/model test
+/model enrich
+/mode multi
+/run fix a README typo
+/preview wt_xxx
+/review wt_xxx
+/discard wt_xxx
+/exit
+```
+
+Defaults are safe: `dry-run=true`, multi-agent mode uses worktree isolation, and NekoForge does not auto-apply, auto-commit, or auto-push. Patch application remains an explicit CLI action outside the console. Token usage and CNY cost are estimates from local usage and configured model pricing; if pricing is missing, cost is shown as unavailable.
+
+## First Run
+
+`reasonforge init` creates both `.reasonforge/*.yaml` config files and the default prefix source scaffolding:
+
+- `prompts/system.md`
+- `prompts/coding_rules.md`
+- `schemas/tools.json`
+
+If an older checkout is missing these files, run:
+
+```sh
+reasonforge init --repair
+```
+
+Windows first-run example:
+
+```bat
+cd /d D:\Desktop\ReasonForge
+reasonforge init
+reasonforge model setup --preset mimo --provider mimo --model mimo-v2.5-pro --set-default
+setx MIMO_API_KEY "your-key"
+reasonforge model test --provider mimo --model mimo-v2.5-pro --prompt "只回复 OK"
+reasonforge run --goal "只回复 OK，用来测试模型连接。" --dry-run
+reasonforge serve
+```
+
+`init` and `init --repair` never write API key values and never overwrite existing user prompts, schemas, or model provider configuration.
 
 ## Local Dashboards
 

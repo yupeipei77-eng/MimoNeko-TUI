@@ -18,6 +18,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/config"
 	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/reasonforge/reasonforge/internal/modelprofile"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/multiagent"
 	webserver "github.com/reasonforge/reasonforge/internal/server"
@@ -104,6 +105,268 @@ func TestInitThenDoctor(t *testing.T) {
 	}
 	if !strings.Contains(doctorOut.String(), "event_id_collision_resistant=true") {
 		t.Fatalf("doctor output = %q, want event_id_collision_resistant line", doctorOut.String())
+	}
+}
+
+func TestInitRepairCreatesMissingScaffolding(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	systemPath := filepath.Join(root, "prompts", "system.md")
+	if err := os.Remove(systemPath); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	code := Run([]string{"init", "--dir", root, "--repair"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(init --repair) code = %d", code)
+	}
+	if _, err := os.Stat(systemPath); err != nil {
+		t.Fatalf("repair did not recreate system prompt: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "created") || !strings.Contains(stdout.String(), "prompts/system.md") {
+		t.Fatalf("repair output = %q, want created system prompt", stdout.String())
+	}
+}
+
+func TestInitRepairDoesNotOverwriteModelsConfig(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	modelsPath := filepath.Join(root, ".reasonforge", "models.yaml")
+	custom := []byte(`providers:
+  - name: custom-provider
+    type: openai-compatible
+    base_url: http://127.0.0.1:9999/v1
+    api_key_env: CUSTOM_API_KEY
+    models:
+      - name: custom-model
+        purpose: coding
+        max_output_tokens: 2048
+        supports_prefix_cache: false
+routing:
+  default_model: custom-model
+`)
+	if err := os.WriteFile(modelsPath, custom, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "schemas", "tools.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := Run([]string{"init", "--dir", root, "--repair"}, Env{}); code != 0 {
+		t.Fatalf("Run(init --repair) code = %d", code)
+	}
+	got, err := os.ReadFile(modelsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(custom) {
+		t.Fatalf("repair overwrote models.yaml:\n%s", string(got))
+	}
+}
+
+func TestInitOutputShowsCreatedAndSkipped(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	if err := os.Remove(filepath.Join(root, "prompts", "coding_rules.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	code := Run([]string{"init", "--dir", root, "--repair"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(init --repair) code = %d", code)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "created") || !strings.Contains(output, "skipped") {
+		t.Fatalf("init repair output = %q, want created and skipped lines", output)
+	}
+}
+
+func TestDoctorDetectsMissingSystemPrompt(t *testing.T) {
+	root := initRootForDoctorMissingTest(t, "prompts/system.md")
+	var stderr bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(doctor) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "missing required prefix source: prompts/system.md") {
+		t.Fatalf("stderr = %q, want missing system prompt", stderr.String())
+	}
+}
+
+func TestDoctorDetectsMissingCodingRules(t *testing.T) {
+	root := initRootForDoctorMissingTest(t, "prompts/coding_rules.md")
+	var stderr bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(doctor) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "missing required prefix source: prompts/coding_rules.md") {
+		t.Fatalf("stderr = %q, want missing coding rules", stderr.String())
+	}
+}
+
+func TestDoctorDetectsMissingToolsSchema(t *testing.T) {
+	root := initRootForDoctorMissingTest(t, "schemas/tools.json")
+	var stderr bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
+	if code != 1 {
+		t.Fatalf("Run(doctor) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "missing required prefix source: schemas/tools.json") {
+		t.Fatalf("stderr = %q, want missing tools schema", stderr.String())
+	}
+}
+
+func TestDoctorSuggestsInitRepair(t *testing.T) {
+	root := initRootForDoctorMissingTest(t, "prompts/system.md")
+	var stderr bytes.Buffer
+	_ = Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
+	if !strings.Contains(stderr.String(), "reasonforge init --repair") {
+		t.Fatalf("stderr = %q, want init --repair suggestion", stderr.String())
+	}
+}
+
+func TestDoctorPassesAfterInitRepair(t *testing.T) {
+	root := initRootForDoctorMissingTest(t, "prompts/system.md")
+	if code := Run([]string{"init", "--dir", root, "--repair"}, Env{}); code != 0 {
+		t.Fatalf("Run(init --repair) code = %d", code)
+	}
+	var stderr bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestFirstRunInitThenDoctorPasses(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	var stderr bytes.Buffer
+	code := Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestFirstRunInitThenRunDoesNotFailMissingPrefixSource(t *testing.T) {
+	t.Setenv("REASONFORGE_API_KEY", "")
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stderr bytes.Buffer
+	_ = Run([]string{"run", "--dir", root, "--goal", "Reply OK", "--dry-run", "--max-steps", "1"}, Env{Stderr: &stderr})
+	output := stderr.String()
+	for _, wantAbsent := range []string{"read system_prompt", "prompts/system.md", "schemas/tools.json", "coding_rules.md"} {
+		if strings.Contains(output, wantAbsent) {
+			t.Fatalf("run failed due to missing prefix source %q: %s", wantAbsent, output)
+		}
+	}
+}
+
+func TestInitDoesNotWriteAPIKey(t *testing.T) {
+	root := t.TempDir()
+	secret := "sk-init-secret-value"
+	t.Setenv("MIMO_API_KEY", secret)
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	assertTreeDoesNotContain(t, root, secret)
+}
+
+func TestRepairDoesNotWriteAPIKey(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	secret := "sk-repair-secret-value"
+	t.Setenv("MIMO_API_KEY", secret)
+	if err := os.Remove(filepath.Join(root, "prompts", "system.md")); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"init", "--dir", root, "--repair"}, Env{}); code != 0 {
+		t.Fatalf("Run(init --repair) code = %d", code)
+	}
+	assertTreeDoesNotContain(t, root, secret)
+}
+
+func TestInitDoesNotOverwriteExistingModelProvider(t *testing.T) {
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	modelsPath := filepath.Join(root, ".reasonforge", "models.yaml")
+	original := []byte(`providers:
+  - name: preserved
+    type: openai-compatible
+    base_url: http://127.0.0.1:9999/v1
+    api_key_env: PRESERVED_API_KEY
+    models:
+      - name: preserved-model
+        purpose: coding
+        max_output_tokens: 2048
+        supports_prefix_cache: false
+routing:
+  default_model: preserved-model
+`)
+	if err := os.WriteFile(modelsPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init second time) code = %d", code)
+	}
+	got, err := os.ReadFile(modelsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("init overwrote existing model provider:\n%s", string(got))
+	}
+}
+
+func initRootForDoctorMissingTest(t *testing.T, relPath string) string {
+	t.Helper()
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+	if err := os.Remove(filepath.Join(root, filepath.FromSlash(relPath))); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func assertTreeDoesNotContain(t *testing.T, root, needle string) {
+	t.Helper()
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(content), needle) {
+			return fmt.Errorf("secret found in %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -513,6 +776,50 @@ func TestModelDiscoverDoesNotLeakAPIKey(t *testing.T) {
 	}
 }
 
+func TestModelDiscoverWriteCapabilities(t *testing.T) {
+	root := t.TempDir()
+	if _, err := config.InitDetailed(root); err != nil {
+		t.Fatal(err)
+	}
+	models := config.ModelsConfig{
+		Providers: []config.ProviderConfig{
+			{
+				Name:      "mimo",
+				Type:      "openai-compatible",
+				BaseURL:   "http://127.0.0.1:1",
+				APIKeyEnv: "TEST_MODEL_API_KEY",
+				Models: []config.ModelConfig{
+					{Name: "mimo-v2.5-pro", Purpose: "coding", MaxOutputTokens: 4096},
+				},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultModel: "mimo-v2.5-pro"},
+	}
+	if err := modelprofile.Save(root, models); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_MODEL_API_KEY", "sk-discover-capability")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":[{"id":"mimo-v2.5-pro"}]}`)
+	}))
+	defer server.Close()
+	models.Providers[0].BaseURL = server.URL
+	if err := modelprofile.Save(root, models); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "discover", "--dir", root, "--provider", "mimo", "--write-capabilities"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model discover code = %d, output = %q", code, stdout.String())
+	}
+	cfg := loadConfigForTest(t, root)
+	provider, _ := findProviderForTest(cfg, "mimo")
+	if provider.Models[0].MaxContextTokens != 131072 || provider.Models[0].ReasoningLevel != "high" {
+		t.Fatalf("model = %+v, want written capabilities", provider.Models[0])
+	}
+}
+
 func TestModelTestSuccess(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	t.Setenv("TEST_MODEL_API_KEY", "sk-model-test")
@@ -527,6 +834,40 @@ func TestModelTestSuccess(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, "status=ok") || !strings.Contains(output, "response=OK") {
 		t.Fatalf("stdout = %q, want ok response", output)
+	}
+}
+
+func TestNekoCommandExists(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--help"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("neko --help code = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "NekoForge") {
+		t.Fatalf("stdout = %q, want NekoForge", stdout.String())
+	}
+}
+
+func TestNekoHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--help"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("neko --help code = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "Usage: neko") || !strings.Contains(stdout.String(), "mode=multi") {
+		t.Fatalf("stdout = %q, want neko usage", stdout.String())
+	}
+}
+
+func TestReasonForgeNekoAlias(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--dir", root, "--no-color"}, Env{Stdout: &stdout, Stdin: strings.NewReader("/exit\n")})
+	if code != 0 {
+		t.Fatalf("reasonforge neko code = %d, output = %q", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "NekoForge") || !strings.Contains(stdout.String(), "Goodbye from NekoForge.") {
+		t.Fatalf("stdout = %q, want console branding and exit", stdout.String())
 	}
 }
 
