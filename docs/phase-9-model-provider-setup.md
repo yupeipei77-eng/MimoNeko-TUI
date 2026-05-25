@@ -8,6 +8,7 @@ Phase 9.3 adds local CLI workflows for managing OpenAI-compatible model provider
 reasonforge model setup
 reasonforge model list
 reasonforge model discover
+reasonforge model enrich
 reasonforge model test
 reasonforge model use
 reasonforge model remove
@@ -50,6 +51,17 @@ It never asks the user to put the key in YAML.
 ## Discover And Test
 
 `reasonforge model discover --provider mimo` calls the provider's OpenAI-compatible `/models` endpoint and prints returned model IDs. It does not save discovered models.
+
+Known capability metadata can be filled without storing secrets:
+
+```sh
+reasonforge model discover --provider mimo --write-capabilities
+reasonforge model enrich --provider mimo
+reasonforge model enrich --model mimo-v2.5-pro
+reasonforge model enrich --all
+```
+
+Capability enrichment only fills missing optional fields such as `max_context_tokens`, `reasoning_level`, and `capability_source`. It does not overwrite user-provided values, does not write API keys, and does not guess unknown model limits or prices.
 
 `reasonforge model test` sends a tiny `chat/completions` request:
 

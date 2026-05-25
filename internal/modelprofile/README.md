@@ -8,6 +8,7 @@ Responsibilities:
 - Provide safe presets for OpenAI-compatible providers.
 - Add, update, use, and remove provider/model entries.
 - Query `/models` and smoke-test `/chat/completions`.
+- Enrich configured models with known capability presets without guessing.
 - Redact API keys, bearer tokens, and common secret patterns from CLI-facing text.
 
 Security boundaries:
@@ -16,3 +17,4 @@ Security boundaries:
 - The package stores only `api_key_env`.
 - It does not write EventStore records, checkpoints, logs, shell profiles, or secret files.
 - HTTP failures report safe status summaries rather than raw response bodies.
+- Capability enrichment does not overwrite user-provided fields and does not hardcode prices.

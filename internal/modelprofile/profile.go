@@ -216,8 +216,22 @@ func Setup(root string, opt SetupOptions) (SetupResult, error) {
 	}
 	modelIndex := findModelIndex(provider, opt.Model)
 	if modelIndex >= 0 {
+		existing := provider.Models[modelIndex]
+		model.MaxContextTokens = existing.MaxContextTokens
+		model.ReasoningLevel = existing.ReasoningLevel
+		model.CapabilitySource = existing.CapabilitySource
+		model.Pricing = existing.Pricing
+		if !opt.SupportsPrefixCache {
+			model.SupportsPrefixCache = existing.SupportsPrefixCache
+		}
+		if capability, ok := CapabilityFor(provider.Name, model.Name); ok {
+			ApplyCapability(&model, capability, false)
+		}
 		provider.Models[modelIndex] = model
 	} else {
+		if capability, ok := CapabilityFor(provider.Name, model.Name); ok {
+			ApplyCapability(&model, capability, false)
+		}
 		provider.Models = append(provider.Models, model)
 	}
 

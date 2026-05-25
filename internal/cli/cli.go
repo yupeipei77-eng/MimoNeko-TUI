@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -27,6 +28,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/modelprofile"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/multiagent"
+	"github.com/reasonforge/reasonforge/internal/neko"
 	"github.com/reasonforge/reasonforge/internal/patch"
 	"github.com/reasonforge/reasonforge/internal/prefix"
 	"github.com/reasonforge/reasonforge/internal/review"
@@ -98,6 +100,8 @@ func Run(args []string, env Env) int {
 		return runDashboard(args[1:], env)
 	case "serve":
 		return runServe(args[1:], env)
+	case "neko":
+		return runNeko(args[1:], env)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			fmt.Fprintf(env.Stderr, "%s accepts no arguments\n", args[0])
@@ -340,6 +344,190 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  run-events   Show events for a specific run")
 	fmt.Fprintln(w, "  dashboard    Local TUI dashboard (list runs, view details, watch)")
 	fmt.Fprintln(w, "  serve        Start local Web Dashboard")
+	fmt.Fprintln(w, "  neko         Start NekoForge terminal console")
+}
+
+func runNeko(args []string, env Env) int {
+	if hasHelpFlag(args) {
+		printNekoUsage(env.Stdout)
+		return 0
+	}
+	fs := flag.NewFlagSet("neko", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	mode := fs.String("mode", "multi", "execution mode: single or multi")
+	model := fs.String("model", "", "model name")
+	reasoning := fs.String("reasoning", "", "reasoning display level: low, medium, or high")
+	dryRun := fs.Bool("dry-run", true, "dry run mode (no side effects)")
+	noColor := fs.Bool("no-color", false, "disable ANSI color output")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	if *mode != "single" && *mode != "multi" {
+		fmt.Fprintln(env.Stderr, "neko --mode must be single or multi")
+		return 2
+	}
+	if *reasoning != "" && *reasoning != "low" && *reasoning != "medium" && *reasoning != "high" {
+		fmt.Fprintln(env.Stderr, "neko --reasoning must be low, medium, or high")
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	options := neko.Options{
+		Root:      root,
+		Mode:      *mode,
+		Model:     *model,
+		Reasoning: *reasoning,
+		DryRun:    *dryRun,
+		DryRunSet: true,
+		NoColor:   *noColor,
+		In:        env.Stdin,
+		Out:       env.Stdout,
+		Err:       env.Stderr,
+	}
+	options.Runner = func(ctx context.Context, req neko.RunRequest) (neko.RunResult, error) {
+		return runNekoGoal(req)
+	}
+	options.ModelTester = func(ctx context.Context, session neko.Session) (string, error) {
+		result, err := modelprofile.Test(ctx, session.Root, modelprofile.TestOptions{
+			Provider: session.Provider,
+			Model:    session.Model,
+			Prompt:   "Reply with OK only.",
+		})
+		if err != nil {
+			return "", err
+		}
+		var out strings.Builder
+		fmt.Fprintf(&out, "model=%s\nprovider=%s\nstatus=%s\nlatency_ms=%d\n", result.Model, result.Provider, result.Status, result.LatencyMs)
+		if result.Status == "ok" {
+			fmt.Fprintf(&out, "response=%s\n", result.Response)
+		} else {
+			fmt.Fprintf(&out, "error=%s\n", result.Error)
+		}
+		return out.String(), nil
+	}
+	options.ModelEnricher = func(ctx context.Context, session neko.Session) (string, error) {
+		result, err := modelprofile.Enrich(session.Root, modelprofile.EnrichOptions{Provider: session.Provider})
+		if err != nil {
+			return "", err
+		}
+		var out strings.Builder
+		printEnrichResult(&out, result)
+		return out.String(), nil
+	}
+	options.RunsLister = func(ctx context.Context, session neko.Session) (string, error) {
+		return captureCLI(func(stdout, stderr io.Writer) int {
+			return runRuns([]string{"--dir", session.Root}, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
+		})
+	}
+	options.Previewer = func(ctx context.Context, session neko.Session, worktreeID string) (string, error) {
+		return captureCLI(func(stdout, stderr io.Writer) int {
+			return runPatchPreview([]string{"--dir", session.Root, worktreeID}, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
+		})
+	}
+	options.Reviewer = func(ctx context.Context, session neko.Session, worktreeID string) (string, error) {
+		return captureCLI(func(stdout, stderr io.Writer) int {
+			return runPatchReview([]string{"--dir", session.Root, "--no-tests", worktreeID}, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
+		})
+	}
+	options.Discarder = func(ctx context.Context, session neko.Session, worktreeID string) (string, error) {
+		return captureCLI(func(stdout, stderr io.Writer) int {
+			return runPatchDiscard([]string{"--dir", session.Root, worktreeID}, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
+		})
+	}
+	return neko.Run(context.Background(), options)
+}
+
+func printNekoUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage: neko [--dir <project_root>] [--mode single|multi] [--model name] [--reasoning low|medium|high] [--dry-run] [--no-color]")
+	fmt.Fprintln(w, "       reasonforge neko [same flags]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "NekoForge is a local terminal console powered by ReasonForge.")
+	fmt.Fprintln(w, "Defaults: mode=multi dry-run=true worktree=true for multi-agent runs.")
+}
+
+func runNekoGoal(req neko.RunRequest) (neko.RunResult, error) {
+	args := []string{"--dir", req.Root, "--goal", req.Goal}
+	if req.DryRun {
+		args = append(args, "--dry-run")
+	} else {
+		args = append(args, "--dry-run=false")
+	}
+	if req.Mode == "single" {
+		if req.Worktree {
+			args = append(args, "--worktree")
+		}
+		output, err := captureCLI(func(stdout, stderr io.Writer) int {
+			return runAgent(args, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
+		})
+		return neko.RunResult{
+			RunID:      extractCLIValue(output, "run_id"),
+			State:      extractCLIValue(output, "state"),
+			WorktreeID: extractCLIValue(output, "worktree_id"),
+			Output:     output,
+			Usage:      neko.Usage{Estimated: true},
+		}, err
+	}
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	output, err := captureCLI(func(stdout, stderr io.Writer) int {
+		return runMultiAgent(args, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
+	})
+	return neko.RunResult{
+		RunID:          extractCLIValue(output, "run_id"),
+		State:          extractCLIValue(output, "state"),
+		WorktreeID:     extractCLIValue(output, "worktree_id"),
+		Recommendation: firstNonEmpty(extractCLIValue(output, "final_recommendation"), extractCLIValue(output, "recommendation")),
+		Output:         output,
+		Usage:          neko.Usage{Estimated: true},
+	}, err
+}
+
+func captureCLI(run func(stdout, stderr io.Writer) int) (string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run(&stdout, &stderr)
+	output := stdout.String() + stderr.String()
+	if code != 0 {
+		return output, fmt.Errorf("command exited with code %d", code)
+	}
+	return output, nil
+}
+
+func extractCLIValue(output, key string) string {
+	prefix := key + "="
+	value := ""
+	for _, field := range strings.Fields(output) {
+		if strings.HasPrefix(field, prefix) {
+			value = strings.Trim(strings.TrimPrefix(field, prefix), "\"")
+		}
+	}
+	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" || arg == "help" {
+			return true
+		}
+	}
+	return false
 }
 
 func runModels(args []string, env Env) int {
@@ -400,7 +588,7 @@ func runModels(args []string, env Env) int {
 func runModel(args []string, env Env) int {
 	if len(args) == 0 {
 		fmt.Fprintln(env.Stderr, "model requires a subcommand")
-		fmt.Fprintln(env.Stderr, "Usage: reasonforge model <setup|list|discover|test|use|remove>")
+		fmt.Fprintln(env.Stderr, "Usage: reasonforge model <setup|list|discover|enrich|test|use|remove>")
 		return 2
 	}
 
@@ -411,6 +599,8 @@ func runModel(args []string, env Env) int {
 		return runModelList(args[1:], env)
 	case "discover":
 		return runModelDiscover(args[1:], env)
+	case "enrich":
+		return runModelEnrich(args[1:], env)
 	case "test":
 		return runModelTest(args[1:], env)
 	case "use":
@@ -419,7 +609,7 @@ func runModel(args []string, env Env) int {
 		return runModelRemove(args[1:], env)
 	default:
 		fmt.Fprintf(env.Stderr, "unknown model subcommand %q\n", args[0])
-		fmt.Fprintln(env.Stderr, "Usage: reasonforge model <setup|list|discover|test|use|remove>")
+		fmt.Fprintln(env.Stderr, "Usage: reasonforge model <setup|list|discover|enrich|test|use|remove>")
 		return 2
 	}
 }
@@ -517,8 +707,21 @@ func runModelList(args []string, env Env) int {
 		fmt.Fprintf(env.Stdout, "api_key_status=%s\n", modelprofile.APIKeyStatus(provider.APIKeyEnv))
 		fmt.Fprintln(env.Stdout, "models:")
 		for _, model := range provider.Models {
-			fmt.Fprintf(env.Stdout, "- %s purpose=%s max_output_tokens=%d supports_prefix_cache=%v\n",
+			fmt.Fprintf(env.Stdout, "- %s purpose=%s max_output_tokens=%d supports_prefix_cache=%v",
 				model.Name, model.Purpose, model.MaxOutputTokens, model.SupportsPrefixCache)
+			if model.MaxContextTokens > 0 {
+				fmt.Fprintf(env.Stdout, " max_context_tokens=%d", model.MaxContextTokens)
+			}
+			if model.ReasoningLevel != "" {
+				fmt.Fprintf(env.Stdout, " reasoning_level=%s", model.ReasoningLevel)
+			}
+			if model.CapabilitySource != "" {
+				fmt.Fprintf(env.Stdout, " capability_source=%s", model.CapabilitySource)
+			}
+			if model.Pricing != nil {
+				fmt.Fprintf(env.Stdout, " pricing=%s", safePricingStatus(model.Pricing))
+			}
+			fmt.Fprintln(env.Stdout)
 		}
 		fmt.Fprintln(env.Stdout)
 	}
@@ -532,6 +735,7 @@ func runModelDiscover(args []string, env Env) int {
 	provider := fs.String("provider", "", "provider name")
 	baseURL := fs.String("base-url", "", "OpenAI-compatible base URL")
 	apiKeyEnv := fs.String("api-key-env", "", "API key environment variable")
+	writeCapabilities := fs.Bool("write-capabilities", false, "write known capability metadata for configured discovered models")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -556,6 +760,45 @@ func runModelDiscover(args []string, env Env) int {
 	for _, model := range models {
 		fmt.Fprintf(env.Stdout, "* %s\n", model)
 	}
+	if *writeCapabilities {
+		result, err := modelprofile.EnrichDiscovered(root, *provider, models)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "model discover capability write failed: %s\n", modelprofile.SanitizeText(err.Error()))
+			return 1
+		}
+		printEnrichResult(env.Stdout, result)
+	}
+	return 0
+}
+
+func runModelEnrich(args []string, env Env) int {
+	fs := flag.NewFlagSet("model enrich", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	provider := fs.String("provider", "", "provider name")
+	model := fs.String("model", "", "model name")
+	all := fs.Bool("all", false, "enrich all configured models")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	root, err := resolveRoot(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+	result, err := modelprofile.Enrich(root, modelprofile.EnrichOptions{
+		Provider: *provider,
+		Model:    *model,
+		All:      *all,
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "model enrich failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		return 1
+	}
+	printEnrichResult(env.Stdout, result)
 	return 0
 }
 
@@ -657,6 +900,34 @@ func runModelRemove(args []string, env Env) int {
 		fmt.Fprintf(env.Stdout, "removed_model=%s\n", *model)
 	}
 	return 0
+}
+
+func printEnrichResult(w io.Writer, result modelprofile.EnrichResult) {
+	fmt.Fprintln(w, "capabilities:")
+	for _, item := range result.Updated {
+		fmt.Fprintf(w, "updated %s\n", item)
+	}
+	for _, item := range result.Skipped {
+		fmt.Fprintf(w, "skipped %s\n", item)
+	}
+	if len(result.Updated) == 0 && len(result.Skipped) == 0 {
+		fmt.Fprintln(w, "skipped none")
+	}
+}
+
+func safePricingStatus(pricing *config.ModelPricingConfig) string {
+	if pricing == nil {
+		return "unavailable"
+	}
+	source := strings.TrimSpace(pricing.Source)
+	if source == "" {
+		source = modelprofile.PricingSourceUnknown
+	}
+	currency := strings.TrimSpace(pricing.Currency)
+	if currency == "" {
+		currency = "unknown"
+	}
+	return fmt.Sprintf("configured currency=%s source=%s", currency, source)
 }
 
 func hasModelSetupFields(args []string) bool {

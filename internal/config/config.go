@@ -41,10 +41,22 @@ type ProviderConfig struct {
 }
 
 type ModelConfig struct {
-	Name                string `yaml:"name"`
-	Purpose             string `yaml:"purpose"`
-	MaxOutputTokens     int    `yaml:"max_output_tokens"`
-	SupportsPrefixCache bool   `yaml:"supports_prefix_cache"`
+	Name                string              `yaml:"name"`
+	Purpose             string              `yaml:"purpose"`
+	MaxOutputTokens     int                 `yaml:"max_output_tokens"`
+	MaxContextTokens    int                 `yaml:"max_context_tokens,omitempty"`
+	ReasoningLevel      string              `yaml:"reasoning_level,omitempty"`
+	SupportsPrefixCache bool                `yaml:"supports_prefix_cache"`
+	CapabilitySource    string              `yaml:"capability_source,omitempty"`
+	Pricing             *ModelPricingConfig `yaml:"pricing,omitempty"`
+}
+
+type ModelPricingConfig struct {
+	Currency               string  `yaml:"currency,omitempty"`
+	InputPer1MTokens       float64 `yaml:"input_per_1m_tokens,omitempty"`
+	CachedInputPer1MTokens float64 `yaml:"cached_input_per_1m_tokens,omitempty"`
+	OutputPer1MTokens      float64 `yaml:"output_per_1m_tokens,omitempty"`
+	Source                 string  `yaml:"source,omitempty"`
 }
 
 type RoutingConfig struct {

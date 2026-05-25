@@ -18,6 +18,7 @@ import (
 	"github.com/reasonforge/reasonforge/internal/agent"
 	"github.com/reasonforge/reasonforge/internal/config"
 	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/reasonforge/reasonforge/internal/modelprofile"
 	"github.com/reasonforge/reasonforge/internal/modelrouter"
 	"github.com/reasonforge/reasonforge/internal/multiagent"
 	webserver "github.com/reasonforge/reasonforge/internal/server"
@@ -775,6 +776,50 @@ func TestModelDiscoverDoesNotLeakAPIKey(t *testing.T) {
 	}
 }
 
+func TestModelDiscoverWriteCapabilities(t *testing.T) {
+	root := t.TempDir()
+	if _, err := config.InitDetailed(root); err != nil {
+		t.Fatal(err)
+	}
+	models := config.ModelsConfig{
+		Providers: []config.ProviderConfig{
+			{
+				Name:      "mimo",
+				Type:      "openai-compatible",
+				BaseURL:   "http://127.0.0.1:1",
+				APIKeyEnv: "TEST_MODEL_API_KEY",
+				Models: []config.ModelConfig{
+					{Name: "mimo-v2.5-pro", Purpose: "coding", MaxOutputTokens: 4096},
+				},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultModel: "mimo-v2.5-pro"},
+	}
+	if err := modelprofile.Save(root, models); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_MODEL_API_KEY", "sk-discover-capability")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":[{"id":"mimo-v2.5-pro"}]}`)
+	}))
+	defer server.Close()
+	models.Providers[0].BaseURL = server.URL
+	if err := modelprofile.Save(root, models); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "discover", "--dir", root, "--provider", "mimo", "--write-capabilities"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("model discover code = %d, output = %q", code, stdout.String())
+	}
+	cfg := loadConfigForTest(t, root)
+	provider, _ := findProviderForTest(cfg, "mimo")
+	if provider.Models[0].MaxContextTokens != 131072 || provider.Models[0].ReasoningLevel != "high" {
+		t.Fatalf("model = %+v, want written capabilities", provider.Models[0])
+	}
+}
+
 func TestModelTestSuccess(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	t.Setenv("TEST_MODEL_API_KEY", "sk-model-test")
@@ -789,6 +834,40 @@ func TestModelTestSuccess(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, "status=ok") || !strings.Contains(output, "response=OK") {
 		t.Fatalf("stdout = %q, want ok response", output)
+	}
+}
+
+func TestNekoCommandExists(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--help"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("neko --help code = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "NekoForge") {
+		t.Fatalf("stdout = %q, want NekoForge", stdout.String())
+	}
+}
+
+func TestNekoHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--help"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("neko --help code = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "Usage: neko") || !strings.Contains(stdout.String(), "mode=multi") {
+		t.Fatalf("stdout = %q, want neko usage", stdout.String())
+	}
+}
+
+func TestReasonForgeNekoAlias(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--dir", root, "--no-color"}, Env{Stdout: &stdout, Stdin: strings.NewReader("/exit\n")})
+	if code != 0 {
+		t.Fatalf("reasonforge neko code = %d, output = %q", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "NekoForge") || !strings.Contains(stdout.String(), "Goodbye from NekoForge.") {
+		t.Fatalf("stdout = %q, want console branding and exit", stdout.String())
 	}
 }
 
