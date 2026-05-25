@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
-const HeaderHeight = 23
+const (
+	HeaderHeight  = 4
+	CanvasWidth   = 104
+	DialogWidth   = 78
+	DialogPadding = (CanvasWidth - DialogWidth) / 2
+)
 
 type HeaderData struct {
 	Mode      string
@@ -25,10 +31,8 @@ func (r Renderer) RenderStaticHeader(w io.Writer, data HeaderData) {
 }
 
 func (r Renderer) RenderAnimatedHeader(w io.Writer, data HeaderData, frame int) {
-	r.renderBrandBlock(w, frame)
-	r.renderSessionBlock(w, data)
-	r.renderShortcutBlock(w)
-	fmt.Fprintln(w)
+	_ = frame
+	r.renderMinimalHero(w, data)
 }
 
 func (r Renderer) RenderNoColorHeader(w io.Writer, data HeaderData) {
@@ -41,51 +45,43 @@ func (r Renderer) RenderHeaderToString(data HeaderData, frame int) string {
 	return buf.String()
 }
 
-func (r Renderer) renderBrandBlock(w io.Writer, frame int) {
-	lines := CatFrameLines(frame)
-	brand := []string{
-		r.Title("NekoForge"),
-		r.Muted("local AI coding workspace  |  powered by ReasonForge"),
-		r.Value("floating local coding familiar"),
-	}
-	for i := 0; i < len(lines); i++ {
-		fmt.Fprintf(w, "  %s   %s\n", r.Accent(lines[i]), brand[i])
-	}
-	fmt.Fprintf(w, "  %s\n", r.Label(strings.Repeat("-", 58)))
-	r.renderField(w, "Ask", "type a goal, or /help")
-	fmt.Fprintln(w)
-}
-
-func (r Renderer) renderSessionBlock(w io.Writer, data HeaderData) {
-	fmt.Fprintf(w, "  %s\n", r.Label("Session"))
-	r.renderField(w, "Mode", data.Mode)
-	r.renderField(w, "Model", data.Model)
-	r.renderField(w, "Provider", data.Provider)
-	r.renderField(w, "Context", data.Context)
-	r.renderField(w, "Reasoning", data.Reasoning)
-	r.renderField(w, "Tokens", data.Tokens)
-	r.renderField(w, "Cost", data.Cost)
-	r.renderField(w, "Safety", data.Safety)
-	fmt.Fprintln(w)
-}
-
-func (r Renderer) renderShortcutBlock(w io.Writer) {
-	fmt.Fprintf(w, "  %s\n", r.Label("Shortcuts"))
-	r.renderField(w, "enter", "run")
-	r.renderField(w, "/mode", "switch mode")
-	r.renderField(w, "/model", "show model")
-	r.renderField(w, "/runs", "recent runs")
-	r.renderField(w, "/exit", "quit")
-}
-
-func (r Renderer) renderField(w io.Writer, label, value string) {
-	padding := 10 - len(label)
-	if padding < 1 {
-		padding = 1
-	}
-	fmt.Fprintf(w, "  %s%s %s\n", r.Label(label), strings.Repeat(" ", padding), r.Value(value))
-}
-
 func HeaderLineCount() int {
 	return HeaderHeight
+}
+
+func (r Renderer) renderMinimalHero(w io.Writer, data HeaderData) {
+	fmt.Fprintln(w)
+	r.centerLine(w, r.Accent("Neko")+r.Title("Forge"), len("NekoForge"))
+	fmt.Fprintln(w)
+	_ = data
+	fmt.Fprintln(w)
+}
+
+func (r Renderer) renderDialog(w io.Writer, data HeaderData) {
+	indent := strings.Repeat(" ", DialogPadding)
+	innerWidth := DialogWidth - 4
+	fmt.Fprintf(w, "%s%s\n", indent, r.Label("╭"+strings.Repeat("─", DialogWidth-2)+"╮"))
+	fmt.Fprintf(w, "%s%s %s %s\n", indent, r.Label("│"), r.Value(padRight(`Ask anything...  "Read README and summarize it"`, innerWidth)), r.Label("│"))
+	meta := fmt.Sprintf("Chat  ·  %s  ·  %s  ·  %s", data.Model, data.Provider, data.Reasoning)
+	fmt.Fprintf(w, "%s%s %s %s\n", indent, r.Label("│"), r.Muted(padRight(meta, innerWidth)), r.Label("│"))
+	actions := "/run agent task   /model provider   /help commands   /exit quit"
+	fmt.Fprintf(w, "%s%s %s %s\n", indent, r.Label("│"), r.Muted(padRight(actions, innerWidth)), r.Label("│"))
+	fmt.Fprintf(w, "%s%s\n", indent, r.Label("╰"+strings.Repeat("─", DialogWidth-2)+"╯"))
+}
+
+func (r Renderer) centerLine(w io.Writer, styled string, visibleLen int) {
+	padding := (CanvasWidth - visibleLen) / 2
+	if padding < 0 {
+		padding = 0
+	}
+	fmt.Fprintf(w, "%s%s\n", strings.Repeat(" ", padding), styled)
+}
+
+func padRight(value string, width int) string {
+	visible := utf8.RuneCountInString(value)
+	if visible >= width {
+		runes := []rune(value)
+		return string(runes[:width])
+	}
+	return value + strings.Repeat(" ", width-visible)
 }

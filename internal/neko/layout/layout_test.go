@@ -7,7 +7,7 @@ import (
 )
 
 func TestTerminalLayoutRegions(t *testing.T) {
-	regions := NewRegionLayout(23)
+	regions := NewRegionLayout(10)
 	if err := regions.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestMessageHistoryPersists(t *testing.T) {
 }
 
 func TestInputRegionStable(t *testing.T) {
-	regions := NewRegionLayout(23)
+	regions := NewRegionLayout(10)
 	before := regions.Input
 	var out bytes.Buffer
 	InputRenderer{}.RenderPrompt(&out)
@@ -42,7 +42,35 @@ func TestInputRegionStable(t *testing.T) {
 	if before != after {
 		t.Fatalf("input region changed from %+v to %+v", before, after)
 	}
-	if strings.TrimSpace(out.String()) != ">" {
-		t.Fatalf("prompt = %q, want >", out.String())
+	if !strings.Contains(out.String(), "Ask anything") || !strings.Contains(out.String(), "│ > ") {
+		t.Fatalf("prompt = %q, want centered input dialog", out.String())
+	}
+}
+
+func TestSubmittedInputClosesRightBorder(t *testing.T) {
+	var out bytes.Buffer
+	InputRenderer{}.RenderPrompt(&out)
+	InputRenderer{}.RenderSubmittedPrompt(&out, "你好，你是什么模型", false)
+	InputRenderer{}.RenderPromptClose(&out)
+	text := out.String()
+	if !strings.Contains(text, "│ > 你好，你是什么模型") {
+		t.Fatalf("prompt = %q, want submitted Chinese input in prompt box", text)
+	}
+	if !strings.Contains(text, "你是什么模型") || !strings.Contains(text, " │\n") {
+		t.Fatalf("prompt = %q, want closed right border", text)
+	}
+}
+
+func TestMessageRendererPadsCJKByTerminalWidth(t *testing.T) {
+	var out bytes.Buffer
+	RenderMessage(&out, "You", "你好，你是什么模型")
+	text := out.String()
+	if !strings.Contains(text, "│ 你好，你是什么模型") {
+		t.Fatalf("message = %q, want Chinese content", text)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "你好") && !strings.HasSuffix(line, "│") {
+			t.Fatalf("message line lacks right border: %q", line)
+		}
 	}
 }

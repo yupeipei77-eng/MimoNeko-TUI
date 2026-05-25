@@ -29,6 +29,8 @@ func HeaderDataFromSession(session Session) branding.HeaderData {
 func RenderHelp(w io.Writer, noColor bool) {
 	renderer := branding.NewRenderer(noColor)
 	fmt.Fprintln(w, renderer.Title("NekoForge commands"))
+	fmt.Fprintln(w, "plain text")
+	fmt.Fprintln(w, "  chat with the configured model")
 	fmt.Fprintln(w, "/help")
 	fmt.Fprintln(w, "/mode single")
 	fmt.Fprintln(w, "/mode multi")
@@ -38,6 +40,7 @@ func RenderHelp(w io.Writer, noColor bool) {
 	fmt.Fprintln(w, "/reasoning low|medium|high")
 	fmt.Fprintln(w, "/runs")
 	fmt.Fprintln(w, "/run <goal>")
+	fmt.Fprintln(w, "  execute an agent task")
 	fmt.Fprintln(w, "/preview <worktree_id>")
 	fmt.Fprintln(w, "/review <worktree_id>")
 	fmt.Fprintln(w, "/discard <worktree_id>")

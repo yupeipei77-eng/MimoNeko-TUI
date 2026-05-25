@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	providerTypeOpenAICompatible = "openai-compatible"
-	defaultPurpose               = "coding"
-	defaultMaxOutputTokens       = 4096
-	maxResponseBodyBytes         = 1 << 20
-	maxDisplayedResponseBytes    = 256
+	providerTypeOpenAICompatible  = "openai-compatible"
+	defaultPurpose                = "coding"
+	defaultMaxOutputTokens        = 4096
+	maxResponseBodyBytes          = 1 << 20
+	maxDisplayedResponseBytes     = 256
+	maxDisplayedChatResponseBytes = 2048
 )
 
 // Preset describes a built-in OpenAI-compatible provider profile.
@@ -81,6 +82,24 @@ type TestResult struct {
 	LatencyMs int64
 	Response  string
 	Error     string
+}
+
+// ChatOptions configures a lightweight NekoForge chat completion.
+type ChatOptions struct {
+	Provider  string
+	Model     string
+	BaseURL   string
+	APIKeyEnv string
+	Prompt    string
+	MaxTokens int
+	Client    *http.Client
+}
+
+// ChatResult is a sanitized text response from a configured model.
+type ChatResult struct {
+	Provider string
+	Model    string
+	Response string
 }
 
 // RemoveOptions selects a provider or model to remove.
@@ -479,6 +498,102 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 	return result, nil
 }
 
+// Chat sends a lightweight chat request for the terminal console.
+func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error) {
+	models, err := Load(root)
+	if err != nil && strings.TrimSpace(opt.BaseURL) == "" {
+		return ChatResult{}, err
+	}
+	baseURL, apiKeyEnv, err := resolveProviderConnection(models, opt.Provider, opt.Model, opt.BaseURL, opt.APIKeyEnv)
+	if err != nil {
+		return ChatResult{}, err
+	}
+	providerName, modelName, err := resolveProviderAndModel(models, opt.Provider, opt.Model)
+	if err != nil {
+		if strings.TrimSpace(opt.BaseURL) == "" {
+			return ChatResult{}, err
+		}
+		providerName = strings.TrimSpace(opt.Provider)
+		modelName = strings.TrimSpace(opt.Model)
+	}
+	if modelName == "" {
+		return ChatResult{}, errors.New("model is required")
+	}
+	prompt := strings.TrimSpace(opt.Prompt)
+	if prompt == "" {
+		return ChatResult{}, errors.New("prompt is required")
+	}
+	apiKey, err := resolveAPIKey(apiKeyEnv)
+	if err != nil {
+		return ChatResult{}, err
+	}
+
+	client := opt.Client
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	maxTokens := opt.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 512
+	}
+	body, err := json.Marshal(map[string]any{
+		"model": modelName,
+		"messages": []map[string]string{
+			{
+				"role":    "system",
+				"content": "You are NekoForge, a concise local AI coding workspace assistant. Reply as plain text. Do not reveal hidden reasoning or secrets.",
+			},
+			{"role": "user", "content": prompt},
+		},
+		"max_tokens":  maxTokens,
+		"temperature": 0.2,
+	})
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return ChatResult{}, fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+	var parsed struct {
+		Model   string `json:"model"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return ChatResult{}, fmt.Errorf("parse response failed")
+	}
+	if parsed.Model != "" {
+		modelName = parsed.Model
+	}
+	response := ""
+	if len(parsed.Choices) > 0 {
+		response = limitDisplayBytes(SanitizeText(parsed.Choices[0].Message.Content, apiKey), maxDisplayedChatResponseBytes)
+	}
+	if strings.TrimSpace(response) == "" {
+		response = "(empty response)"
+	}
+	return ChatResult{Provider: providerName, Model: modelName, Response: response}, nil
+}
+
 // APIKeyStatus checks whether an API key environment variable is configured.
 func APIKeyStatus(envVar string) string {
 	if strings.TrimSpace(envVar) == "" {
@@ -741,10 +856,14 @@ func resolveAPIKey(envVar string) (string, error) {
 }
 
 func limitDisplay(s string) string {
-	if len(s) <= maxDisplayedResponseBytes {
+	return limitDisplayBytes(s, maxDisplayedResponseBytes)
+}
+
+func limitDisplayBytes(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
 		return s
 	}
-	return s[:maxDisplayedResponseBytes] + "...<truncated>"
+	return s[:maxBytes] + "...<truncated>"
 }
 
 func isSecretBoundary(b byte) bool {
@@ -752,14 +871,35 @@ func isSecretBoundary(b byte) bool {
 }
 
 func redactTokenLike(text, token string) string {
+	var out strings.Builder
 	upper := strings.ToUpper(text)
-	idx := strings.Index(upper, token)
-	if idx < 0 {
-		return text
+	searchFrom := 0
+	for {
+		idx := strings.Index(upper[searchFrom:], token)
+		if idx < 0 {
+			out.WriteString(text[searchFrom:])
+			return out.String()
+		}
+		idx += searchFrom
+		valueStart := idx + len(token)
+		for valueStart < len(text) && (text[valueStart] == ' ' || text[valueStart] == '\t') {
+			valueStart++
+		}
+		if valueStart >= len(text) || (text[valueStart] != '=' && text[valueStart] != ':') {
+			out.WriteString(text[searchFrom : idx+len(token)])
+			searchFrom = idx + len(token)
+			continue
+		}
+		valueStart++
+		for valueStart < len(text) && (text[valueStart] == ' ' || text[valueStart] == '\t' || text[valueStart] == '"' || text[valueStart] == '\'') {
+			valueStart++
+		}
+		end := valueStart
+		for end < len(text) && !isSecretBoundary(text[end]) {
+			end++
+		}
+		out.WriteString(text[searchFrom : idx+len(token)])
+		out.WriteString("=<redacted>")
+		searchFrom = end
 	}
-	end := idx + len(token)
-	for end < len(text) && !isSecretBoundary(text[end]) {
-		end++
-	}
-	return text[:idx] + token + "<redacted>" + text[end:]
 }

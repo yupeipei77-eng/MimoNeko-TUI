@@ -29,10 +29,10 @@ func TestMascotAnimationOnlyRedrawsHeader(t *testing.T) {
 	if !strings.Contains(seq, "\x1b[1;1H") {
 		t.Fatalf("redraw sequence = %q, want absolute header positioning", seq)
 	}
-	if !strings.Contains(seq, "NekoForge") || !strings.Contains(seq, "~( o_o )") {
-		t.Fatalf("redraw sequence = %q, want header frame only", seq)
+	if !strings.Contains(seq, "Neko") || !strings.Contains(seq, "Forge") {
+		t.Fatalf("redraw sequence = %q, want title header", seq)
 	}
-	if strings.Contains(seq, "Assistant:") || strings.Contains(seq, "User:") {
+	if strings.Contains(seq, "Assistant:") || strings.Contains(seq, "User:") || strings.Contains(seq, "( o_o )") {
 		t.Fatalf("redraw sequence touched message region: %q", seq)
 	}
 }

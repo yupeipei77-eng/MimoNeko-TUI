@@ -34,9 +34,22 @@ type Options struct {
 	ModelTester   SimpleHandler
 	ModelEnricher SimpleHandler
 	RunsLister    SimpleHandler
+	Chatter       ChatHandler
 	Previewer     PatchHandler
 	Reviewer      PatchHandler
 	Discarder     PatchHandler
+}
+
+type ChatRequest struct {
+	Root     string
+	Message  string
+	Model    string
+	Provider string
+}
+
+type ChatResult struct {
+	Response string
+	Usage    Usage
 }
 
 type RunRequest struct {
@@ -60,6 +73,7 @@ type RunResult struct {
 }
 
 type RunHandler func(context.Context, RunRequest) (RunResult, error)
+type ChatHandler func(context.Context, ChatRequest) (ChatResult, error)
 type SimpleHandler func(context.Context, Session) (string, error)
 type PatchHandler func(context.Context, Session, string) (string, error)
 
@@ -104,6 +118,8 @@ type Console struct {
 }
 
 func (c *Console) Run(ctx context.Context) int {
+	c.Messages.SetNoColor(c.Session.NoColor)
+	c.Input = layout.NewInputRenderer(c.Session.Model, c.Session.Provider, c.Session.ReasoningLabel())
 	if c.Options.Animate && !c.Session.NoColor {
 		regions := layout.NewRegionLayout(branding.HeaderLineCount())
 		animator := animation.NewFrameAnimator(branding.NewRenderer(false), regions, 90*time.Millisecond)
@@ -111,25 +127,47 @@ func (c *Console) Run(ctx context.Context) int {
 	} else {
 		RenderHeader(c.Options.Out, c.Session)
 	}
+	c.Input.RenderPrompt(c.Options.Out)
 	scanner := bufio.NewScanner(c.Options.In)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		rawLine := scanner.Text()
+		c.Input.RenderSubmittedPrompt(c.Options.Out, rawLine, shouldRewriteSubmittedPrompt(c.Options.In, c.Session.NoColor))
+		c.Input.RenderPromptClose(c.Options.Out)
+		line := strings.TrimSpace(rawLine)
 		if line == "" {
+			c.Input.RenderPrompt(c.Options.Out)
 			continue
 		}
 		if strings.HasPrefix(line, "/") {
 			if c.handleSlash(ctx, line) {
 				return 0
 			}
+			c.Input.RenderPrompt(c.Options.Out)
 			continue
 		}
-		c.runGoal(ctx, line)
+		c.chatMessage(ctx, line)
+		c.Input.RenderPrompt(c.Options.Out)
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(c.Options.Err, "neko input failed: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func shouldRewriteSubmittedPrompt(r io.Reader, noColor bool) bool {
+	if noColor {
+		return false
+	}
+	file, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func (c *Console) handleSlash(ctx context.Context, line string) bool {
@@ -222,7 +260,7 @@ func (c *Console) runGoal(ctx context.Context, goal string) {
 		if result.Output != "" {
 			fmt.Fprintf(&msg, "\n%s", SanitizeOutput(result.Output))
 		}
-		c.Messages.Add("Assistant", msg.String())
+		c.Messages.AddError("Assistant", msg.String())
 		c.Messages.RenderLast(c.Options.Out)
 		return
 	}
@@ -259,6 +297,59 @@ func (c *Console) runGoal(ctx context.Context, goal string) {
 	c.Messages.RenderLast(c.Options.Out)
 }
 
+func (c *Console) chatMessage(ctx context.Context, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	c.Messages.Add("You", message)
+	c.Messages.RenderLast(c.Options.Out)
+	if c.Options.Chatter == nil {
+		c.Messages.Add("NekoForge", defaultLocalChatReply(message))
+		c.Messages.RenderLast(c.Options.Out)
+		return
+	}
+	result, err := c.Options.Chatter(ctx, ChatRequest{
+		Root:     c.Session.Root,
+		Message:  message,
+		Model:    c.Session.Model,
+		Provider: c.Session.Provider,
+	})
+	if result.Usage.TotalTokens != 0 || result.Usage.InputTokens != 0 || result.Usage.OutputTokens != 0 || result.Usage.CachedTokens != 0 {
+		c.Session.Usage = NormalizeUsage(result.Usage)
+	}
+	if err != nil {
+		reply := fmt.Sprintf("I could not reach the chat model yet: %s\nUse /run <goal> for agent work, or /model to inspect provider status.", SanitizeOutput(err.Error()))
+		c.Messages.AddError("NekoForge", reply)
+		c.Messages.RenderLast(c.Options.Out)
+		return
+	}
+	reply := SanitizeOutput(result.Response)
+	replyIsError := false
+	if save, triggered, saveErr := maybeAutoSaveChatResponse(c.Session.Root, message, result.Response); triggered {
+		if saveErr != nil {
+			reply += fmt.Sprintf("\n\nauto_save_failed=%s", SanitizeOutput(saveErr.Error()))
+			replyIsError = true
+		} else {
+			reply += fmt.Sprintf("\n\nsaved_file=%s", save.Path)
+		}
+	}
+	if replyIsError {
+		c.Messages.AddError("NekoForge", reply)
+	} else {
+		c.Messages.Add("NekoForge", reply)
+	}
+	c.Messages.RenderLast(c.Options.Out)
+}
+
+func defaultLocalChatReply(message string) string {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "hi" || lower == "hello" || lower == "你好" || lower == "您好" {
+		return "你好，我是 NekoForge。可以直接和我聊天；需要执行代码任务时，用 /run <goal>。"
+	}
+	return "我在。直接输入是聊天；执行代码任务请用 /run <goal>。"
+}
+
 func (c *Console) callSimple(ctx context.Context, handler SimpleHandler, unavailable string) {
 	if handler == nil {
 		fmt.Fprintln(c.Options.Out, unavailable)
@@ -266,7 +357,7 @@ func (c *Console) callSimple(ctx context.Context, handler SimpleHandler, unavail
 	}
 	output, err := handler(ctx, c.Session)
 	if err != nil {
-		fmt.Fprintf(c.Options.Out, "error=%s\n", SanitizeOutput(err.Error()))
+		layout.RenderErrorMessage(c.Options.Out, "Error", fmt.Sprintf("error=%s", SanitizeOutput(err.Error())), c.Session.NoColor)
 		return
 	}
 	fmt.Fprint(c.Options.Out, SanitizeOutput(output))
@@ -287,7 +378,7 @@ func (c *Console) callPatch(ctx context.Context, handler PatchHandler, worktreeI
 	}
 	output, err := handler(ctx, c.Session, worktreeID)
 	if err != nil {
-		fmt.Fprintf(c.Options.Out, "%s failed: %s\n", label, SanitizeOutput(err.Error()))
+		layout.RenderErrorMessage(c.Options.Out, "Error", fmt.Sprintf("%s failed: %s", label, SanitizeOutput(err.Error())), c.Session.NoColor)
 		return
 	}
 	fmt.Fprint(c.Options.Out, SanitizeOutput(output))

@@ -28,7 +28,9 @@ var miniCatFrames = []MascotFrame{
 }
 
 func FrameCount() int {
-	return len(miniCatFrames)
+	// The current premium shell uses a static centered title and dialog.
+	// Keeping zero frames avoids startup redraw flicker in real terminals.
+	return 0
 }
 
 func CatFrame(frame int) MascotFrame {

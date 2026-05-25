@@ -427,6 +427,20 @@ func runNeko(args []string, env Env) int {
 			return runRuns([]string{"--dir", session.Root}, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
 		})
 	}
+	options.Chatter = func(ctx context.Context, req neko.ChatRequest) (neko.ChatResult, error) {
+		result, err := modelprofile.Chat(ctx, req.Root, modelprofile.ChatOptions{
+			Provider: req.Provider,
+			Model:    req.Model,
+			Prompt:   req.Message,
+		})
+		if err != nil {
+			return neko.ChatResult{}, err
+		}
+		return neko.ChatResult{
+			Response: result.Response,
+			Usage:    neko.Usage{Estimated: true},
+		}, nil
+	}
 	options.Previewer = func(ctx context.Context, session neko.Session, worktreeID string) (string, error) {
 		return captureCLI(func(stdout, stderr io.Writer) int {
 			return runPatchPreview([]string{"--dir", session.Root, worktreeID}, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})

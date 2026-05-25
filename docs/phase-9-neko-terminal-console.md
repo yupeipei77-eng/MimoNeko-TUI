@@ -16,7 +16,7 @@ neko --no-color
 reasonforge neko
 ```
 
-The startup header uses a compact silver-cyan floating cat mascot, a soft-white `NekoForge` title, and a restrained header-only micro animation in interactive color terminals. `--no-color` keeps the same layout without ANSI escape codes.
+The startup view uses a centered soft-white `NekoForge` title and a centered silver-cyan input dialog. Typed user prompts appear in the dialog line, and submitted user/assistant messages render as centered conversation cards. `--no-color` keeps the same layout without ANSI escape codes.
 
 Defaults are intentionally safe:
 
@@ -47,7 +47,9 @@ Defaults are intentionally safe:
 /exit
 ```
 
-Natural language input is treated as `/run <goal>`. Empty input does not run anything.
+Plain text input is chat with the configured model. Use `/run <goal>` when you want to execute an agent task. Empty input does not run anything.
+
+If a chat message explicitly says to save, write, or generate a file, NekoForge writes the generated code block or response text directly to the project directory or the specified directory/file path. This is intentionally scoped to explicit file-writing language and does not perform patch apply, commit, or push operations.
 
 ## Model Display
 

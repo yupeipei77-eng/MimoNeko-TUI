@@ -6,30 +6,37 @@ import (
 	"testing"
 )
 
-func TestBrandRendererStaticHeaderPremiumLayout(t *testing.T) {
+func TestBrandRendererMinimalCenteredLayout(t *testing.T) {
 	var out bytes.Buffer
 	NewRenderer(true).RenderStaticHeader(&out, sampleHeaderData())
 	text := out.String()
-	for _, want := range []string{` /\_/\`, "( o_o )~", " /|_|\\", "NekoForge", "local AI coding workspace", "Session", "Shortcuts"} {
+	for _, want := range []string{"NekoForge"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("header = %q, want %q", text, want)
 		}
 	}
-	if strings.Contains(text, "( o.o )") || strings.Contains(text, "=^.^=") {
-		t.Fatalf("header still contains old large ASCII mark: %q", text)
+	for _, forbidden := range []string{`/\_/\`, "( o_o )", "Session", "Shortcuts", "Ask anything", "/run agent task"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("header should be title only, got %q", text)
+		}
 	}
 }
 
-func TestMascotAnimationFrames(t *testing.T) {
-	var frame0 bytes.Buffer
-	var frame1 bytes.Buffer
-	NewRenderer(true).RenderAnimatedHeader(&frame0, sampleHeaderData(), 0)
-	NewRenderer(true).RenderAnimatedHeader(&frame1, sampleHeaderData(), 1)
-	if frame0.String() == frame1.String() {
-		t.Fatal("animated frames should differ")
+func TestBrandRendererCentersTitle(t *testing.T) {
+	var out bytes.Buffer
+	NewRenderer(true).RenderStaticHeader(&out, sampleHeaderData())
+	lines := strings.Split(out.String(), "\n")
+	if len(lines) < 5 {
+		t.Fatalf("header lines = %q", lines)
 	}
-	if !strings.Contains(frame1.String(), "( -_o )~") {
-		t.Fatalf("frame 1 = %q, want wink frame", frame1.String())
+	titleLine := ""
+	for _, line := range lines {
+		if strings.Contains(line, "NekoForge") {
+			titleLine = line
+		}
+	}
+	if leadingSpaces(titleLine) < 40 {
+		t.Fatalf("title line = %q, want centered title", titleLine)
 	}
 }
 
@@ -45,26 +52,11 @@ func TestPremiumThemeUsesColdPalette(t *testing.T) {
 	var out bytes.Buffer
 	NewRenderer(false).RenderStaticHeader(&out, sampleHeaderData())
 	text := out.String()
-	if !strings.Contains(text, BrightCyan) || !strings.Contains(text, Cyan) || !strings.Contains(text, SoftWhite) {
-		t.Fatalf("header = %q, want cold cyan and soft white palette", text)
+	if !strings.Contains(text, BrightCyan) || !strings.Contains(text, SoftWhite) {
+		t.Fatalf("header = %q, want cold cyan/silver palette", text)
 	}
 	if strings.Contains(text, "\x1b[33m") || strings.Contains(text, "\x1b[93m") {
 		t.Fatalf("header should not use amber/yellow as primary color: %q", text)
-	}
-}
-
-func TestMiniCatHasBody(t *testing.T) {
-	for i := 0; i < FrameCount(); i++ {
-		lines := CatFrameLines(i)
-		if len(lines) != 3 {
-			t.Fatalf("frame %d has %d lines, want head/body/tail body sprite", i, len(lines))
-		}
-		joined := strings.Join(lines, "\n")
-		for _, want := range []string{`/\_/\`, "(", ")", "|_|", "~"} {
-			if !strings.Contains(joined, want) {
-				t.Fatalf("frame %d = %q, want body element %q", i, joined, want)
-			}
-		}
 	}
 }
 
@@ -76,21 +68,15 @@ func TestNoANSILeakInNoColorMode(t *testing.T) {
 	}
 }
 
-func TestMiniCatFramesAreCompact(t *testing.T) {
-	if FrameCount() < 2 || FrameCount() > 6 {
-		t.Fatalf("frame count = %d, want 2..6", FrameCount())
-	}
-	for i := 0; i < FrameCount(); i++ {
-		lines := CatFrameLines(i)
-		if len(lines) > 3 {
-			t.Fatalf("frame %d has too many lines: %q", i, lines)
+func leadingSpaces(line string) int {
+	count := 0
+	for _, r := range line {
+		if r != ' ' {
+			return count
 		}
-		for _, line := range lines {
-			if len(line) > 10 {
-				t.Fatalf("frame %d line = %q, want compact mascot", i, line)
-			}
-		}
+		count++
 	}
+	return count
 }
 
 func sampleHeaderData() HeaderData {
