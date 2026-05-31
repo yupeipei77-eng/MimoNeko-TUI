@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/auth"
 	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/events"
 	"github.com/mimoneko/mimoneko/internal/modelprofile"
@@ -53,7 +54,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(version) code = %d", code)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.0-beta" {
+	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.1-beta" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -370,7 +371,36 @@ func assertTreeDoesNotContain(t *testing.T, root, needle string) {
 	}
 }
 
-func TestNoArgsReturnsUsage(t *testing.T) {
+func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
+	home := setUserConfigHome(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("api-key") != "sk-first-run" {
+			t.Fatalf("api-key header = %q, want saved key", r.Header.Get("api-key"))
+		}
+		fmt.Fprint(w, `{"model":"mimo-v2.5-pro","choices":[{"delta":{"content":"OK"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	input := strings.NewReader("1\nsk-first-run\n" + server.URL + "\nmimo-v2.5-pro\n")
+	code := Run(nil, Env{Stdout: &stdout, Stderr: &stderr, Stdin: input})
+	if code != 0 {
+		t.Fatalf("Run(nil) code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "欢迎使用 MioNeko") || !strings.Contains(output, "配置成功") {
+		t.Fatalf("stdout = %q, want first-run wizard success", output)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".mimoneko", "config.yaml")); err != nil {
+		t.Fatalf("user config was not saved: %v", err)
+	}
+}
+
+func TestNoArgsReturnsUsageWhenConfigured(t *testing.T) {
+	setUserConfigHome(t)
+	saveUserConfigForTest(t, "mimo", "sk-configured", "https://token-plan-cn.xiaomimimo.com/v1", "mimo-v2.5-pro")
+
 	var stdout bytes.Buffer
 	code := Run(nil, Env{Stdout: &stdout})
 	if code != 0 {
@@ -381,14 +411,24 @@ func TestNoArgsReturnsUsage(t *testing.T) {
 	}
 }
 
-func TestUnknownCommandReturnsUsageError(t *testing.T) {
+func TestUnknownCommandIsTreatedAsRunGoal(t *testing.T) {
+	setUserConfigHome(t)
+	t.Setenv("MIMO_API_KEY", "sk-routing-test")
 	var stderr bytes.Buffer
-	code := Run([]string{"frobnicate"}, Env{Stderr: &stderr})
-	if code != 2 {
-		t.Fatalf("Run(unknown) code = %d, want 2", code)
+	code := Run([]string{"frobnicate"}, Env{
+		Stderr: &stderr,
+		Getwd:  func() (string, error) { return "", errors.New("boom") },
+	})
+	if code != 1 {
+		t.Fatalf("Run(shorthand) code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "unknown command") {
-		t.Fatalf("stderr = %q, want unknown command", stderr.String())
+		// A root resolution error means the argument was routed through run.
+		if !strings.Contains(stderr.String(), "resolve working directory") {
+			t.Fatalf("stderr = %q, want shorthand run routing", stderr.String())
+		}
+	} else {
+		t.Fatalf("stderr = %q, should not report unknown command", stderr.String())
 	}
 }
 
@@ -400,6 +440,37 @@ func TestHelpWritesUsageToStdout(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Commands:") {
 		t.Fatalf("stdout = %q, want commands", stdout.String())
+	}
+}
+
+func setUserConfigHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	return home
+}
+
+func saveUserConfigForTest(t *testing.T, provider, apiKey, baseURL, model string) {
+	t.Helper()
+	cfg := &auth.Config{
+		Auth: auth.AuthConfig{
+			Providers: map[string]auth.ProviderConfig{
+				provider: {
+					APIKey:  apiKey,
+					BaseURL: baseURL,
+				},
+			},
+			DefaultProvider: provider,
+		},
+		Preferences: auth.PreferencesConfig{
+			DefaultModel: model,
+			DryRun:       true,
+			Worktree:     true,
+		},
+	}
+	if err := auth.SaveUserConfig(cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -3004,7 +3075,10 @@ func TestMultiRunDoesNotLeakAPIKey(t *testing.T) {
 func TestMultiRunOutputFinalRecommendation(t *testing.T) {
 	// Verify the multi-run command is registered and accepts positional goal
 	var stderr bytes.Buffer
-	code := Run([]string{"multi-run", "fix typo"}, Env{Stderr: &stderr})
+	code := Run([]string{"multi-run", "fix typo"}, Env{
+		Stderr: &stderr,
+		Getwd:  func() (string, error) { return t.TempDir(), nil },
+	})
 	// Should not be a usage error (2) - may fail for other reasons (no config)
 	// but the goal argument should be accepted
 	if code == 2 && strings.Contains(stderr.String(), "accepts no positional") {

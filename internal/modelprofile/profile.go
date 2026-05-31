@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mimoneko/mimoneko/internal/auth"
 	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/pathutil"
 	"gopkg.in/yaml.v3"
@@ -121,9 +122,9 @@ type ChatResult struct {
 
 // ChatStreamChunk represents a single streaming chunk from a chat completion.
 type ChatStreamChunk struct {
-	Text string
+	Text          string
 	ReasoningText string
-	Done bool
+	Done          bool
 }
 
 // ChatStreamFunc sends chunks via callback and returns the final result.
@@ -133,6 +134,35 @@ type ChatStreamFunc func(ctx context.Context, onChunk func(ChatStreamChunk)) (Ch
 type RemoveOptions struct {
 	Provider string
 	Model    string
+}
+
+type chatAPIMessage struct {
+	Content string `json:"content"`
+}
+
+type chatAPIDelta struct {
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+type chatAPIChoice struct {
+	Message *chatAPIMessage `json:"message,omitempty"`
+	Delta   *chatAPIDelta   `json:"delta,omitempty"`
+}
+
+type chatAPIUsage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+}
+
+type chatAPIResponse struct {
+	Model   string          `json:"model"`
+	Choices []chatAPIChoice `json:"choices"`
+	Usage   chatAPIUsage    `json:"usage"`
 }
 
 var presets = map[string]Preset{
@@ -205,6 +235,22 @@ func Load(root string) (config.ModelsConfig, error) {
 		return models, fmt.Errorf("parse models.yaml: %w", err)
 	}
 	return models, nil
+}
+
+func loadModelsForConnection(root string, explicitConnection bool) (config.ModelsConfig, error) {
+	models, err := Load(root)
+	if err == nil {
+		return models, nil
+	}
+	if explicitConnection {
+		return models, nil
+	}
+	if userModels, ok, userErr := auth.UserModelsConfig(); userErr != nil {
+		return models, userErr
+	} else if ok {
+		return userModels, nil
+	}
+	return models, err
 }
 
 // Save writes only .mimoneko/models.yaml.
@@ -372,14 +418,19 @@ func Remove(root string, opt RemoveOptions) error {
 
 // Discover queries an OpenAI-compatible /models endpoint.
 func Discover(ctx context.Context, root string, opt DiscoverOptions) ([]string, error) {
-	models, err := Load(root)
-	if err != nil && strings.TrimSpace(opt.BaseURL) == "" {
+	models, err := loadModelsForConnection(root, strings.TrimSpace(opt.BaseURL) != "")
+	if err != nil {
 		return nil, err
 	}
 	baseURL, apiKeyEnv, err := resolveProviderConnection(models, opt.Provider, "", opt.BaseURL, opt.APIKeyEnv)
 	if err != nil {
 		return nil, err
 	}
+	providerName, _, providerErr := resolveProviderAndModel(models, opt.Provider, "")
+	if providerErr != nil {
+		providerName = strings.TrimSpace(opt.Provider)
+	}
+	providerType := resolveProviderType(models, providerName)
 	apiKey, err := resolveAPIKey(apiKeyEnv)
 	if err != nil {
 		return nil, err
@@ -393,7 +444,7 @@ func Discover(ctx context.Context, root string, opt DiscoverOptions) ([]string, 
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	setProviderAuthHeader(req, providerType, apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -430,8 +481,8 @@ func Discover(ctx context.Context, root string, opt DiscoverOptions) ([]string, 
 
 // Test sends a tiny chat/completions request and returns a sanitized result.
 func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error) {
-	models, err := Load(root)
-	if err != nil && strings.TrimSpace(opt.BaseURL) == "" {
+	models, err := loadModelsForConnection(root, strings.TrimSpace(opt.BaseURL) != "")
+	if err != nil {
 		return TestResult{}, err
 	}
 	baseURL, apiKeyEnv, err := resolveProviderConnection(models, opt.Provider, opt.Model, opt.BaseURL, opt.APIKeyEnv)
@@ -463,14 +514,10 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 		prompt = "Reply with OK only."
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"model": modelName,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
-		"max_tokens":  16,
-		"temperature": 0,
-	})
+	providerType := resolveProviderType(models, providerName)
+	body, err := marshalChatRequest(providerType, modelName, []map[string]string{
+		{"role": "user", "content": prompt},
+	}, 16, 0, false)
 	if err != nil {
 		return TestResult{}, fmt.Errorf("marshal request: %w", err)
 	}
@@ -481,7 +528,7 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 		return TestResult{}, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	setProviderAuthHeader(req, providerType, apiKey)
 
 	resp, err := client.Do(req)
 	latency := time.Since(started).Milliseconds()
@@ -502,22 +549,7 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 		return result, nil
 	}
 
-	var parsed struct {
-		Model   string `json:"model"`
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens        int `json:"prompt_tokens"`
-			CompletionTokens    int `json:"completion_tokens"`
-			TotalTokens         int `json:"total_tokens"`
-			PromptTokensDetails *struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details,omitempty"`
-		} `json:"usage"`
-	}
+	var parsed chatAPIResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		result.Status = "failed"
 		result.Error = "parse response failed"
@@ -526,17 +558,15 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 	if parsed.Model != "" {
 		result.Model = parsed.Model
 	}
-	if len(parsed.Choices) > 0 {
-		result.Response = limitDisplay(SanitizeText(parsed.Choices[0].Message.Content, apiKey))
-	}
+	result.Response = limitDisplay(SanitizeText(firstChoiceContent(parsed.Choices), apiKey))
 	result.Status = "ok"
 	return result, nil
 }
 
 // Chat sends a lightweight chat request for the terminal console.
 func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error) {
-	models, err := Load(root)
-	if err != nil && strings.TrimSpace(opt.BaseURL) == "" {
+	models, err := loadModelsForConnection(root, strings.TrimSpace(opt.BaseURL) != "")
+	if err != nil {
 		return ChatResult{}, err
 	}
 	baseURL, apiKeyEnv, err := resolveProviderConnection(models, opt.Provider, opt.Model, opt.BaseURL, opt.APIKeyEnv)
@@ -588,12 +618,8 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 
 	messages = append(messages, map[string]string{"role": "user", "content": prompt})
 
-	body, err := json.Marshal(map[string]any{
-		"model":       modelName,
-		"messages":    messages,
-		"max_tokens":  maxTokens,
-		"temperature": 0.2,
-	})
+	providerType := resolveProviderType(models, providerName)
+	body, err := marshalChatRequest(providerType, modelName, messages, maxTokens, 0.2, false)
 	if err != nil {
 		return ChatResult{}, fmt.Errorf("marshal request: %w", err)
 	}
@@ -602,7 +628,7 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 		return ChatResult{}, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	setProviderAuthHeader(req, providerType, apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -616,32 +642,14 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 	if resp.StatusCode != http.StatusOK {
 		return ChatResult{}, fmt.Errorf("API returned status %d", resp.StatusCode)
 	}
-	var parsed struct {
-		Model   string `json:"model"`
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens        int `json:"prompt_tokens"`
-			CompletionTokens    int `json:"completion_tokens"`
-			TotalTokens         int `json:"total_tokens"`
-			PromptTokensDetails *struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details,omitempty"`
-		} `json:"usage"`
-	}
+	var parsed chatAPIResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return ChatResult{}, fmt.Errorf("parse response failed")
 	}
 	if parsed.Model != "" {
 		modelName = parsed.Model
 	}
-	response := ""
-	if len(parsed.Choices) > 0 {
-		response = limitDisplayBytes(SanitizeText(parsed.Choices[0].Message.Content, apiKey), maxDisplayedChatResponseBytes)
-	}
+	response := limitDisplayBytes(SanitizeText(firstChoiceContent(parsed.Choices), apiKey), maxDisplayedChatResponseBytes)
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
@@ -668,8 +676,8 @@ func cachedTokensFromDetails(details *struct {
 
 // ChatStream creates a streaming chat function that sends chunks via callback.
 func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
-	models, err := Load(root)
-	if err != nil && strings.TrimSpace(opt.BaseURL) == "" {
+	models, err := loadModelsForConnection(root, strings.TrimSpace(opt.BaseURL) != "")
+	if err != nil {
 		return nil, err
 	}
 	baseURL, apiKeyEnv, err := resolveProviderConnection(models, opt.Provider, opt.Model, opt.BaseURL, opt.APIKeyEnv)
@@ -695,6 +703,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 	if err != nil {
 		return nil, err
 	}
+	providerType := resolveProviderType(models, providerName)
 
 	maxTokens := opt.MaxTokens
 	if maxTokens <= 0 {
@@ -723,13 +732,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 
 		messages = append(messages, map[string]string{"role": "user", "content": prompt})
 
-		body, err := json.Marshal(map[string]any{
-			"model":       modelName,
-			"messages":    messages,
-			"max_tokens":  maxTokens,
-			"temperature": 0,
-			"stream":      true,
-		})
+		body, err := marshalChatRequest(providerType, modelName, messages, maxTokens, 0, true)
 		if err != nil {
 			return ChatResult{}, fmt.Errorf("marshal request: %w", err)
 		}
@@ -739,7 +742,8 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 			return ChatResult{}, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Accept", "text/event-stream")
+		setProviderAuthHeader(req, providerType, apiKey)
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -1106,9 +1110,68 @@ func resolveAPIKey(envVar string) (string, error) {
 	}
 	key := strings.TrimSpace(os.Getenv(envVar))
 	if key == "" {
+		key = strings.TrimSpace(auth.GetAPIKeyForEnv(envVar))
+	}
+	if key == "" {
 		return "", fmt.Errorf("API key not found in environment variable %s", envVar)
 	}
+	if pathutil.APIKeyLooksPlaceholder(key) {
+		return "", fmt.Errorf("API key in environment variable %s appears to be a placeholder; set a real key", envVar)
+	}
 	return key, nil
+}
+
+func resolveProviderType(models config.ModelsConfig, providerName string) string {
+	providerName = strings.TrimSpace(providerName)
+	if idx := findProviderIndex(models, providerName); idx >= 0 {
+		providerType := strings.TrimSpace(models.Providers[idx].Type)
+		if providerType != "" {
+			return providerType
+		}
+	}
+	if providerName == providerTypeMimo {
+		return providerTypeMimo
+	}
+	return providerTypeOpenAICompatible
+}
+
+func marshalChatRequest(providerType, modelName string, messages []map[string]string, maxTokens int, temperature float64, stream bool) ([]byte, error) {
+	body := map[string]any{
+		"model":       modelName,
+		"messages":    messages,
+		"temperature": temperature,
+	}
+	if stream {
+		body["stream"] = true
+	}
+	if providerType == providerTypeMimo {
+		body["max_completion_tokens"] = maxTokens
+	} else {
+		body["max_tokens"] = maxTokens
+	}
+	return json.Marshal(body)
+}
+
+func setProviderAuthHeader(req *http.Request, providerType, apiKey string) {
+	if providerType == providerTypeMimo {
+		req.Header.Set("api-key", apiKey)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+}
+
+func firstChoiceContent(choices []chatAPIChoice) string {
+	if len(choices) == 0 {
+		return ""
+	}
+	choice := choices[0]
+	if choice.Message != nil && choice.Message.Content != "" {
+		return choice.Message.Content
+	}
+	if choice.Delta != nil && choice.Delta.Content != "" {
+		return choice.Delta.Content
+	}
+	return ""
 }
 
 func limitDisplay(s string) string {

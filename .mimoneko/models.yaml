@@ -1,6 +1,6 @@
 providers:
   - name: mimo
-    type: openai-compatible
+    type: mimo
     base_url: https://token-plan-cn.xiaomimimo.com/v1
     api_key_env: MIMO_API_KEY
     models:

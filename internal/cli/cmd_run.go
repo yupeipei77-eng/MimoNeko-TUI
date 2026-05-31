@@ -29,18 +29,33 @@ func (c *RunCommand) Run(args []string, env Env) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if rejectExtraArgs(fs, env) {
+
+	remaining := fs.Args()
+	hasGoalFlag := strings.TrimSpace(*goal) != ""
+	hasPositionalGoal := len(remaining) > 0 && strings.TrimSpace(remaining[0]) != ""
+	if hasGoalFlag && hasPositionalGoal {
+		fmt.Fprintln(env.Stderr, "run accepts either --goal or positional goal, not both")
 		return 2
+	}
+	if !hasGoalFlag && hasPositionalGoal {
+		*goal = strings.TrimSpace(strings.Join(remaining, " "))
 	}
 
 	if strings.TrimSpace(*goal) == "" {
 		fmt.Fprintln(env.Stderr, "run requires --goal")
+		fmt.Fprintln(env.Stderr, "Usage: mimoneko run \"fix typo in README\"")
+		fmt.Fprintln(env.Stderr, "   or: mimoneko \"fix typo in README\"")
 		return 2
 	}
 
 	root, err := resolveRoot(*dir, env)
 	if err != nil {
 		fmt.Fprintln(env.Stderr, err)
+		return 1
+	}
+
+	if err := ensureProjectConfigForRun(root); err != nil {
+		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
 		return 1
 	}
 

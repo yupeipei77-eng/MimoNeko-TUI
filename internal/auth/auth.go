@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/pathutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -91,13 +93,16 @@ func SaveUserConfig(config *Config) error {
 // GetAPIKey returns the API key for the given provider
 func GetAPIKey(provider string) string {
 	// 1. Check environment variables
-	if key := os.Getenv("MIMO_API_KEY"); key != "" && provider == "mimo" {
+	if key := os.Getenv("MIMO_API_KEY"); key != "" && provider == "mimo" && !pathutil.APIKeyLooksPlaceholder(key) {
 		return key
 	}
-	if key := os.Getenv("MIMONEKO_API_KEY"); key != "" {
+	if key := os.Getenv("MIMONEKO_API_KEY"); key != "" && !pathutil.APIKeyLooksPlaceholder(key) {
 		return key
 	}
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" && provider == "openai" {
+	if key := os.Getenv("MimoNeko_API_KEY"); key != "" && !pathutil.APIKeyLooksPlaceholder(key) {
+		return key
+	}
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" && provider == "openai" && !pathutil.APIKeyLooksPlaceholder(key) {
 		return key
 	}
 
@@ -111,6 +116,25 @@ func GetAPIKey(provider string) string {
 		return p.APIKey
 	}
 
+	return ""
+}
+
+// GetAPIKeyForEnv returns the user-configured API key for a provider whose
+// standard environment variable is envVar.
+func GetAPIKeyForEnv(envVar string) string {
+	envVar = strings.TrimSpace(envVar)
+	if envVar == "" {
+		return ""
+	}
+	userConfig, err := LoadUserConfig()
+	if err != nil {
+		return ""
+	}
+	for provider, providerConfig := range userConfig.Auth.Providers {
+		if APIKeyEnv(provider) == envVar && strings.TrimSpace(providerConfig.APIKey) != "" {
+			return providerConfig.APIKey
+		}
+	}
 	return ""
 }
 
@@ -141,9 +165,124 @@ func getDefaultBaseURL(provider string) string {
 		return "https://token-plan-cn.xiaomimimo.com/v1"
 	case "openai":
 		return "https://api.openai.com/v1"
+	case "local":
+		return "http://127.0.0.1:11434/v1"
 	default:
 		return ""
 	}
+}
+
+// APIKeyEnv returns the conventional process environment variable for a provider.
+func APIKeyEnv(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "mimo":
+		return "MIMO_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "local":
+		return "MIMONEKO_LOCAL_API_KEY"
+	default:
+		name := strings.ToUpper(strings.TrimSpace(provider))
+		if name == "" {
+			return ""
+		}
+		name = strings.NewReplacer("-", "_", ".", "_").Replace(name)
+		return name + "_API_KEY"
+	}
+}
+
+// ProviderType returns the project model provider type for a user-facing provider.
+func ProviderType(provider string) string {
+	if strings.ToLower(strings.TrimSpace(provider)) == "mimo" {
+		return "mimo"
+	}
+	return "openai-compatible"
+}
+
+// DefaultModel returns the default model for a provider.
+func DefaultModel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "mimo":
+		return "mimo-v2.5-pro"
+	case "openai":
+		return "gpt-4o-mini"
+	case "local":
+		return "local-coder"
+	default:
+		return "mimo-v2.5-pro"
+	}
+}
+
+// UserModelsConfig converts the user-level auth config into a model profile.
+func UserModelsConfig() (config.ModelsConfig, bool, error) {
+	userConfig, err := LoadUserConfig()
+	if err != nil {
+		return config.ModelsConfig{}, false, err
+	}
+	provider := strings.TrimSpace(userConfig.Auth.DefaultProvider)
+	if provider == "" {
+		return config.ModelsConfig{}, false, nil
+	}
+	providerConfig, ok := userConfig.Auth.Providers[provider]
+	if !ok {
+		return config.ModelsConfig{}, false, nil
+	}
+	model := strings.TrimSpace(userConfig.Preferences.DefaultModel)
+	if model == "" {
+		model = DefaultModel(provider)
+	}
+	baseURL := strings.TrimSpace(providerConfig.BaseURL)
+	if baseURL == "" {
+		baseURL = GetBaseURL(provider)
+	}
+	models := config.ModelsConfig{
+		Providers: []config.ProviderConfig{
+			{
+				Name:      provider,
+				Type:      ProviderType(provider),
+				BaseURL:   strings.TrimRight(baseURL, "/"),
+				APIKeyEnv: APIKeyEnv(provider),
+				Models: []config.ModelConfig{
+					{
+						Name:                model,
+						Purpose:             "coding",
+						MaxOutputTokens:     4096,
+						SupportsPrefixCache: false,
+					},
+				},
+			},
+		},
+		Routing: config.RoutingConfig{
+			DefaultModel: model,
+			FallbackChain: []config.FallbackEntry{
+				{Provider: provider, Model: model},
+			},
+		},
+	}
+	return models, true, nil
+}
+
+// ApplyUserConfigToEnv makes saved user-level keys available to provider code
+// that resolves keys through env var names. It updates only the current process.
+func ApplyUserConfigToEnv() error {
+	userConfig, err := LoadUserConfig()
+	if err != nil {
+		return err
+	}
+	for provider, providerConfig := range userConfig.Auth.Providers {
+		envVar := APIKeyEnv(provider)
+		key := strings.TrimSpace(providerConfig.APIKey)
+		if envVar == "" || key == "" {
+			continue
+		}
+		current := strings.TrimSpace(os.Getenv(envVar))
+		if current == "" || pathutil.APIKeyLooksPlaceholder(current) {
+			if err := os.Setenv(envVar, key); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // SanitizeAPIKey returns a sanitized version of the API key

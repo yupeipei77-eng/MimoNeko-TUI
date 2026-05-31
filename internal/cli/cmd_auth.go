@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
-	"strings"
-	"time"
 
 	"github.com/mimoneko/mimoneko/internal/auth"
+	"github.com/mimoneko/mimoneko/internal/modelprofile"
 )
 
 type AuthCommand struct{}
@@ -49,105 +47,7 @@ func printAuthHelp(env Env) {
 }
 
 func (c *AuthCommand) runLogin(args []string, env Env) int {
-	fmt.Fprintln(env.Stdout, "╔══════════════════════════════════════════════════════════════╗")
-	fmt.Fprintln(env.Stdout, "║                    MioNeko v0.1.0-beta                       ║")
-	fmt.Fprintln(env.Stdout, "║            专为 MiMo 大模型而生的 Agent AI 编程工具           ║")
-	fmt.Fprintln(env.Stdout, "╚══════════════════════════════════════════════════════════════╝")
-	fmt.Fprintln(env.Stdout)
-
-	// Select provider
-	provider := auth.PromptSelect("选择 Provider", []string{"MiMo (推荐)", "OpenAI-compatible", "Local"})
-	switch provider {
-	case "MiMo (推荐)", "mimo":
-		provider = "mimo"
-	case "OpenAI-compatible", "openai":
-		provider = "openai"
-	case "Local", "local":
-		provider = "local"
-	}
-
-	// Get API Key
-	apiKey := auth.PromptPassword("输入 API Key")
-	if apiKey == "" {
-		fmt.Fprintln(env.Stderr, "\n✗ API Key 不能为空")
-		return 1
-	}
-
-	// Get Base URL
-	defaultBaseURL := auth.GetBaseURL(provider)
-	baseURL := auth.PromptInput("Base URL", defaultBaseURL)
-
-	// Get model
-	defaultModel := "mimo-v2.5-pro"
-	if provider == "openai" {
-		defaultModel = "gpt-4"
-	}
-	model := auth.PromptInput("选择模型", defaultModel)
-
-	// Save config
-	config, err := auth.LoadUserConfig()
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "\n✗ 加载配置失败: %v\n", err)
-		return 1
-	}
-
-	if config.Auth.Providers == nil {
-		config.Auth.Providers = make(map[string]auth.ProviderConfig)
-	}
-
-	config.Auth.Providers[provider] = auth.ProviderConfig{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-	}
-	config.Auth.DefaultProvider = provider
-	config.Preferences.DefaultModel = model
-
-	if err := auth.SaveUserConfig(config); err != nil {
-		fmt.Fprintf(env.Stderr, "\n✗ 保存配置失败: %v\n", err)
-		return 1
-	}
-
-	fmt.Fprintf(env.Stdout, "\n✓ 配置已保存到 %s\n", auth.GetUserConfigPath())
-
-	// Test connection
-	fmt.Fprint(env.Stdout, "✓ 正在测试连接...")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	started := time.Now()
-
-	req, err := http.NewRequestWithContext(context.Background(), "GET", strings.TrimRight(baseURL, "/")+"/models", nil)
-	if err != nil {
-		fmt.Fprintf(env.Stdout, " 失败\n\n")
-		fmt.Fprintf(env.Stderr, "✗ 连接失败: %v\n", err)
-		return 1
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := client.Do(req)
-	latency := time.Since(started).Milliseconds()
-
-	if err != nil {
-		fmt.Fprintf(env.Stdout, " 失败\n\n")
-		fmt.Fprintf(env.Stderr, "✗ 连接失败: %v\n", err)
-		fmt.Fprintln(env.Stderr, "  请检查网络连接")
-		return 1
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		fmt.Fprintf(env.Stdout, " 成功 (延迟: %dms)\n", latency)
-	} else {
-		fmt.Fprintf(env.Stdout, " 失败\n\n")
-		printHTTPError(env.Stderr, resp.StatusCode)
-		return 1
-	}
-
-	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "下一步:")
-	fmt.Fprintln(env.Stdout, "  mimoneko model test      # 测试模型连接")
-	fmt.Fprintln(env.Stdout, "  mimoneko run \"你的任务\"  # 运行任务")
-
-	return 0
+	return runFirstTimeSetup(env)
 }
 
 func (c *AuthCommand) runStatus(args []string, env Env) int {
@@ -180,27 +80,27 @@ func (c *AuthCommand) runStatus(args []string, env Env) int {
 	// Test connection
 	fmt.Fprint(env.Stdout, "  Status: ")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequestWithContext(context.Background(), "GET", strings.TrimRight(providerConfig.BaseURL, "/")+"/models", nil)
-	if err != nil {
+	if err := auth.ApplyUserConfigToEnv(); err != nil {
 		fmt.Fprintln(env.Stdout, "✗ 连接失败")
+		fmt.Fprintf(env.Stderr, "  %v\n", err)
 		return 1
 	}
-	req.Header.Set("Authorization", "Bearer "+providerConfig.APIKey)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Fprintln(env.Stdout, "✗ 连接失败")
-		fmt.Fprintln(env.Stderr, "  请检查网络连接")
-		return 1
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
+	result, err := modelprofile.Test(context.Background(), ".", modelprofile.TestOptions{
+		Provider:  provider,
+		Model:     config.Preferences.DefaultModel,
+		BaseURL:   providerConfig.BaseURL,
+		APIKeyEnv: auth.APIKeyEnv(provider),
+		Prompt:    "Reply with OK only.",
+	})
+	if err == nil && result.Status == "ok" {
 		fmt.Fprintln(env.Stdout, "✓ 已连接")
 	} else {
 		fmt.Fprintln(env.Stdout, "✗ 连接失败")
-		printHTTPError(env.Stderr, resp.StatusCode)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "  %s\n", modelprofile.SanitizeText(err.Error()))
+		} else {
+			fmt.Fprintf(env.Stderr, "  %s\n", modelprofile.SanitizeText(result.Error))
+		}
 		return 1
 	}
 

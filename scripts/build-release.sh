@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 
-VERSION=${1:-"v0.1.1"}
+VERSION=${1:-"v0.1.1-beta"}
 OUTPUT_DIR="dist"
 
 echo "Building MioNeko ${VERSION}..."
 
-mkdir -p $OUTPUT_DIR
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
 
 # Build matrix
 platforms=(
@@ -19,21 +20,28 @@ platforms=(
 
 for platform in "${platforms[@]}"; do
     IFS='/' read -r os arch <<< "$platform"
-    
-    output_name="mimoneko-${os}-${arch}"
+
+    package_name="mimoneko-${os}-${arch}"
+    package_dir="${OUTPUT_DIR}/pkg-${os}-${arch}"
+    mkdir -p "$package_dir"
+
+    binary_name="mimoneko"
     if [ "$os" = "windows" ]; then
-        output_name="${output_name}.exe"
+        binary_name="mimoneko.exe"
     fi
-    
-    echo "Building ${output_name}..."
-    GOOS=$os GOARCH=$arch go build -o "${OUTPUT_DIR}/${output_name}" ./cmd/mimoneko
-    
-    # Package
+
+    echo "Building ${package_name}..."
+    GOOS=$os GOARCH=$arch go build -o "${package_dir}/${binary_name}" ./cmd/mimoneko
+
     if [ "$os" = "windows" ]; then
-        cd $OUTPUT_DIR && zip "mimoneko-${os}-${arch}.zip" "${output_name}" && rm "${output_name}" && cd ..
+        cp install.ps1 start-mimoneko.bat "$package_dir/"
+        (cd "$package_dir" && zip -q "../${package_name}.zip" ./*)
     else
-        cd $OUTPUT_DIR && tar -czf "mimoneko-${os}-${arch}.tar.gz" "${output_name}" && rm "${output_name}" && cd ..
+        cp install.sh "$package_dir/"
+        chmod +x "$package_dir/install.sh" "$package_dir/mimoneko"
+        tar -czf "${OUTPUT_DIR}/${package_name}.tar.gz" -C "$package_dir" .
     fi
+    rm -rf "$package_dir"
 done
 
 # Generate SHA256

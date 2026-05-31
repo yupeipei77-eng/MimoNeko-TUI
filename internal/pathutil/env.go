@@ -47,6 +47,28 @@ func APIKeyIsConfigured(envVar string) bool {
 	return APIKeyStatus(envVar) == "configured"
 }
 
+// APIKeyLooksPlaceholder returns true for common sample values from docs/templates.
+func APIKeyLooksPlaceholder(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.Trim(normalized, `"'<>`)
+	if normalized == "" {
+		return false
+	}
+	switch normalized {
+	case "your-key",
+		"your-api-key",
+		"your-api-key-here",
+		"your-mimo-api-key",
+		"your-mimo-api-key-here",
+		"your-openai-api-key-here",
+		"your-deepseek-api-key-here",
+		"your-glm-api-key-here":
+		return true
+	default:
+		return strings.HasPrefix(normalized, "your-") && strings.Contains(normalized, "key")
+	}
+}
+
 // ResolveAPIKey returns the API key value for the given environment variable.
 // Returns an error if the key is not set.
 func ResolveAPIKey(envVar string) (string, error) {
@@ -56,6 +78,9 @@ func ResolveAPIKey(envVar string) (string, error) {
 	key := strings.TrimSpace(os.Getenv(envVar))
 	if key == "" {
 		return "", os.ErrNotExist
+	}
+	if APIKeyLooksPlaceholder(key) {
+		return "", os.ErrInvalid
 	}
 	return key, nil
 }

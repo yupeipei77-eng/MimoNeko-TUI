@@ -1,6 +1,6 @@
 # MioNeko Release Build Script (Windows)
 param(
-    [string]$Version = "v0.1.1"
+    [string]$Version = "v0.1.1-beta"
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,33 +26,38 @@ $platforms = @(
 foreach ($platform in $platforms) {
     $os = $platform.OS
     $arch = $platform.Arch
-    
-    $outputName = "mimoneko-${os}-${arch}"
+
+    $packageName = "mimoneko-${os}-${arch}"
+    $packageDir = Join-Path $OutputDir "pkg-${os}-${arch}"
+    New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+
+    $binaryName = "mimoneko"
     if ($os -eq "windows") {
-        $outputName = "${outputName}.exe"
+        $binaryName = "mimoneko.exe"
     }
-    
-    Write-Host "Building ${outputName}..." -ForegroundColor Yellow
+
+    Write-Host "Building ${packageName}..." -ForegroundColor Yellow
     
     $env:GOOS = $os
     $env:GOARCH = $arch
     
-    go build -o "${OutputDir}\${outputName}" .\cmd\mimoneko
+    go build -o (Join-Path $packageDir $binaryName) .\cmd\mimoneko
     
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to build ${outputName}"
+        Write-Error "Failed to build ${packageName}"
         exit 1
     }
     
-    # Package
     if ($os -eq "windows") {
-        Compress-Archive -Path "${OutputDir}\${outputName}" -DestinationPath "${OutputDir}\mimoneko-${os}-${arch}.zip" -Force
-        Remove-Item "${OutputDir}\${outputName}"
+        Copy-Item ".\install.ps1" (Join-Path $packageDir "install.ps1") -Force
+        Copy-Item ".\start-mimoneko.bat" (Join-Path $packageDir "start-mimoneko.bat") -Force
+        Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath "${OutputDir}\${packageName}.zip" -Force
     } else {
-        # For non-Windows, use tar (available in Windows 10+)
-        tar -czf "${OutputDir}\mimoneko-${os}-${arch}.tar.gz" -C $OutputDir $outputName
-        Remove-Item "${OutputDir}\${outputName}"
+        Copy-Item ".\install.sh" (Join-Path $packageDir "install.sh") -Force
+        tar -czf "${OutputDir}\${packageName}.tar.gz" -C $packageDir .
     }
+
+    Remove-Item -Recurse -Force $packageDir
 }
 
 # Reset environment

@@ -10,6 +10,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/mimoneko/mimoneko/internal/auth"
+	"github.com/mimoneko/mimoneko/internal/pathutil"
 )
 
 // OpenAICompatibleProvider implements the Provider interface for OpenAI-compatible APIs.
@@ -141,7 +144,13 @@ func (p *OpenAICompatibleProvider) resolveAPIKey() (string, error) {
 
 	key := os.Getenv(p.apiKeyEnv)
 	if strings.TrimSpace(key) == "" {
+		key = auth.GetAPIKeyForEnv(p.apiKeyEnv)
+	}
+	if strings.TrimSpace(key) == "" {
 		return "", fmt.Errorf("provider %q: API key not found in environment variable %s", p.name, p.apiKeyEnv)
+	}
+	if pathutil.APIKeyLooksPlaceholder(key) {
+		return "", fmt.Errorf("provider %q: API key in environment variable %s appears to be a placeholder; set a real key", p.name, p.apiKeyEnv)
 	}
 
 	return key, nil
@@ -179,10 +188,10 @@ type openAIRequest struct {
 
 // openAIResponse is the response from the OpenAI Chat Completion API.
 type openAIResponse struct {
-	ID      string           `json:"id"`
-	Model   string           `json:"model"`
-	Choices []openAIChoice   `json:"choices"`
-	Usage   openAIUsage      `json:"usage"`
+	ID      string         `json:"id"`
+	Model   string         `json:"model"`
+	Choices []openAIChoice `json:"choices"`
+	Usage   openAIUsage    `json:"usage"`
 }
 
 // openAIChoice is a single choice in the response.
@@ -198,9 +207,9 @@ type openAIChoiceMessage struct {
 
 // openAIUsage is the usage information from the API response.
 type openAIUsage struct {
-	PromptTokens     int                     `json:"prompt_tokens"`
-	CompletionTokens int                     `json:"completion_tokens"`
-	TotalTokens      int                     `json:"total_tokens"`
+	PromptTokens        int                  `json:"prompt_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
 	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 }
 

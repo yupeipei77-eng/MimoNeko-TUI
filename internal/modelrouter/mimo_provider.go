@@ -11,6 +11,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/mimoneko/mimoneko/internal/auth"
+	"github.com/mimoneko/mimoneko/internal/pathutil"
 )
 
 // MimoProvider implements the Provider interface for the Mimo API.
@@ -76,7 +79,13 @@ func (p *MimoProvider) resolveAPIKey() (string, error) {
 
 	key := os.Getenv(p.apiKeyEnv)
 	if strings.TrimSpace(key) == "" {
+		key = auth.GetAPIKeyForEnv(p.apiKeyEnv)
+	}
+	if strings.TrimSpace(key) == "" {
 		return "", fmt.Errorf("provider %q: API key not found in environment variable %s", p.name, p.apiKeyEnv)
+	}
+	if pathutil.APIKeyLooksPlaceholder(key) {
+		return "", fmt.Errorf("provider %q: API key in environment variable %s appears to be a placeholder; set a real key", p.name, p.apiKeyEnv)
 	}
 
 	return key, nil
@@ -118,10 +127,10 @@ type mimoDelta struct {
 
 // mimoStreamChunk is one SSE chunk from Mimo's streaming API.
 type mimoStreamChunk struct {
-	ID      string              `json:"id"`
-	Model   string              `json:"model"`
-	Choices []mimoStreamChoice  `json:"choices"`
-	Usage   *openAIUsage        `json:"usage,omitempty"`
+	ID      string             `json:"id"`
+	Model   string             `json:"model"`
+	Choices []mimoStreamChoice `json:"choices"`
+	Usage   *openAIUsage       `json:"usage,omitempty"`
 }
 
 type mimoStreamChoice struct {

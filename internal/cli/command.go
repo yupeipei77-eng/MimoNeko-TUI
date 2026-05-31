@@ -24,6 +24,11 @@ func (r *Registry) Names() []string {
 	return r.ordered
 }
 
+func (r *Registry) Has(name string) bool {
+	_, ok := r.commands[name]
+	return ok
+}
+
 func (r *Registry) Dispatch(args []string, env Env) int {
 	if len(args) == 0 {
 		printUsage(env.Stderr)

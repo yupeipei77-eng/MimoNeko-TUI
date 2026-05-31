@@ -59,6 +59,11 @@ func (c *MultiRunCommand) Run(args []string, env Env) int {
 		return 1
 	}
 
+	if err := ensureProjectConfigForRun(root); err != nil {
+		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)
+		return 1
+	}
+
 	cfg, err := config.Load(root)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "multi-run failed: %v\n", err)

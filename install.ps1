@@ -1,76 +1,154 @@
-# MimoNeko 安装脚本
-# 以管理员身份运行 PowerShell 执行此脚本
+﻿# MioNeko user-scope installer for Windows.
+# Run from the extracted release folder. Administrator permission is not required.
 
-param(
-    [string]$InstallPath = "C:\Tools\MimoNeko",
-    [string]$ApiKey = ""
+$ErrorActionPreference = "Stop"
+
+$InstallDir = Join-Path $env:LOCALAPPDATA "MioNeko\bin"
+$TargetExe = Join-Path $InstallDir "mimoneko.exe"
+
+function Normalize-PathForCompare {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+
+    try {
+        return [System.IO.Path]::GetFullPath($Value).TrimEnd("\")
+    } catch {
+        return $Value.Trim().TrimEnd("\")
+    }
+}
+
+Write-Host "MioNeko Windows installer" -ForegroundColor Cyan
+Write-Host ""
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$sourceCandidates = @(
+    (Join-Path $scriptDir "mimoneko.exe"),
+    (Join-Path $scriptDir "MioNeko.exe"),
+    (Join-Path $scriptDir "MimoNeko.exe")
 )
 
-Write-Host "=====================================" -ForegroundColor Cyan
-Write-Host "  MimoNeko 安装程序" -ForegroundColor Cyan
-Write-Host "=====================================" -ForegroundColor Cyan
-Write-Host ""
+$sourceExe = $null
+foreach ($candidate in $sourceCandidates) {
+    if (Test-Path $candidate) {
+        $sourceExe = $candidate
+        break
+    }
+}
 
-# 检查管理员权限
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "[错误] 请以管理员身份运行此脚本！" -ForegroundColor Red
-    Write-Host "右键点击 PowerShell，选择'以管理员身份运行'" -ForegroundColor Yellow
-    pause
+if (-not $sourceExe) {
+    $platformExe = Get-ChildItem -Path $scriptDir -Filter "mimoneko-*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($platformExe) {
+        $sourceExe = $platformExe.FullName
+    }
+}
+
+if (-not $sourceExe) {
+    Write-Host "Could not find mimoneko.exe in $scriptDir" -ForegroundColor Red
     exit 1
 }
 
-# 创建安装目录
-Write-Host "[1/4] 创建安装目录: $InstallPath" -ForegroundColor Yellow
-if (-not (Test-Path $InstallPath)) {
-    New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
-    Write-Host "  目录已创建" -ForegroundColor Green
-} else {
-    Write-Host "  目录已存在" -ForegroundColor Green
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+Copy-Item -LiteralPath $sourceExe -Destination $TargetExe -Force
+$TargetExe = (Resolve-Path -LiteralPath $TargetExe).Path
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($null -eq $userPath) {
+    $userPath = ""
 }
 
-# 复制 exe 文件
-Write-Host "[2/4] 复制 MimoNeko.exe" -ForegroundColor Yellow
-$sourcePath = Join-Path $PSScriptRoot "MimoNeko.exe"
-$destPath = Join-Path $InstallPath "MimoNeko.exe"
-
-if (Test-Path $sourcePath) {
-    Copy-Item -Path $sourcePath -Destination $destPath -Force
-    Write-Host "  已复制到: $destPath" -ForegroundColor Green
-} else {
-    Write-Host "  [错误] 未找到 MimoNeko.exe，请确保脚本在同一目录" -ForegroundColor Red
-    pause
-    exit 1
+$pathParts = $userPath -split ";" | Where-Object { $_ -ne "" }
+$alreadyInPath = $false
+foreach ($part in $pathParts) {
+    if ($part.TrimEnd("\") -ieq $InstallDir.TrimEnd("\")) {
+        $alreadyInPath = $true
+        break
+    }
 }
 
-# 添加到 PATH
-Write-Host "[3/4] 添加到 PATH 环境变量" -ForegroundColor Yellow
-$currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-
-if ($currentPath -notlike "*$InstallPath*") {
-    $newPath = "$currentPath;$InstallPath"
-    [Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
-    Write-Host "  已添加到系统 PATH" -ForegroundColor Green
+$pathUpdated = $false
+if (-not $alreadyInPath) {
+    if ($userPath.Trim() -eq "") {
+        $newPath = $InstallDir
+    } else {
+        $newPath = "$userPath;$InstallDir"
+    }
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    $pathUpdated = $true
 } else {
-    Write-Host "  PATH 中已存在" -ForegroundColor Green
+    $newPath = $userPath
 }
 
-# 设置 API Key
-Write-Host "[4/4] 配置环境变量" -ForegroundColor Yellow
-if ($ApiKey -ne "") {
-    [Environment]::SetEnvironmentVariable("MIMO_API_KEY", $ApiKey, "Machine")
-    Write-Host "  MIMO_API_KEY 已设置" -ForegroundColor Green
-} else {
-    Write-Host "  跳过 API Key 设置（未提供）" -ForegroundColor Yellow
-    Write-Host "  稍后可手动设置: setx /M MIMO_API_KEY `"your-key`"" -ForegroundColor Gray
+$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$updatedUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$diagnosticPathParts = @()
+if (-not [string]::IsNullOrWhiteSpace($machinePath)) {
+    $diagnosticPathParts += $machinePath
+}
+if (-not [string]::IsNullOrWhiteSpace($updatedUserPath)) {
+    $diagnosticPathParts += $updatedUserPath
+}
+
+$whereMatches = @()
+$oldProcessPath = $env:Path
+$whereWorkingDir = $env:USERPROFILE
+if ([string]::IsNullOrWhiteSpace($whereWorkingDir) -or -not (Test-Path -LiteralPath $whereWorkingDir)) {
+    $whereWorkingDir = $env:TEMP
+}
+
+try {
+    $env:Path = ($diagnosticPathParts -join ";")
+    Push-Location -LiteralPath $whereWorkingDir
+    try {
+        $whereMatches = @(where.exe mimoneko 2>$null)
+        if ($LASTEXITCODE -ne 0) {
+            $whereMatches = @()
+        }
+    } finally {
+        Pop-Location
+    }
+} finally {
+    $env:Path = $oldProcessPath
 }
 
 Write-Host ""
-Write-Host "=====================================" -ForegroundColor Green
-Write-Host "  安装完成！" -ForegroundColor Green
-Write-Host "=====================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "请重新打开命令行窗口，然后运行:" -ForegroundColor Cyan
-Write-Host "  MimoNeko.exe --help" -ForegroundColor White
-Write-Host ""
-pause
+Write-Host "Installation complete." -ForegroundColor Green
+Write-Host "当前安装路径：$TargetExe" -ForegroundColor White
+if ($pathUpdated) {
+    Write-Host "PATH 是否已更新：是，已加入用户 PATH" -ForegroundColor Green
+} else {
+    Write-Host "PATH 是否已更新：否，用户 PATH 已包含安装目录" -ForegroundColor Green
+}
+
+Write-Host "where.exe mimoneko 结果（按重新打开 PowerShell 后的 PATH 检测）："
+if ($whereMatches.Count -eq 0) {
+    Write-Host "  (未找到)" -ForegroundColor Yellow
+} else {
+    foreach ($match in $whereMatches) {
+        Write-Host "  $match" -ForegroundColor White
+    }
+}
+
+$firstMatch = $whereMatches | Select-Object -First 1
+if ($firstMatch) {
+    $normalizedFirstMatch = Normalize-PathForCompare $firstMatch
+    $normalizedTargetExe = Normalize-PathForCompare $TargetExe
+    if ($normalizedFirstMatch -ine $normalizedTargetExe) {
+        Write-Host ""
+        Write-Host "检测到旧版本 mimoneko 优先于当前安装版本" -ForegroundColor Yellow
+        Write-Host "请删除或调整该路径" -ForegroundColor Yellow
+        Write-Host "当前优先命中路径：$firstMatch" -ForegroundColor Yellow
+        Write-Host "新版本安装路径：$TargetExe" -ForegroundColor Yellow
+    } else {
+        Write-Host "PATH 优先级：新版本优先" -ForegroundColor Green
+    }
+} else {
+    Write-Host ""
+    Write-Host "未能通过 where.exe 找到 mimoneko，请重新打开 PowerShell 后再试。" -ForegroundColor Yellow
+}
+
+Write-Host "是否需要重新打开 PowerShell：是，安装后请重新打开 PowerShell。" -ForegroundColor Yellow
+Write-Host "重新打开后运行：" -ForegroundColor Yellow
+Write-Host "  mimoneko" -ForegroundColor White

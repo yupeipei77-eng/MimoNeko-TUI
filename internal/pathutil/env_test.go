@@ -120,6 +120,22 @@ func TestResolveAPIKey(t *testing.T) {
 	}
 }
 
+func TestAPIKeyLooksPlaceholder(t *testing.T) {
+	if !APIKeyLooksPlaceholder("your-api-key-here") {
+		t.Error("sample API key should be detected as placeholder")
+	}
+	if APIKeyLooksPlaceholder("sk-real-looking-key") {
+		t.Error("real-looking API key should not be detected as placeholder")
+	}
+}
+
+func TestResolveAPIKeyRejectsPlaceholder(t *testing.T) {
+	t.Setenv("TEST_RESOLVE_PLACEHOLDER_KEY", "your-api-key-here")
+	if _, err := ResolveAPIKey("TEST_RESOLVE_PLACEHOLDER_KEY"); err == nil {
+		t.Error("ResolveAPIKey should reject placeholder key")
+	}
+}
+
 func TestSanitizeEnvValue(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -127,10 +143,10 @@ func TestSanitizeEnvValue(t *testing.T) {
 	}{
 		{"", "***"},
 		{"ab", "***"},
-		{"abcd", "***"},  // len == 4, so <= 4 returns "***"
-		{"abcde", "abcd*"},  // len == 5, returns first 4 + 1 asterisk
-		{"abcdefgh", "abcd****"},  // len == 8, returns first 4 + 4 asterisks
-		{"sk-1234567890", "sk-1*********"},  // len == 12, returns first 4 + 8 asterisks
+		{"abcd", "***"},                    // len == 4, so <= 4 returns "***"
+		{"abcde", "abcd*"},                 // len == 5, returns first 4 + 1 asterisk
+		{"abcdefgh", "abcd****"},           // len == 8, returns first 4 + 4 asterisks
+		{"sk-1234567890", "sk-1*********"}, // len == 12, returns first 4 + 8 asterisks
 	}
 
 	for _, tt := range tests {

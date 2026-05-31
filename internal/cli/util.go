@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/mimoneko/mimoneko/internal/auth"
 	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/events"
 	"github.com/mimoneko/mimoneko/internal/modelprofile"
@@ -37,6 +39,61 @@ func rejectExtraArgs(fs *flag.FlagSet, env Env) bool {
 	}
 	fmt.Fprintf(env.Stderr, "%s accepts no positional arguments: %s\n", fs.Name(), strings.Join(fs.Args(), " "))
 	return true
+}
+
+func ensureProjectConfigForRun(root string) error {
+	modelsPath := filepath.Join(config.ConfigDir(root), "models.yaml")
+	if _, err := os.Stat(modelsPath); err == nil {
+		return nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if _, err := config.InitDetailed(root); err != nil {
+		return err
+	}
+	if models, ok := configuredModelsForRun(); ok {
+		return modelprofile.Save(root, models)
+	}
+	return nil
+}
+
+func configuredModelsForRun() (config.ModelsConfig, bool) {
+	if models, ok, err := auth.UserModelsConfig(); err == nil && ok {
+		return models, true
+	}
+	for _, provider := range []string{"mimo", "openai", "local"} {
+		envVar := auth.APIKeyEnv(provider)
+		key := strings.TrimSpace(os.Getenv(envVar))
+		if key == "" || pathutil.APIKeyLooksPlaceholder(key) {
+			continue
+		}
+		model := auth.DefaultModel(provider)
+		return config.ModelsConfig{
+			Providers: []config.ProviderConfig{
+				{
+					Name:      provider,
+					Type:      auth.ProviderType(provider),
+					BaseURL:   auth.GetBaseURL(provider),
+					APIKeyEnv: envVar,
+					Models: []config.ModelConfig{
+						{
+							Name:                model,
+							Purpose:             "coding",
+							MaxOutputTokens:     4096,
+							SupportsPrefixCache: false,
+						},
+					},
+				},
+			},
+			Routing: config.RoutingConfig{
+				DefaultModel: model,
+				FallbackChain: []config.FallbackEntry{
+					{Provider: provider, Model: model},
+				},
+			},
+		}, true
+	}
+	return config.ModelsConfig{}, false
 }
 
 func generateShortID() string {

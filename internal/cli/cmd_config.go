@@ -225,15 +225,11 @@ func cmdConfigPath(env Env) int {
 
 func getEnvVarName(provider string) string {
 	switch strings.ToLower(provider) {
-	case "mimo":
-		return "MIMO_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
 	case "deepseek":
 		return "DEEPSEEK_API_KEY"
 	case "glm", "zhipu":
 		return "GLM_API_KEY"
 	default:
-		return strings.ToUpper(provider) + "_API_KEY"
+		return auth.APIKeyEnv(provider)
 	}
 }

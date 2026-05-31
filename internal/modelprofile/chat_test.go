@@ -2,6 +2,7 @@ package modelprofile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +73,110 @@ func TestModelChatDoesNotLeakAPIKey(t *testing.T) {
 	}
 }
 
+func TestModelChatMimoUsesAPIKeyHeaderAndDeltaContent(t *testing.T) {
+	root := setupChatRoot(t)
+	t.Setenv("MIMO_CHAT_API_KEY", "sk-mimo-chat")
+
+	var receivedAPIKey string
+	var receivedAuthorization string
+	var receivedBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAPIKey = r.Header.Get("api-key")
+		receivedAuthorization = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		fmt.Fprint(w, `{"model":"mimo-v2.5-pro","choices":[{"delta":{"content":"mimo ok"}}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)
+	}))
+	defer server.Close()
+	saveMimoChatModel(t, root, server.URL)
+
+	result, err := Chat(context.Background(), root, ChatOptions{Provider: "mimo", Model: "mimo-v2.5-pro", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receivedAPIKey != "sk-mimo-chat" {
+		t.Fatalf("api-key header = %q, want configured key", receivedAPIKey)
+	}
+	if receivedAuthorization != "" {
+		t.Fatalf("Authorization header = %q, want empty for mimo", receivedAuthorization)
+	}
+	if _, ok := receivedBody["max_completion_tokens"]; !ok {
+		t.Fatalf("request body missing max_completion_tokens: %#v", receivedBody)
+	}
+	if _, ok := receivedBody["max_tokens"]; ok {
+		t.Fatalf("request body had OpenAI max_tokens for mimo: %#v", receivedBody)
+	}
+	if result.Response != "mimo ok" || result.TotalTokens != 5 {
+		t.Fatalf("result = %+v, want delta response and usage", result)
+	}
+}
+
+func TestModelChatStreamMimoUsesAPIKeyHeaderAndMaxCompletionTokens(t *testing.T) {
+	root := setupChatRoot(t)
+	t.Setenv("MIMO_CHAT_API_KEY", "sk-mimo-stream")
+
+	var receivedAPIKey string
+	var receivedAuthorization string
+	var receivedBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAPIKey = r.Header.Get("api-key")
+		receivedAuthorization = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"model\":\"mimo-v2.5-pro\",\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking \"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"model\":\"mimo-v2.5-pro\",\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6,\"prompt_tokens_details\":{\"cached_tokens\":1}}}\n\n")
+	}))
+	defer server.Close()
+	saveMimoChatModel(t, root, server.URL)
+
+	stream, err := ChatStream(root, ChatOptions{Provider: "mimo", Model: "mimo-v2.5-pro", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chunks []string
+	result, err := stream(context.Background(), func(chunk ChatStreamChunk) {
+		chunks = append(chunks, chunk.ReasoningText+chunk.Text)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receivedAPIKey != "sk-mimo-stream" {
+		t.Fatalf("api-key header = %q, want configured key", receivedAPIKey)
+	}
+	if receivedAuthorization != "" {
+		t.Fatalf("Authorization header = %q, want empty for mimo", receivedAuthorization)
+	}
+	if _, ok := receivedBody["max_completion_tokens"]; !ok {
+		t.Fatalf("request body missing max_completion_tokens: %#v", receivedBody)
+	}
+	if _, ok := receivedBody["max_tokens"]; ok {
+		t.Fatalf("request body had OpenAI max_tokens for mimo: %#v", receivedBody)
+	}
+	if got := strings.Join(chunks, ""); got != "thinking done" {
+		t.Fatalf("streamed chunks = %q, want reasoning and text", got)
+	}
+	if result.TotalTokens != 6 || !result.CachedTokensKnown || result.CachedTokens != 1 {
+		t.Fatalf("result = %+v, want parsed stream usage", result)
+	}
+}
+
+func TestModelChatRejectsPlaceholderAPIKey(t *testing.T) {
+	root := setupChatRoot(t)
+	t.Setenv("MIMO_CHAT_API_KEY", "your-api-key-here")
+	saveMimoChatModel(t, root, "http://127.0.0.1:1")
+
+	_, err := Chat(context.Background(), root, ChatOptions{Provider: "mimo", Model: "mimo-v2.5-pro", Prompt: "hello"})
+	if err == nil {
+		t.Fatal("Chat succeeded, want placeholder API key error")
+	}
+	if !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("error = %q, want placeholder hint", err.Error())
+	}
+}
+
 func TestSanitizeTextPreservesAPIKeyEnvVarName(t *testing.T) {
 	errText := "API key not found in environment variable MIMO_API_KEY"
 	got := SanitizeText(errText)
@@ -114,6 +219,27 @@ func saveChatModel(t *testing.T, root, baseURL string) {
 			},
 		},
 		Routing: config.RoutingConfig{DefaultModel: "chat-model"},
+	}
+	if err := Save(root, models); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func saveMimoChatModel(t *testing.T, root, baseURL string) {
+	t.Helper()
+	models := config.ModelsConfig{
+		Providers: []config.ProviderConfig{
+			{
+				Name:      "mimo",
+				Type:      "mimo",
+				BaseURL:   baseURL,
+				APIKeyEnv: "MIMO_CHAT_API_KEY",
+				Models: []config.ModelConfig{
+					{Name: "mimo-v2.5-pro", Purpose: "coding", MaxOutputTokens: 4096},
+				},
+			},
+		},
+		Routing: config.RoutingConfig{DefaultModel: "mimo-v2.5-pro"},
 	}
 	if err := Save(root, models); err != nil {
 		t.Fatal(err)
