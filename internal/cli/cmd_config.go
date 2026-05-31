@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mimoneko/mimoneko/internal/auth"
 	"github.com/mimoneko/mimoneko/internal/config"
 )
 
@@ -20,6 +21,8 @@ func (c *ConfigCommand) Run(args []string, env Env) int {
 	}
 
 	switch args[0] {
+	case "show":
+		return c.runShow(args[1:], env)
 	case "set", "set-key":
 		return cmdConfigSetKey(args[1:], env)
 	case "get", "get-key":
@@ -29,10 +32,42 @@ func (c *ConfigCommand) Run(args []string, env Env) int {
 	case "path":
 		return cmdConfigPath(env)
 	default:
-		fmt.Fprintf(env.Stderr, "Unknown config command: %s\n", args[0])
+		fmt.Fprintf(env.Stderr, "未知命令 '%s'\n\n", args[0])
 		printConfigHelp(env)
 		return 1
 	}
+}
+
+func (c *ConfigCommand) runShow(args []string, env Env) int {
+	config, err := auth.LoadUserConfig()
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintln(env.Stdout, "当前配置:")
+	fmt.Fprintln(env.Stdout, "")
+	fmt.Fprintln(env.Stdout, "认证:")
+	fmt.Fprintln(env.Stdout, "  Providers:")
+
+	if len(config.Auth.Providers) == 0 {
+		fmt.Fprintln(env.Stdout, "    (未配置)")
+	} else {
+		for name, provider := range config.Auth.Providers {
+			fmt.Fprintf(env.Stdout, "    %s:\n", name)
+			fmt.Fprintf(env.Stdout, "      API Key: %s\n", auth.SanitizeAPIKey(provider.APIKey))
+			fmt.Fprintf(env.Stdout, "      Base URL: %s\n", provider.BaseURL)
+		}
+	}
+
+	fmt.Fprintf(env.Stdout, "  默认 Provider: %s\n", config.Auth.DefaultProvider)
+	fmt.Fprintln(env.Stdout, "")
+	fmt.Fprintln(env.Stdout, "偏好:")
+	fmt.Fprintf(env.Stdout, "  默认模型: %s\n", config.Preferences.DefaultModel)
+	fmt.Fprintf(env.Stdout, "  试运行: %v\n", config.Preferences.DryRun)
+	fmt.Fprintf(env.Stdout, "  工作树: %v\n", config.Preferences.Worktree)
+
+	return 0
 }
 
 func init() {
@@ -40,83 +75,112 @@ func init() {
 }
 
 func printConfigHelp(env Env) {
-	fmt.Fprintln(env.Stdout, "Usage: mimoneko config <command>")
+	fmt.Fprintln(env.Stdout, "用法: mimoneko config <命令>")
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "Commands:")
-	fmt.Fprintln(env.Stdout, "  set-key <provider> <key>   Set API key for a provider")
-	fmt.Fprintln(env.Stdout, "  get-key <provider>         Get API key for a provider")
-	fmt.Fprintln(env.Stdout, "  list                       List all configuration")
-	fmt.Fprintln(env.Stdout, "  path                       Show config file path")
+	fmt.Fprintln(env.Stdout, "命令:")
+	fmt.Fprintln(env.Stdout, "  show                 查看当前配置（脱敏）")
+	fmt.Fprintln(env.Stdout, "  set-key <provider> <key>  设置 API Key")
+	fmt.Fprintln(env.Stdout, "  get-key <provider>   获取 API Key")
+	fmt.Fprintln(env.Stdout, "  list                 列出所有配置")
+	fmt.Fprintln(env.Stdout, "  path                 显示配置文件路径")
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "Examples:")
+	fmt.Fprintln(env.Stdout, "示例:")
+	fmt.Fprintln(env.Stdout, "  mimoneko config show")
 	fmt.Fprintln(env.Stdout, "  mimoneko config set-key mimo your-api-key")
-	fmt.Fprintln(env.Stdout, "  mimoneko config set-key openai sk-xxx")
 	fmt.Fprintln(env.Stdout, "  mimoneko config get-key mimo")
 }
 
 func cmdConfigSetKey(args []string, env Env) int {
 	if len(args) < 2 {
-		fmt.Fprintln(env.Stderr, "Usage: mimoneko config set-key <provider> <key>")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko config set-key <provider> <key>")
 		return 1
 	}
 
 	provider := args[0]
 	apiKey := args[1]
 
-	// 确定环境变量名
-	envVar := getEnvVarName(provider)
-
-	// 写入到 .env 文件
-	envFile := findEnvFile()
-	if err := writeEnvFile(envFile, envVar, apiKey); err != nil {
-		fmt.Fprintf(env.Stderr, "Error writing to %s: %v\n", envFile, err)
+	// Load user config
+	userConfig, err := auth.LoadUserConfig()
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
 		return 1
 	}
 
-	fmt.Fprintf(env.Stdout, "✓ API key for '%s' has been saved to %s\n", provider, envFile)
-	fmt.Fprintf(env.Stdout, "  Environment variable: %s\n", envVar)
-	fmt.Fprintln(env.Stdout, "\nPlease restart your terminal or run:")
-	fmt.Fprintf(env.Stdout, "  set %s=%s\n", envVar, apiKey)
+	// Initialize providers map if needed
+	if userConfig.Auth.Providers == nil {
+		userConfig.Auth.Providers = make(map[string]auth.ProviderConfig)
+	}
+
+	// Get existing config or create new
+	existing := userConfig.Auth.Providers[provider]
+	existing.APIKey = apiKey
+
+	// Set default base URL if not set
+	if existing.BaseURL == "" {
+		existing.BaseURL = auth.GetBaseURL(provider)
+	}
+
+	userConfig.Auth.Providers[provider] = existing
+
+	// Set as default if it's the first provider
+	if userConfig.Auth.DefaultProvider == "" {
+		userConfig.Auth.DefaultProvider = provider
+	}
+
+	// Save config
+	if err := auth.SaveUserConfig(userConfig); err != nil {
+		fmt.Fprintf(env.Stderr, "✗ 保存配置失败: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(env.Stdout, "✓ API Key 已保存到 %s\n", auth.GetUserConfigPath())
+	fmt.Fprintf(env.Stdout, "  API Key: %s\n", auth.SanitizeAPIKey(apiKey))
 	return 0
 }
 
 func cmdConfigGetKey(args []string, env Env) int {
 	if len(args) < 1 {
-		fmt.Fprintln(env.Stderr, "Usage: mimoneko config get-key <provider>")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko config get-key <provider>")
 		return 1
 	}
 
 	provider := args[0]
+
+	// 1. Check environment variables
 	envVar := getEnvVarName(provider)
 	apiKey := os.Getenv(envVar)
-
-	if apiKey == "" {
-		// 尝试从 .env 文件读取
-		envFile := findEnvFile()
-		apiKey = readFromEnvFile(envFile, envVar)
+	if apiKey != "" {
+		fmt.Fprintf(env.Stdout, "API Key (%s): %s\n", envVar, auth.SanitizeAPIKey(apiKey))
+		return 0
 	}
 
-	if apiKey == "" {
-		fmt.Fprintf(env.Stdout, "No API key set for '%s'\n", provider)
-		fmt.Fprintf(env.Stdout, "Set it with: mimoneko config set-key %s <your-key>\n", provider)
+	// 2. Check user config
+	userConfig, err := auth.LoadUserConfig()
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
 		return 1
 	}
 
-	// 只显示前几位和后几位
-	masked := maskApiKey(apiKey)
-	fmt.Fprintf(env.Stdout, "API key for '%s': %s\n", provider, masked)
-	return 0
+	if p, ok := userConfig.Auth.Providers[provider]; ok && p.APIKey != "" {
+		fmt.Fprintf(env.Stdout, "API Key: %s\n", auth.SanitizeAPIKey(p.APIKey))
+		return 0
+	}
+
+	fmt.Fprintf(env.Stdout, "未设置 API Key\n")
+	fmt.Fprintf(env.Stdout, "运行 'mimoneko config set-key %s <your-key>' 进行设置\n", provider)
+	return 1
 }
 
 func cmdConfigList(env Env) int {
 	root, err := config.Load(".")
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
 		return 1
 	}
 
-	fmt.Fprintln(env.Stdout, "Configuration:")
-	fmt.Fprintf(env.Stdout, "  Config directory: %s\n", root.Dir)
+	fmt.Fprintln(env.Stdout, "配置:")
+	fmt.Fprintf(env.Stdout, "  项目配置: %s\n", root.Dir)
+	fmt.Fprintf(env.Stdout, "  用户配置: %s\n", auth.GetUserConfigPath())
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "API Keys:")
 
@@ -124,25 +188,35 @@ func cmdConfigList(env Env) int {
 	for _, p := range providers {
 		envVar := getEnvVarName(p)
 		key := os.Getenv(envVar)
+		source := "env"
+
 		if key == "" {
-			key = readFromEnvFile(findEnvFile(), envVar)
+			// Check user config
+			userConfig, err := auth.LoadUserConfig()
+			if err == nil {
+				if pc, ok := userConfig.Auth.Providers[p]; ok && pc.APIKey != "" {
+					key = pc.APIKey
+					source = "config"
+				}
+			}
 		}
-		status := "not set"
+
+		status := "未设置"
 		if key != "" {
-			status = maskApiKey(key)
+			status = auth.SanitizeAPIKey(key) + " (" + source + ")"
 		}
 		fmt.Fprintf(env.Stdout, "  %-12s %s\n", p, status)
 	}
 
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "Models config:", filepath.Join(root.Dir, "models.yaml"))
+	fmt.Fprintln(env.Stdout, "模型配置:", filepath.Join(root.Dir, "models.yaml"))
 	return 0
 }
 
 func cmdConfigPath(env Env) int {
 	root, err := config.Load(".")
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
 		return 1
 	}
 	fmt.Fprintln(env.Stdout, root.Dir)
@@ -162,69 +236,4 @@ func getEnvVarName(provider string) string {
 	default:
 		return strings.ToUpper(provider) + "_API_KEY"
 	}
-}
-
-func maskApiKey(key string) string {
-	if len(key) <= 8 {
-		return "***"
-	}
-	return key[:4] + "..." + key[len(key)-4:]
-}
-
-func findEnvFile() string {
-	// 优先使用当前目录的 .env
-	if _, err := os.Stat(".env"); err == nil {
-		return ".env"
-	}
-
-	// 默认在当前目录创建
-	return ".env"
-}
-
-func writeEnvFile(path, name, value string) error {
-	// 读取现有内容
-	content := ""
-	if data, err := os.ReadFile(path); err == nil {
-		content = string(data)
-	}
-
-	// 检查是否已存在
-	lines := strings.Split(content, "\n")
-	found := false
-	for i, line := range lines {
-		if strings.HasPrefix(line, name+"=") {
-			lines[i] = name + "=" + value
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		// 添加到文件末尾
-		if content != "" && !strings.HasSuffix(content, "\n") {
-			content += "\n"
-		}
-		content += name + "=" + value + "\n"
-		return os.WriteFile(path, []byte(content), 0644)
-	}
-
-	// 写回文件
-	newContent := strings.Join(lines, "\n")
-	return os.WriteFile(path, []byte(newContent), 0644)
-}
-
-func readFromEnvFile(path, name string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, name+"=") {
-			return strings.TrimPrefix(line, name+"=")
-		}
-	}
-	return ""
 }

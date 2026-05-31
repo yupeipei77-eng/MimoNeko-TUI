@@ -1,13 +1,47 @@
-.nekonomimo/
-/mimoneko.exe
-/mimoneko
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+
+# Test
+*.test
+coverage.out
+coverage.html
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+id_rsa
+id_ed25519
+
+# MioNeko local state
+.mimoneko/
+.neko/
+logs/
+cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
 /nul
 /0
+
+# Generated files (keep templates in prompts/ and schemas/)
 /prompts/
 /schemas/
-bin/
-dist/
-coverage.out
-*.test
-/neko.exe
-/MimoNeko.exe

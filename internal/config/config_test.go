@@ -14,7 +14,7 @@ func TestInitAndLoadDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	wantWritten := len(defaultConfigFiles) + len(defaultScaffoldFiles)
+	wantWritten := len(getDefaultConfigFiles()) + len(defaultScaffoldFiles)
 	if len(written) != wantWritten {
 		t.Fatalf("Init() wrote %d files, want %d", len(written), wantWritten)
 	}

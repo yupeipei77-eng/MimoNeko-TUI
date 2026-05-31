@@ -53,7 +53,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(version) code = %d", code)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.0-dev" {
+	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.0-beta" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -370,14 +370,14 @@ func assertTreeDoesNotContain(t *testing.T, root, needle string) {
 	}
 }
 
-func TestNoArgsReturnsUsageError(t *testing.T) {
-	var stderr bytes.Buffer
-	code := Run(nil, Env{Stderr: &stderr})
-	if code != 2 {
-		t.Fatalf("Run(nil) code = %d, want 2", code)
+func TestNoArgsReturnsUsage(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run(nil, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(nil) code = %d, want 0", code)
 	}
-	if !strings.Contains(stderr.String(), "Usage: mimoneko <command>") {
-		t.Fatalf("stderr = %q, want usage", stderr.String())
+	if !strings.Contains(stdout.String(), "Usage: mimoneko <command>") {
+		t.Fatalf("stdout = %q, want usage", stdout.String())
 	}
 }
 
@@ -937,6 +937,7 @@ func TestNekoDefaultProjectRootFileAllowsUTF8BOM(t *testing.T) {
 
 func TestNekoMissingProjectShowsFriendlyHint(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("MimoNeko_NEKO_ROOT", "")
 	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", filepath.Join(t.TempDir(), "missing-default-root.txt"))
 	var stderr bytes.Buffer
 	code := Run([]string{"neko", "--no-color"}, Env{

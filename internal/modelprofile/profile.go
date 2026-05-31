@@ -81,6 +81,8 @@ type TestOptions struct {
 type TestResult struct {
 	Provider  string
 	Model     string
+	BaseURL   string
+	APIKeyEnv string
 	Status    string
 	LatencyMs int64
 	Response  string
@@ -483,7 +485,7 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 
 	resp, err := client.Do(req)
 	latency := time.Since(started).Milliseconds()
-	result := TestResult{Provider: providerName, Model: modelName, LatencyMs: latency}
+	result := TestResult{Provider: providerName, Model: modelName, BaseURL: baseURL, APIKeyEnv: apiKeyEnv, LatencyMs: latency}
 	if err != nil {
 		result.Status = "failed"
 		result.Error = SanitizeText(err.Error(), apiKey)

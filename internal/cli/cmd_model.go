@@ -262,6 +262,9 @@ func (c *ModelCommand) runTest(args []string, env Env) int {
 	}
 	fmt.Fprintf(env.Stdout, "model=%s\n", result.Model)
 	fmt.Fprintf(env.Stdout, "provider=%s\n", result.Provider)
+	fmt.Fprintf(env.Stdout, "base_url=%s\n", result.BaseURL)
+	fmt.Fprintf(env.Stdout, "api_key_env=%s\n", result.APIKeyEnv)
+	fmt.Fprintf(env.Stdout, "api_key_status=%s\n", modelprofile.APIKeyStatus(result.APIKeyEnv))
 	fmt.Fprintf(env.Stdout, "status=%s\n", result.Status)
 	fmt.Fprintf(env.Stdout, "latency_ms=%d\n", result.LatencyMs)
 	if result.Status != "ok" {
