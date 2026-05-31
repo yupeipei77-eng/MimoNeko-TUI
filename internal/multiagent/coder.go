@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/agent"
-	"github.com/reasonforge/reasonforge/internal/task"
+	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/task"
 )
 
 // CoderAgent adapts SingleAgentRuntime for the multi-agent pipeline.

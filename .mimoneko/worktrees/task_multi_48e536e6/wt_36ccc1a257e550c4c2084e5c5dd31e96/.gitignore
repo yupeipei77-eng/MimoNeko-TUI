@@ -1,0 +1,5 @@
+.nekonomimo/
+bin/
+dist/
+coverage.out
+*.test

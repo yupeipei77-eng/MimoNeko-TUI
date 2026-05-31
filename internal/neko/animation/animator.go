@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/neko/branding"
-	"github.com/reasonforge/reasonforge/internal/neko/layout"
+	"github.com/mimoneko/mimoneko/internal/neko/branding"
+	"github.com/mimoneko/mimoneko/internal/neko/layout"
 )
 
 type FrameAnimator struct {

@@ -1,4 +1,4 @@
-// Package server implements the local-only ReasonForge Web Dashboard.
+// Package server implements the local-only MimoNeko Web Dashboard.
 //
 // The server is read-only. It reads sanitized RunEvent data from EventStore and
 // exposes a small HTTP API plus HTML pages for local browser inspection.
@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/config"
-	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/events"
 )
 
 const (
@@ -233,7 +233,7 @@ func (s *LocalServer) loadRunsResponse(ctx context.Context) (runsResponse, int) 
 	if !s.cfg.Events.Enabled {
 		return runsResponse{
 			Runs:          []RunItem{},
-			Message:       "Events system is disabled. Enable it in .reasonforge/events.yaml.",
+			Message:       fmt.Sprintf("Events system is disabled. Enable it in %s/events.yaml.", config.DirName()),
 			EventsEnabled: false,
 		}, http.StatusOK
 	}

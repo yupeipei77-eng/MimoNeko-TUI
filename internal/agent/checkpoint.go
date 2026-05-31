@@ -192,7 +192,7 @@ func (s *JSONLCheckpointStore) readAll() ([]Checkpoint, error) {
 
 // DefaultCheckpointPath returns the default checkpoint file path under repoRoot.
 func DefaultCheckpointPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".reasonforge", "logs", "checkpoints.jsonl")
+	return filepath.Join(repoRoot, ".mimoneko", "logs", "checkpoints.jsonl")
 }
 
 const (

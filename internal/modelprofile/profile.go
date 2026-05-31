@@ -1,6 +1,7 @@
 package modelprofile
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,12 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/pathutil"
 	"gopkg.in/yaml.v3"
 )
 
 const (
 	providerTypeOpenAICompatible  = "openai-compatible"
+	providerTypeMimo              = "mimo"
 	defaultPurpose                = "coding"
 	defaultMaxOutputTokens        = 4096
 	maxResponseBodyBytes          = 1 << 20
@@ -84,7 +87,13 @@ type TestResult struct {
 	Error     string
 }
 
-// ChatOptions configures a lightweight NekoForge chat completion.
+// ChatMessage represents a single message in a conversation.
+type ChatMessage struct {
+	Role    string
+	Content string
+}
+
+// ChatOptions configures a lightweight MimoNeko chat completion.
 type ChatOptions struct {
 	Provider  string
 	Model     string
@@ -93,14 +102,30 @@ type ChatOptions struct {
 	Prompt    string
 	MaxTokens int
 	Client    *http.Client
+	Messages  []ChatMessage
 }
 
 // ChatResult is a sanitized text response from a configured model.
 type ChatResult struct {
-	Provider string
-	Model    string
-	Response string
+	Provider          string
+	Model             string
+	Response          string
+	PromptTokens      int
+	CachedTokens      int
+	CachedTokensKnown bool
+	CompletionTokens  int
+	TotalTokens       int
 }
+
+// ChatStreamChunk represents a single streaming chunk from a chat completion.
+type ChatStreamChunk struct {
+	Text string
+	ReasoningText string
+	Done bool
+}
+
+// ChatStreamFunc sends chunks via callback and returns the final result.
+type ChatStreamFunc func(ctx context.Context, onChunk func(ChatStreamChunk)) (ChatResult, error)
 
 // RemoveOptions selects a provider or model to remove.
 type RemoveOptions struct {
@@ -111,7 +136,7 @@ type RemoveOptions struct {
 var presets = map[string]Preset{
 	"mimo": {
 		Name:      "mimo",
-		Type:      providerTypeOpenAICompatible,
+		Type:      providerTypeMimo,
 		BaseURL:   "https://token-plan-cn.xiaomimimo.com/v1",
 		APIKeyEnv: "MIMO_API_KEY",
 		SuggestedModels: []string{
@@ -160,12 +185,12 @@ func GetPreset(name string) (Preset, bool) {
 	return preset, ok
 }
 
-// ModelsPath returns the models.yaml path for a ReasonForge root.
+// ModelsPath returns the models.yaml path for a MimoNeko root.
 func ModelsPath(root string) string {
 	return filepath.Join(config.ConfigDir(root), "models.yaml")
 }
 
-// Load reads only .reasonforge/models.yaml.
+// Load reads only .mimoneko/models.yaml.
 func Load(root string) (config.ModelsConfig, error) {
 	var models config.ModelsConfig
 	content, err := os.ReadFile(ModelsPath(root))
@@ -180,7 +205,7 @@ func Load(root string) (config.ModelsConfig, error) {
 	return models, nil
 }
 
-// Save writes only .reasonforge/models.yaml.
+// Save writes only .mimoneko/models.yaml.
 func Save(root string, models config.ModelsConfig) error {
 	if err := validateModels(models); err != nil {
 		return err
@@ -216,13 +241,13 @@ func Setup(root string, opt SetupOptions) (SetupResult, error) {
 	providerIndex := findProviderIndex(models, opt.Provider)
 	provider := config.ProviderConfig{
 		Name:      opt.Provider,
-		Type:      providerTypeOpenAICompatible,
+		Type:      providerTypeForPreset(opt.Preset),
 		BaseURL:   strings.TrimRight(opt.BaseURL, "/"),
 		APIKeyEnv: opt.APIKeyEnv,
 	}
 	if providerIndex >= 0 {
 		provider = models.Providers[providerIndex]
-		provider.Type = providerTypeOpenAICompatible
+		provider.Type = providerTypeForPreset(opt.Preset)
 		provider.BaseURL = strings.TrimRight(opt.BaseURL, "/")
 		provider.APIKeyEnv = opt.APIKeyEnv
 	}
@@ -482,6 +507,14 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			TotalTokens         int `json:"total_tokens"`
+			PromptTokensDetails *struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details,omitempty"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		result.Status = "failed"
@@ -536,15 +569,26 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 	if maxTokens <= 0 {
 		maxTokens = 512
 	}
-	body, err := json.Marshal(map[string]any{
-		"model": modelName,
-		"messages": []map[string]string{
-			{
-				"role":    "system",
-				"content": "You are NekoForge, a concise local AI coding workspace assistant. Reply as plain text. Do not reveal hidden reasoning or secrets.",
-			},
-			{"role": "user", "content": prompt},
+
+	messages := []map[string]string{
+		{
+			"role":    "system",
+			"content": "You are MimoNeko, a concise local AI coding workspace assistant. Reply as plain text. Do not reveal hidden reasoning or secrets.",
 		},
+	}
+
+	for _, msg := range opt.Messages {
+		messages = append(messages, map[string]string{
+			"role":    msg.Role,
+			"content": msg.Content,
+		})
+	}
+
+	messages = append(messages, map[string]string{"role": "user", "content": prompt})
+
+	body, err := json.Marshal(map[string]any{
+		"model":       modelName,
+		"messages":    messages,
 		"max_tokens":  maxTokens,
 		"temperature": 0.2,
 	})
@@ -577,6 +621,14 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			TotalTokens         int `json:"total_tokens"`
+			PromptTokensDetails *struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details,omitempty"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return ChatResult{}, fmt.Errorf("parse response failed")
@@ -591,18 +643,212 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	return ChatResult{Provider: providerName, Model: modelName, Response: response}, nil
+	return ChatResult{
+		Provider:          providerName,
+		Model:             modelName,
+		Response:          response,
+		PromptTokens:      parsed.Usage.PromptTokens,
+		CachedTokens:      cachedTokensFromDetails(parsed.Usage.PromptTokensDetails),
+		CachedTokensKnown: parsed.Usage.PromptTokensDetails != nil,
+		CompletionTokens:  parsed.Usage.CompletionTokens,
+		TotalTokens:       parsed.Usage.TotalTokens,
+	}, nil
+}
+
+func cachedTokensFromDetails(details *struct {
+	CachedTokens int `json:"cached_tokens"`
+}) int {
+	if details == nil {
+		return 0
+	}
+	return details.CachedTokens
+}
+
+// ChatStream creates a streaming chat function that sends chunks via callback.
+func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
+	models, err := Load(root)
+	if err != nil && strings.TrimSpace(opt.BaseURL) == "" {
+		return nil, err
+	}
+	baseURL, apiKeyEnv, err := resolveProviderConnection(models, opt.Provider, opt.Model, opt.BaseURL, opt.APIKeyEnv)
+	if err != nil {
+		return nil, err
+	}
+	providerName, modelName, err := resolveProviderAndModel(models, opt.Provider, opt.Model)
+	if err != nil {
+		if strings.TrimSpace(opt.BaseURL) == "" {
+			return nil, err
+		}
+		providerName = strings.TrimSpace(opt.Provider)
+		modelName = strings.TrimSpace(opt.Model)
+	}
+	if modelName == "" {
+		return nil, errors.New("model is required")
+	}
+	prompt := strings.TrimSpace(opt.Prompt)
+	if prompt == "" {
+		return nil, errors.New("prompt is required")
+	}
+	apiKey, err := resolveAPIKey(apiKeyEnv)
+	if err != nil {
+		return nil, err
+	}
+
+	maxTokens := opt.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+
+	return func(ctx context.Context, onChunk func(ChatStreamChunk)) (ChatResult, error) {
+		client := opt.Client
+		if client == nil {
+			client = &http.Client{Timeout: 120 * time.Second}
+		}
+
+		messages := []map[string]string{
+			{
+				"role":    "system",
+				"content": "You are MimoNeko, a concise local AI coding workspace assistant. Reply as plain text. Do not reveal hidden reasoning or secrets.",
+			},
+		}
+
+		for _, msg := range opt.Messages {
+			messages = append(messages, map[string]string{
+				"role":    msg.Role,
+				"content": msg.Content,
+			})
+		}
+
+		messages = append(messages, map[string]string{"role": "user", "content": prompt})
+
+		body, err := json.Marshal(map[string]any{
+			"model":       modelName,
+			"messages":    messages,
+			"max_tokens":  maxTokens,
+			"temperature": 0,
+			"stream":      true,
+		})
+		if err != nil {
+			return ChatResult{}, fmt.Errorf("marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
+		if err != nil {
+			return ChatResult{}, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return ChatResult{}, fmt.Errorf("request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return ChatResult{}, fmt.Errorf("API returned status %d", resp.StatusCode)
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		var fullText strings.Builder
+		var usage ChatResult
+		usage.Provider = providerName
+		usage.Model = modelName
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" || strings.HasPrefix(line, ":") {
+				continue
+			}
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				onChunk(ChatStreamChunk{Done: true})
+				break
+			}
+
+			var chunk struct {
+				Model   string `json:"model"`
+				Choices []struct {
+					Delta struct {
+						Content          string `json:"content"`
+						ReasoningContent string `json:"reasoning_content"`
+					} `json:"delta"`
+					FinishReason string `json:"finish_reason"`
+				} `json:"choices"`
+				Usage *struct {
+					PromptTokens        int `json:"prompt_tokens"`
+					CompletionTokens    int `json:"completion_tokens"`
+					TotalTokens         int `json:"total_tokens"`
+					PromptTokensDetails *struct {
+						CachedTokens int `json:"cached_tokens"`
+					} `json:"prompt_tokens_details,omitempty"`
+				} `json:"usage,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue
+			}
+
+			if chunk.Model != "" {
+				usage.Model = chunk.Model
+			}
+
+			if len(chunk.Choices) > 0 {
+				text := chunk.Choices[0].Delta.Content
+				reasoning := chunk.Choices[0].Delta.ReasoningContent
+				if reasoning != "" {
+					fullText.WriteString(reasoning)
+				}
+				if text != "" {
+					fullText.WriteString(text)
+				}
+				if text != "" || reasoning != "" {
+					onChunk(ChatStreamChunk{Text: text, ReasoningText: reasoning})
+				}
+				if chunk.Choices[0].FinishReason != "" {
+					if chunk.Usage != nil {
+						usage.PromptTokens = chunk.Usage.PromptTokens
+						if chunk.Usage.PromptTokensDetails != nil {
+							usage.CachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
+							usage.CachedTokensKnown = true
+						}
+						usage.CompletionTokens = chunk.Usage.CompletionTokens
+						usage.TotalTokens = chunk.Usage.TotalTokens
+					}
+					onChunk(ChatStreamChunk{Done: true})
+					break
+				}
+			}
+
+			if chunk.Usage != nil && len(chunk.Choices) == 0 {
+				usage.PromptTokens = chunk.Usage.PromptTokens
+				if chunk.Usage.PromptTokensDetails != nil {
+					usage.CachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
+					usage.CachedTokensKnown = true
+				}
+				usage.CompletionTokens = chunk.Usage.CompletionTokens
+				usage.TotalTokens = chunk.Usage.TotalTokens
+				onChunk(ChatStreamChunk{Done: true})
+				break
+			}
+		}
+
+		response := fullText.String()
+		if strings.TrimSpace(response) == "" {
+			response = "(empty response)"
+		}
+		usage.Response = SanitizeText(response, apiKey)
+		return usage, nil
+	}, nil
 }
 
 // APIKeyStatus checks whether an API key environment variable is configured.
 func APIKeyStatus(envVar string) string {
-	if strings.TrimSpace(envVar) == "" {
-		return "missing"
-	}
-	if strings.TrimSpace(os.Getenv(envVar)) == "" {
-		return "missing"
-	}
-	return "configured"
+	return pathutil.APIKeyStatus(envVar)
 }
 
 // APIKeyHint returns safe shell hints without any secret value.
@@ -652,6 +898,14 @@ func SanitizeText(text string, secrets ...string) string {
 		}
 	}
 	return safe
+}
+
+func providerTypeForPreset(presetName string) string {
+	preset, ok := GetPreset(presetName)
+	if ok && preset.Type == providerTypeMimo {
+		return providerTypeMimo
+	}
+	return providerTypeOpenAICompatible
 }
 
 func applyPreset(opt *SetupOptions) error {
@@ -721,8 +975,8 @@ func validateModels(models config.ModelsConfig) error {
 		if strings.TrimSpace(provider.Name) == "" {
 			return errors.New("models.yaml provider name is required")
 		}
-		if provider.Type != providerTypeOpenAICompatible {
-			return fmt.Errorf("models.yaml provider %q must be openai-compatible", provider.Name)
+		if provider.Type != providerTypeOpenAICompatible && provider.Type != providerTypeMimo {
+			return fmt.Errorf("models.yaml provider %q type must be 'openai-compatible' or 'mimo', got %q", provider.Name, provider.Type)
 		}
 		if strings.TrimSpace(provider.BaseURL) == "" {
 			return fmt.Errorf("models.yaml provider %q base_url is required", provider.Name)

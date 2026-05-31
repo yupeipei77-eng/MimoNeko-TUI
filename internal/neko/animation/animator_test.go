@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/neko/branding"
-	"github.com/reasonforge/reasonforge/internal/neko/layout"
+	"github.com/mimoneko/mimoneko/internal/neko/branding"
+	"github.com/mimoneko/mimoneko/internal/neko/layout"
 )
 
 func TestMascotAnimationNoScreenFlicker(t *testing.T) {
@@ -29,10 +29,11 @@ func TestMascotAnimationOnlyRedrawsHeader(t *testing.T) {
 	if !strings.Contains(seq, "\x1b[1;1H") {
 		t.Fatalf("redraw sequence = %q, want absolute header positioning", seq)
 	}
-	if !strings.Contains(seq, "Neko") || !strings.Contains(seq, "Forge") {
-		t.Fatalf("redraw sequence = %q, want title header", seq)
+	// New design includes cat mascot and MIMO brand (M is styled separately)
+	if !strings.Contains(seq, "IMO") {
+		t.Fatalf("redraw sequence = %q, want IMO brand", seq)
 	}
-	if strings.Contains(seq, "Assistant:") || strings.Contains(seq, "User:") || strings.Contains(seq, "( o_o )") {
+	if strings.Contains(seq, "Assistant:") || strings.Contains(seq, "User:") {
 		t.Fatalf("redraw sequence touched message region: %q", seq)
 	}
 }
@@ -52,8 +53,9 @@ func TestNoColorDisablesAnimation(t *testing.T) {
 	if strings.Contains(text, "\x1b[") {
 		t.Fatalf("no-color animation leaked ANSI: %q", text)
 	}
-	if strings.Count(text, "NekoForge") != 1 {
-		t.Fatalf("no-color startup should render one static header, got %q", text)
+	// New design includes MIMO brand (may appear as "MIMO" or split across styles)
+	if !strings.Contains(text, "MIMO") {
+		t.Fatalf("no-color startup should render header with MIMO brand, got %q", text)
 	}
 }
 

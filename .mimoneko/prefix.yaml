@@ -1,0 +1,24 @@
+version: 1
+immutable_sources:
+  - name: system_prompt
+    kind: static_file
+    path: prompts/system.md
+    required: true
+  - name: tool_schema
+    kind: generated_schema
+    path: schemas/tools.json
+    required: true
+  - name: coding_rules
+    kind: static_file
+    path: prompts/coding_rules.md
+    required: true
+byte_stable:
+  normalize_line_endings: lf
+  sort_tool_schemas: true
+  disallow_dynamic_content: true
+cache:
+  registry_path: .nekonomimo/cache/prefixes.jsonl
+  estimated_ttl: 1h
+budget:
+  warn_ratio: 0.8
+  block_ratio: 1.0

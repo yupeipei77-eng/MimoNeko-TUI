@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/reasonforge/reasonforge/internal/contextengine"
-	"github.com/reasonforge/reasonforge/internal/modelrouter"
-	"github.com/reasonforge/reasonforge/internal/patch"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/modelrouter"
+	"github.com/mimoneko/mimoneko/internal/patch"
 )
 
 // DefaultModelReviewer implements ModelReviewer using ModelRouter.

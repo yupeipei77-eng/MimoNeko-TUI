@@ -1,0 +1,16 @@
+providers:
+  - name: mimo
+    type: openai-compatible
+    base_url: https://token-plan-cn.xiaomimimo.com/v1
+    api_key_env: MIMO_API_KEY
+    models:
+      - name: mimo-v2.5-pro
+        purpose: coding
+        max_output_tokens: 4096
+        supports_prefix_cache: false
+
+routing:
+  default_model: mimo-v2.5-pro
+  fallback_chain:
+    - provider: mimo
+      model: mimo-v2.5-pro

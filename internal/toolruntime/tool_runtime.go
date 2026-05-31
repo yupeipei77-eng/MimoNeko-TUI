@@ -1,11 +1,11 @@
 // Package toolruntime provides compatibility aliases for the tools package.
-// New code should import github.com/reasonforge/reasonforge/internal/tools directly.
+// New code should import github.com/mimoneko/mimoneko/internal/tools directly.
 package toolruntime
 
 import (
 	"context"
 
-	"github.com/reasonforge/reasonforge/internal/tools"
+	"github.com/mimoneko/mimoneko/internal/tools"
 )
 
 // ToolRuntime is an alias for tools.ToolRuntime.

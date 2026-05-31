@@ -1,4 +1,4 @@
-// Package dashboard implements the local TUI dashboard for ReasonForge.
+// Package dashboard implements the local TUI dashboard for MimoNeko.
 //
 // The dashboard provides a terminal-based view of run progress by reading
 // from the EventStore. It reuses EventStore, RunTimeline, and ProgressState
@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/mimoneko/mimoneko/internal/events"
 )
 
 // Store is the subset of EventStore that the dashboard needs.
@@ -35,7 +35,7 @@ type Store interface {
 // It does not print sensitive data; all content comes from RunSummary
 // which is derived from SanitizeEvent-processed events.
 func RenderRunsList(w io.Writer, runs []events.RunSummary, limit int) {
-	fmt.Fprintln(w, "ReasonForge Dashboard")
+	fmt.Fprintln(w, "MimoNeko Dashboard")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Recent Runs")
 	fmt.Fprintf(w, "%-36s %-12s %-10s %-14s %s\n", "RUN ID", "STATE", "PROGRESS", "PHASE", "LAST EVENT")
@@ -79,7 +79,7 @@ func RenderRunsList(w io.Writer, runs []events.RunSummary, limit int) {
 // by reading timelines from the store. This is heavier than RenderRunsList
 // but provides accurate progress percentages.
 func RenderRunsListWithProgress(w io.Writer, store Store, runs []events.RunSummary, limit int) {
-	fmt.Fprintln(w, "ReasonForge Dashboard")
+	fmt.Fprintln(w, "MimoNeko Dashboard")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Recent Runs")
 	fmt.Fprintf(w, "%-36s %-12s %-10s %-14s %s\n", "RUN ID", "STATE", "PROGRESS", "PHASE", "LAST EVENT")
@@ -143,7 +143,7 @@ func RenderRunDetail(w io.Writer, store Store, runID string) error {
 
 	progress := events.ComputeProgressState(timeline)
 
-	fmt.Fprintln(w, "ReasonForge Run Detail")
+	fmt.Fprintln(w, "MimoNeko Run Detail")
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Run:          %s\n", progress.RunID)
 	fmt.Fprintf(w, "State:        %s\n", progress.State)

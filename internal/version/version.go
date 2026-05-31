@@ -1,9 +1,9 @@
 package version
 
-const Name = "reasonforge"
+const Name = "MimoNeko"
 
 // Version can be overridden at build time with:
-// go build -ldflags "-X github.com/reasonforge/reasonforge/internal/version.Version=vX.Y.Z"
+// go build -ldflags "-X github.com/mimoneko/mimoneko/internal/version.Version=vX.Y.Z"
 var Version = "0.1.0-dev"
 
 func String() string {

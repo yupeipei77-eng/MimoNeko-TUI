@@ -1,8 +1,9 @@
 package tools
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -71,8 +72,8 @@ func (r *memoryRegistry) List() []ToolInfo {
 			RiskLevel:   t.RiskLevel(),
 		})
 	}
-	sort.Slice(infos, func(i, j int) bool {
-		return infos[i].Name < infos[j].Name
+	slices.SortFunc(infos, func(a, b ToolInfo) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 	return infos
 }

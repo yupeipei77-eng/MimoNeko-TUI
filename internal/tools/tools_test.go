@@ -113,26 +113,26 @@ func TestFileReadRejectsGitDir(t *testing.T) {
 	}
 }
 
-func TestFileReadRejectsReasonforgeDir(t *testing.T) {
+func TestFileReadRejectsMimoNekoDir(t *testing.T) {
 	root := t.TempDir()
 	tool := &FileReadTool{}
 
-	// .reasonforge/logs/tools.jsonl
+	// .mimoneko/logs/tools.jsonl
 	resp, _ := tool.Run(context.Background(), ToolRequest{
 		RepoRoot: root,
-		Args:     map[string]string{"path": ".reasonforge/logs/tools.jsonl"},
+		Args:     map[string]string{"path": ".mimoneko/logs/tools.jsonl"},
 	})
 	if resp.Success {
-		t.Fatal("file_read should reject .reasonforge/logs/tools.jsonl")
+		t.Fatal("file_read should reject .mimoneko/logs/tools.jsonl")
 	}
 
-	// .reasonforge itself
+	// .mimoneko itself
 	resp, _ = tool.Run(context.Background(), ToolRequest{
 		RepoRoot: root,
-		Args:     map[string]string{"path": ".reasonforge"},
+		Args:     map[string]string{"path": ".mimoneko"},
 	})
 	if resp.Success {
-		t.Fatal("file_read should reject .reasonforge")
+		t.Fatal("file_read should reject .mimoneko")
 	}
 }
 

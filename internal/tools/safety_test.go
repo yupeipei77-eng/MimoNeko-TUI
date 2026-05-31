@@ -83,7 +83,7 @@ func TestIsWriteDenied(t *testing.T) {
 	}{
 		{".env", true},
 		{".git", true},
-		{".reasonforge", true},
+		{".mimoneko", true},
 		{"server.pem", true},
 		{"private.key", true},
 		{"id_rsa", true},
@@ -116,7 +116,7 @@ func TestIsReadDenied(t *testing.T) {
 		{"id_rsa", true},
 		{"id_ed25519", true},
 		{".git", true},
-		{".reasonforge", true},
+		{".mimoneko", true},
 		{"README.md", false},
 		{"src/main.go", false},
 	}
@@ -161,9 +161,9 @@ func TestIsUnderProtectedDir(t *testing.T) {
 	}{
 		{".git/config", true},
 		{".git/HEAD", true},
-		{".reasonforge/tools.yaml", true},
+		{".mimoneko/tools.yaml", true},
 		{".git", true},
-		{".reasonforge", true},
+		{".mimoneko", true},
 		{"src/main.go", false},
 		{"README.md", false},
 	}

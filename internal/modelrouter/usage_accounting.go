@@ -3,9 +3,9 @@ package modelrouter
 import (
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/contextengine"
-	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/prefix"
 )
 
 // UsageToObservation converts a CompletionResponse Usage and Bundle into a

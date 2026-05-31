@@ -1,4 +1,4 @@
-// Package review implements the Patch Review pipeline for ReasonForge.
+// Package review implements the Patch Review pipeline for MimoNeko.
 //
 // The review pipeline operates on a PatchPreview and produces a PatchReviewReport
 // through a deterministic sequence:
@@ -18,8 +18,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/patch"
-	"github.com/reasonforge/reasonforge/internal/task"
+	"github.com/mimoneko/mimoneko/internal/patch"
+	"github.com/mimoneko/mimoneko/internal/task"
 )
 
 // ReviewRecommendation is the final recommendation of a patch review.

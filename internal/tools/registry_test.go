@@ -87,6 +87,7 @@ type emptyNameTool struct{}
 func (t *emptyNameTool) Name() string        { return "" }
 func (t *emptyNameTool) Description() string  { return "" }
 func (t *emptyNameTool) RiskLevel() string    { return "low" }
+func (t *emptyNameTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 func (t *emptyNameTool) Run(_ context.Context, _ ToolRequest) (ToolResponse, error) {
 	return ToolResponse{}, nil
 }

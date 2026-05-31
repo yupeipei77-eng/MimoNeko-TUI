@@ -10,17 +10,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/task"
-	"github.com/reasonforge/reasonforge/internal/tools"
-	"github.com/reasonforge/reasonforge/internal/worktree"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/mimoneko/mimoneko/internal/tools"
+	"github.com/mimoneko/mimoneko/internal/worktree"
 )
 
 // deniedPatchPaths lists paths that must never be modified by a patch apply.
 // These supplement the TaskContract checks with hard-coded safety boundaries.
 var deniedPatchPaths = []string{
 	".git",
-	".reasonforge",
+	config.DirName(),
 	".env",
 	"*.pem",
 	"*.key",
@@ -230,7 +231,7 @@ func (m *GitPatchManager) Apply(ctx context.Context, req PatchApplyRequest) (Pat
 	}
 
 	// Write diff to a temp file and apply
-	tmpFile, err := os.CreateTemp("", "reasonforge-patch-*.diff")
+	tmpFile, err := os.CreateTemp("", "mimoneko-patch-*.diff")
 	if err != nil {
 		return PatchApplyResult{}, fmt.Errorf("patch: create temp file: %w", err)
 	}
@@ -275,7 +276,7 @@ func (m *GitPatchManager) Discard(ctx context.Context, req PatchDiscardRequest) 
 
 	// Verify the worktree path is safe
 	if !worktree.IsWorktreePathSafe(req.RepoRoot, info.Path) {
-		return fmt.Errorf("patch: worktree path %q is not under .reasonforge/worktrees, refusing to discard", info.Path)
+		return fmt.Errorf("patch: worktree path %q is not under .mimoneko/worktrees, refusing to discard", info.Path)
 	}
 
 	// Remove the worktree
@@ -381,7 +382,7 @@ func isBinaryContent(data []byte) bool {
 	if n > 8192 {
 		n = 8192
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if data[i] == 0 {
 			return true
 		}
@@ -559,7 +560,7 @@ func (m *GitPatchManager) checkViolations(files []FileChange, contract task.Task
 		if matchesAnyPattern(f.Path, deniedPatchPaths) {
 			violations = append(violations, PatchViolation{
 				Path:   f.Path,
-				Reason: "path is in hard-coded deny list (.git, .reasonforge, .env, *.pem, *.key)",
+				Reason: "path is in hard-coded deny list (.git, .mimoneko, .env, *.pem, *.key)",
 			})
 			continue
 		}
@@ -583,7 +584,7 @@ func (m *GitPatchManager) checkViolations(files []FileChange, contract task.Task
 		if tools.IsUnderProtectedDir(f.Path) {
 			violations = append(violations, PatchViolation{
 				Path:   f.Path,
-				Reason: "path is under a protected directory (.git/, .reasonforge/)",
+				Reason: "path is under a protected directory (.git/, .mimoneko/)",
 			})
 		}
 	}
@@ -617,7 +618,7 @@ func (m *GitPatchManager) checkCleanMain(ctx context.Context, repoRoot string) e
 		return fmt.Errorf("git status: %w: %s", err, string(output))
 	}
 
-	// Filter out .reasonforge/ paths - worktree files live there and are
+	// Filter out .mimoneko/ paths - worktree files live there and are
 	// expected to appear as untracked in the main workspace.
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	dirty := false
@@ -629,8 +630,8 @@ func (m *GitPatchManager) checkCleanMain(ctx context.Context, repoRoot string) e
 		// git status --porcelain format: XY PATH or XY ORIG_PATH -> PATH
 		// Extract the path portion (after the 2-char status + space)
 		pathPart := line[3:] // skip "XY "
-		if strings.HasPrefix(pathPart, ".reasonforge/") || strings.HasPrefix(pathPart, ".reasonforge\\") {
-			continue // ignore .reasonforge changes
+		if strings.HasPrefix(pathPart, ".mimoneko/") || strings.HasPrefix(pathPart, ".mimoneko\\") {
+			continue // ignore .mimoneko changes
 		}
 		dirty = true
 		break

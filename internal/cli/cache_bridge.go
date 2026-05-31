@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // cacheRegistryBridge wraps JSONLCacheRegistry to expose Report for CLI use.

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/contextengine"
-	"github.com/reasonforge/reasonforge/internal/modelrouter"
-	"github.com/reasonforge/reasonforge/internal/task"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/modelrouter"
+	"github.com/mimoneko/mimoneko/internal/task"
 )
 
 // PlannerAgent generates a TaskPlan from a user Goal.

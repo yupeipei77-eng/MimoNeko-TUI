@@ -2,21 +2,24 @@ package events
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // JSONLRunEventStore implements EventStore with append-only JSONL persistence.
 //
-// Default path: .reasonforge/events/run_events.jsonl
+// Default path: .mimoneko/events/run_events.jsonl
 //
 // Safety guarantees:
 //   - Append-only: no update or delete operations.
@@ -202,8 +205,8 @@ func (s *JSONLRunEventStore) ListRuns(ctx context.Context) ([]RunSummary, error)
 	}
 
 	// Sort by StartedAt descending (most recent first)
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].StartedAt.After(summaries[j].StartedAt)
+	slices.SortFunc(summaries, func(a, b RunSummary) int {
+		return cmp.Compare(b.StartedAt.UnixNano(), a.StartedAt.UnixNano())
 	})
 
 	return summaries, nil
@@ -226,17 +229,17 @@ func (s *JSONLRunEventStore) ListEvents(ctx context.Context, runID string) ([]Ru
 	}
 
 	// Sort by StartedAt
-	sort.Slice(result, func(i, j int) bool {
+	slices.SortFunc(result, func(a, b RunEvent) int {
 		// Use StartedAt; if zero, fall back to FinishedAt
-		ti := result[i].StartedAt
-		if ti.IsZero() {
-			ti = result[i].FinishedAt
+		ta := a.StartedAt
+		if ta.IsZero() {
+			ta = a.FinishedAt
 		}
-		tj := result[j].StartedAt
-		if tj.IsZero() {
-			tj = result[j].FinishedAt
+		tb := b.StartedAt
+		if tb.IsZero() {
+			tb = b.FinishedAt
 		}
-		return ti.Before(tj)
+		return cmp.Compare(ta.UnixNano(), tb.UnixNano())
 	})
 
 	return result, nil
@@ -311,7 +314,7 @@ func buildRunSummary(runID string, events []RunEvent) RunSummary {
 
 // DefaultEventStorePath returns the default path for the event store.
 func DefaultEventStorePath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".reasonforge", "events", "run_events.jsonl")
+	return filepath.Join(repoRoot, config.DirName(), "events", "run_events.jsonl")
 }
 
 // CorruptedLineInfo tracks corrupted lines encountered during load.

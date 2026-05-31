@@ -1,4 +1,4 @@
-module github.com/reasonforge/reasonforge
+module github.com/mimoneko/mimoneko
 
 go 1.22
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 func testByteStableConfig() config.ByteStableConfig {
@@ -200,7 +200,7 @@ func TestBuildDynamicContentNotInPrefix(t *testing.T) {
 	doc2, _ := builder.Build(context.Background(), req)
 
 	if doc1.SHA256 != doc2.SHA256 {
-		t.Error("Build() produced different hashes for identical input — dynamic content may have leaked in")
+		t.Error("Build() produced different hashes for identical input → dynamic content may have leaked in")
 	}
 }
 

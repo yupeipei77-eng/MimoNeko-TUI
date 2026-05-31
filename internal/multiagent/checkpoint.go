@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // MultiAgentCheckpoint captures a snapshot of a multi-agent run at a point in time.
@@ -237,5 +239,5 @@ func sanitizeCheckpointString(s string) string {
 
 // DefaultMultiAgentCheckpointPath returns the default checkpoint file path.
 func DefaultMultiAgentCheckpointPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".reasonforge", "checkpoints", "multi_agent_runs.jsonl")
+	return filepath.Join(repoRoot, config.DirName(), "checkpoints", "multi_agent_runs.jsonl")
 }

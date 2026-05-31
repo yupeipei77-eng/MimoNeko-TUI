@@ -1,12 +1,18 @@
 package events
 
+import (
+	"path/filepath"
+
+	"github.com/mimoneko/mimoneko/internal/config"
+)
+
 // EventsConfig configures the event system behavior.
 type EventsConfig struct {
 	// Enabled controls whether the event system is active.
 	Enabled bool `yaml:"enabled"`
 
 	// StorePath is the path to the JSONL event store file.
-	// Default: .reasonforge/events/run_events.jsonl
+	// Default: .mimoneko/events/run_events.jsonl
 	StorePath string `yaml:"store_path"`
 
 	// MaxMessageBytes caps the size of event Message fields.
@@ -32,7 +38,7 @@ type EventsConfig struct {
 func DefaultEventsConfig() EventsConfig {
 	return EventsConfig{
 		Enabled:               true,
-		StorePath:             ".reasonforge/events/run_events.jsonl",
+		StorePath:             filepath.Join(config.DirName(), "events", "run_events.jsonl"),
 		MaxMessageBytes:       2048,
 		MaxMetadataValueBytes: 512,
 		EmitToolEvents:        true,

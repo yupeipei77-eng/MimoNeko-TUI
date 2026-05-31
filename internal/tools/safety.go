@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // ToolPolicy defines the security policy for tool execution.
@@ -137,7 +139,7 @@ func matchesAnyGlob(rel string, patterns []string) bool {
 func DefaultDenyWritePaths() []string {
 	return []string{
 		".git",
-		".reasonforge",
+		config.DirName(),
 		".env",
 		"*.pem",
 		"*.key",
@@ -150,7 +152,7 @@ func DefaultDenyWritePaths() []string {
 func DefaultDenyReadPaths() []string {
 	return []string{
 		".git",
-		".reasonforge",
+		config.DirName(),
 		".env",
 		"*.pem",
 		"*.key",
@@ -186,7 +188,7 @@ func IsSensitiveFilePath(rel string) bool {
 // IsUnderProtectedDir checks if a relative path is under a protected directory.
 func IsUnderProtectedDir(rel string) bool {
 	normalized := filepath.ToSlash(rel)
-	protectedDirs := []string{".git/", ".reasonforge/"}
+	protectedDirs := []string{".git/", ".mimoneko/"}
 	for _, dir := range protectedDirs {
 		if strings.HasPrefix(normalized, dir) {
 			return true

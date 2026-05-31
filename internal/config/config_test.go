@@ -77,8 +77,8 @@ func TestInitCreatesSystemPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), "You are ReasonForge") {
-		t.Fatalf("system prompt = %q, want ReasonForge default", string(content))
+	if !strings.Contains(string(content), "You are MimoNeko") {
+		t.Fatalf("system prompt = %q, want MimoNeko default", string(content))
 	}
 }
 
@@ -391,7 +391,7 @@ func validRootConfig() *Root {
 				DisallowDynamicContent: true,
 			},
 			Cache: PrefixCacheConfig{
-				RegistryPath: ".reasonforge/cache/prefixes.jsonl",
+				RegistryPath: ".mimoneko/cache/prefixes.jsonl",
 			},
 			Budget: BudgetConfig{
 				WarnRatio:  0.8,
@@ -421,7 +421,7 @@ func TestLoadFallbackChain(t *testing.T) {
   - name: local-openai-compatible
     type: openai-compatible
     base_url: http://127.0.0.1:11434/v1
-    api_key_env: REASONFORGE_API_KEY
+    api_key_env: MimoNeko_API_KEY
     models:
       - name: local-coder
         purpose: coding
@@ -472,7 +472,7 @@ func TestLoadRejectsInvalidFallbackChainProvider(t *testing.T) {
   - name: local-openai-compatible
     type: openai-compatible
     base_url: http://127.0.0.1:11434/v1
-    api_key_env: REASONFORGE_API_KEY
+    api_key_env: MimoNeko_API_KEY
     models:
       - name: local-coder
         purpose: coding
@@ -508,7 +508,7 @@ func TestLoadRejectsInvalidFallbackChainModel(t *testing.T) {
   - name: local-openai-compatible
     type: openai-compatible
     base_url: http://127.0.0.1:11434/v1
-    api_key_env: REASONFORGE_API_KEY
+    api_key_env: MimoNeko_API_KEY
     models:
       - name: local-coder
         purpose: coding

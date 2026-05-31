@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/tools"
+	"github.com/mimoneko/mimoneko/internal/tools"
 )
 
 // --- SanitizeCheckpoint tests ---
@@ -543,7 +543,7 @@ func TestJSONLCheckpointStore_CancelledContext(t *testing.T) {
 
 func TestDefaultCheckpointPath(t *testing.T) {
 	path := DefaultCheckpointPath("/my/repo")
-	expected := filepath.Join("/my/repo", ".reasonforge", "logs", "checkpoints.jsonl")
+	expected := filepath.Join("/my/repo", ".mimoneko", "logs", "checkpoints.jsonl")
 	if path != expected {
 		t.Errorf("DefaultCheckpointPath() = %q, want %q", path, expected)
 	}

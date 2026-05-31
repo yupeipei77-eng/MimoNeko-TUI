@@ -1,0 +1,46 @@
+tools:
+  - name: file_read
+    kind: builtin
+    enabled: true
+    risk_level: low
+  - name: file_write
+    kind: builtin
+    enabled: true
+    risk_level: medium
+  - name: file_patch
+    kind: builtin
+    enabled: true
+    risk_level: medium
+  - name: git_diff
+    kind: builtin
+    enabled: true
+    risk_level: low
+  - name: test_run
+    kind: builtin
+    enabled: true
+    risk_level: medium
+test_commands:
+  - name: go-test
+    command: ["go", "test", "./..."]
+    timeout_seconds: 120
+policy:
+  max_output_bytes: 65536
+  default_timeout_seconds: 30
+  deny_write_paths:
+    - ".git"
+    - ".reasonforge"
+    - ".mimoneko"
+    - ".env"
+    - "*.pem"
+    - "*.key"
+    - "id_rsa"
+    - "id_ed25519"
+  deny_read_paths:
+    - ".git"
+    - ".reasonforge"
+    - ".mimoneko"
+    - ".env"
+    - "*.pem"
+    - "*.key"
+    - "id_rsa"
+    - "id_ed25519"

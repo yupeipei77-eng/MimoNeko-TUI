@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/prefix"
 )
 
 type ProviderCacheRef struct {

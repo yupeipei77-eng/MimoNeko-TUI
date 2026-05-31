@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // ToolAuditEvent represents a single audit log entry for a tool execution.
@@ -120,5 +122,5 @@ func isSafeAuditKey(key string) bool {
 
 // DefaultAuditLogPath returns the default audit log path under repoRoot.
 func DefaultAuditLogPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".reasonforge", "logs", "tools.jsonl")
+	return filepath.Join(repoRoot, config.DirName(), "logs", "tools.jsonl")
 }

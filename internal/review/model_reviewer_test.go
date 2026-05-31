@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/modelrouter"
-	"github.com/reasonforge/reasonforge/internal/patch"
+	"github.com/mimoneko/mimoneko/internal/modelrouter"
+	"github.com/mimoneko/mimoneko/internal/patch"
 )
 
 func TestModelReviewer_UseModelReviewFalse(t *testing.T) {

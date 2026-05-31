@@ -51,9 +51,27 @@ func HeaderLineCount() int {
 
 func (r Renderer) renderMinimalHero(w io.Writer, data HeaderData) {
 	fmt.Fprintln(w)
-	r.centerLine(w, r.Accent("Neko")+r.Title("Forge"), len("NekoForge"))
+
+	// Cat mascot - more stylized
+	cat := []string{
+		`  /\_/\  `,
+		` ( o.o ) `,
+		`  > ^ <  `,
+	}
+	for _, line := range cat {
+		r.centerLine(w, r.Accent(line), len(line))
+	}
 	fmt.Fprintln(w)
-	_ = data
+
+	// Brand name with subtle styling
+	brand := r.TitleBold("M") + r.Accent("IMO") + r.Muted("Neko")
+	r.centerLine(w, brand, 8)
+
+	// Version or tagline
+	if data.Model != "" {
+		tagline := r.Muted(data.Model + " · " + data.Provider)
+		r.centerLine(w, tagline, len(data.Model)+len(data.Provider)+3)
+	}
 	fmt.Fprintln(w)
 }
 

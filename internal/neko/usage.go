@@ -2,8 +2,10 @@ package neko
 
 import (
 	"fmt"
+	"strings"
+	"unicode"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // Usage captures token usage shown in the terminal console.
@@ -62,4 +64,39 @@ func FormatCost(cost Cost) string {
 		return fmt.Sprintf("¥%.4f%s", cost.Amount, suffix)
 	}
 	return fmt.Sprintf("%.4f %s%s", cost.Amount, cost.Currency, suffix)
+}
+
+func EstimateTextTokens(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+	asciiRunes := 0
+	wideRunes := 0
+	for _, r := range text {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		if r >= 0x2e80 {
+			wideRunes++
+			continue
+		}
+		asciiRunes++
+	}
+	estimated := wideRunes + (asciiRunes+3)/4
+	if estimated <= 0 {
+		return 1
+	}
+	return estimated
+}
+
+func MergeUsage(current Usage, next Usage) Usage {
+	current = NormalizeUsage(current)
+	next = NormalizeUsage(next)
+	return NormalizeUsage(Usage{
+		InputTokens:  current.InputTokens + next.InputTokens,
+		CachedTokens: current.CachedTokens + next.CachedTokens,
+		OutputTokens: current.OutputTokens + next.OutputTokens,
+		Estimated:    current.Estimated || next.Estimated,
+	})
 }

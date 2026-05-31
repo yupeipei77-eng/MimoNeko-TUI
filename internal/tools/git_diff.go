@@ -10,9 +10,10 @@ import (
 // GitDiffTool runs git diff within the workspace root.
 type GitDiffTool struct{}
 
-func (t *GitDiffTool) Name() string        { return "git_diff" }
-func (t *GitDiffTool) Description() string  { return "Run git diff within the workspace root" }
-func (t *GitDiffTool) RiskLevel() string    { return "low" }
+func (t *GitDiffTool) Name() string         { return "git_diff" }
+func (t *GitDiffTool) Description() string   { return "Run git diff within the workspace root" }
+func (t *GitDiffTool) RiskLevel() string     { return "low" }
+func (t *GitDiffTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 
 func (t *GitDiffTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
 	guard := safetyGuardFromRequest(req)

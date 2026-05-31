@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/agent"
-	"github.com/reasonforge/reasonforge/internal/contextengine"
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/modelrouter"
-	"github.com/reasonforge/reasonforge/internal/review"
-	"github.com/reasonforge/reasonforge/internal/worktree"
+	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/modelrouter"
+	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/worktree"
 )
 
 // Dependencies holds the external dependencies for the Multi-Agent Runtime.

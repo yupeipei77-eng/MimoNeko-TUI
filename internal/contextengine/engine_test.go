@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/config"
-	"github.com/reasonforge/reasonforge/internal/conversation"
-	"github.com/reasonforge/reasonforge/internal/prefix"
-	"github.com/reasonforge/reasonforge/internal/scratchpad"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/conversation"
+	"github.com/mimoneko/mimoneko/internal/memory"
+	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/scratchpad"
 )
 
 // --- Stub implementations for testing ---
@@ -101,7 +103,7 @@ func testPrefixConfigWithDir(rootDir string) config.PrefixConfig {
 			DisallowDynamicContent: true,
 		},
 		Cache: config.PrefixCacheConfig{
-			RegistryPath: ".reasonforge/cache/prefixes.jsonl",
+			RegistryPath: ".mimoneko/cache/prefixes.jsonl",
 		},
 		Budget: config.BudgetConfig{
 			WarnRatio:  0.8,
@@ -287,6 +289,38 @@ func TestBuildAssemblyOrder(t *testing.T) {
 	}
 }
 
+func TestBuildRetrievesMemoryIntoVolatileScratchpad(t *testing.T) {
+	engine, _ := newTestEngine(t)
+	store := memory.NewJSONLStore(filepath.Join(t.TempDir(), "memory.jsonl"))
+	engine.SetMemoryStore(store)
+	if err := store.Put(context.Background(), memory.Record{
+		ID:    "m_palette",
+		Scope: "repo",
+		Text:  "command palette selection should support arrow keys",
+	}); err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	bundle, err := engine.Build(context.Background(), BuildRequest{
+		TaskID:       "t1",
+		Budget:       TokenBudget{ImmutablePrefix: 10000, Conversation: 5000, Scratchpad: 2000},
+		CurrentInput: []byte("palette arrow navigation"),
+		MemoryScope:  "repo",
+	})
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if len(bundle.Volatile.MemoryResults) != 1 {
+		t.Fatalf("memory results = %d, want 1", len(bundle.Volatile.MemoryResults))
+	}
+	if bundle.Report.MemoryTokens == 0 {
+		t.Fatal("MemoryTokens = 0, want retrieved memory token accounting")
+	}
+	if !containsScratchpadText(bundle.Volatile.Scratchpad.Items, "command palette selection") {
+		t.Fatalf("scratchpad items = %+v, want memory result routed through volatile scratchpad", bundle.Volatile.Scratchpad.Items)
+	}
+}
+
 // --- Hardening tests ---
 
 // Test 1: CurrentInput is placed in Bundle and is last in context order
@@ -357,7 +391,7 @@ func TestRequiredSourceMissingReturnsError(t *testing.T) {
 			SortToolSchemas:        true,
 			DisallowDynamicContent: true,
 		},
-		Cache:  config.PrefixCacheConfig{RegistryPath: ".reasonforge/cache/prefixes.jsonl"},
+		Cache:  config.PrefixCacheConfig{RegistryPath: ".mimoneko/cache/prefixes.jsonl"},
 		Budget: config.BudgetConfig{WarnRatio: 0.8, BlockRatio: 1.0},
 	}
 
@@ -408,4 +442,13 @@ func TestSafePathValid(t *testing.T) {
 	if path == "" {
 		t.Error("safePath() should return resolved path for valid input")
 	}
+}
+
+func containsScratchpadText(items []scratchpad.Item, needle string) bool {
+	for _, item := range items {
+		if strings.Contains(string(item.Content), needle) {
+			return true
+		}
+	}
+	return false
 }

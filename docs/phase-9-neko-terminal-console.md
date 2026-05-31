@@ -1,6 +1,6 @@
 # Phase 9.6 - NekoForge Terminal Console
 
-NekoForge is a local terminal AI coding workbench powered by ReasonForge. It is a terminal console brand only; ReasonForge remains the underlying engine and project name.
+NekoForge is a local terminal AI coding workbench powered by NekoMIMO. It is a terminal console brand only; NekoMIMO remains the underlying engine and project name.
 
 ## Start
 
@@ -13,10 +13,25 @@ neko --model mimo-v2.5-pro
 neko --reasoning high
 neko --dry-run
 neko --no-color
-reasonforge neko
+neko --new-window
+NekoMIMO neko
 ```
 
-The startup view uses a centered soft-white `NekoForge` title and a centered silver-cyan input dialog. Typed user prompts appear in the dialog line, and submitted user/assistant messages render as centered conversation cards. `--no-color` keeps the same layout without ANSI escape codes.
+The startup view uses a compact `NekoForge` header with a small cold-cyan mascot mark, an OpenCode-style runtime composer, and a dim status bar. Interactive startup clears the old shell scrollback view and sets the terminal title so the console feels like a standalone workbench. Submitted prompts render into the terminal event stream, while the composer stays ready for the next command. `--no-color` keeps the same layout without ANSI escape codes.
+
+Runtime feedback is terminal-native rather than web-chat-like:
+
+- `thinking...`
+- `requesting model...`
+- `planning...`
+- `executing agent runtime...`
+- `generating response...`
+- `done · <latency>`
+- `+ Thought: <latency>`
+
+The folded thought line intentionally exposes only execution-event summaries and never hidden reasoning.
+
+The status bar includes context usage, tool count, memory message count, model, provider, latency/session, optional cost, and optional reasoning. `ctrl+p` cycles reasoning when the current model supports it, while `/` opens the command palette.
 
 Defaults are intentionally safe:
 
@@ -31,11 +46,16 @@ Defaults are intentionally safe:
 
 ```text
 /help
+/
+/agents
 /model
+/models
 /model test
 /model enrich
 /mode single
 /mode multi
+/new
+/reasoning
 /reasoning low
 /reasoning medium
 /reasoning high
@@ -75,7 +95,7 @@ models:
   - name: mimo-v2.5-pro
     purpose: coding
     max_output_tokens: 4096
-    max_context_tokens: 131072
+    max_context_tokens: 1000000
     reasoning_level: high
     supports_prefix_cache: false
     capability_source: preset
@@ -87,15 +107,15 @@ models:
       source: user
 ```
 
-ReasonForge only writes known capability presets. Unknown models remain unknown; the console does not guess context length, model reasoning behavior, or pricing. Pricing is never fetched from the network.
+NekoMIMO only writes known capability presets. Unknown models remain unknown; the console does not guess context length, model reasoning behavior, or pricing. Pricing is never fetched from the network.
 
 Capability helpers:
 
 ```sh
-reasonforge model discover --provider mimo --write-capabilities
-reasonforge model enrich --provider mimo
-reasonforge model enrich --model mimo-v2.5-pro
-reasonforge model enrich --all
+NekoMIMO model discover --provider mimo --write-capabilities
+NekoMIMO model enrich --provider mimo
+NekoMIMO model enrich --model mimo-v2.5-pro
+NekoMIMO model enrich --all
 ```
 
 `model enrich` fills missing capability fields without overwriting user-provided values and without writing API keys.
@@ -113,7 +133,7 @@ NekoForge can show patch next steps:
 It does not provide an apply action. Applying remains an explicit CLI command:
 
 ```sh
-reasonforge patch apply wt_xxx
+NekoMIMO patch apply wt_xxx
 ```
 
 ## Safety

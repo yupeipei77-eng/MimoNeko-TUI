@@ -3,10 +3,11 @@ package contextengine
 import (
 	"context"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/conversation"
-	"github.com/reasonforge/reasonforge/internal/prefix"
-	"github.com/reasonforge/reasonforge/internal/scratchpad"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/conversation"
+	"github.com/mimoneko/mimoneko/internal/memory"
+	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/scratchpad"
 )
 
 type TokenBudget struct {
@@ -22,16 +23,21 @@ type BuildRequest struct {
 	RepoRoot       string
 	Budget         TokenBudget
 	CurrentInput   []byte
+	MemoryScope    string
+	MemoryQuery    string
+	MemoryLimit    int
 }
 
 type VolatileContext struct {
 	ConversationTail []conversation.Event
 	Scratchpad       scratchpad.Snapshot
+	MemoryResults    []memory.SearchResult
 }
 
 type ContextReport struct {
 	PrefixTokens       int
 	ConversationTokens int
+	MemoryTokens       int
 	ScratchpadTokens   int
 	CurrentInputTokens int
 	TotalTokens        int

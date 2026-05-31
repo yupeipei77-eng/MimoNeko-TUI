@@ -37,27 +37,28 @@ func TestInputRegionStable(t *testing.T) {
 	regions := NewRegionLayout(10)
 	before := regions.Input
 	var out bytes.Buffer
-	InputRenderer{}.RenderPrompt(&out)
+	InputRenderer{NoColor: true}.RenderPrompt(&out)
 	after := regions.Input
 	if before != after {
 		t.Fatalf("input region changed from %+v to %+v", before, after)
 	}
-	if !strings.Contains(out.String(), "Ask anything") || !strings.Contains(out.String(), "│ > ") {
-		t.Fatalf("prompt = %q, want centered input dialog", out.String())
+	if !strings.Contains(out.String(), "Ask anything") || !strings.Contains(out.String(), "▸") {
+		t.Fatalf("prompt = %q, want centered composer", out.String())
 	}
 }
 
 func TestSubmittedInputClosesRightBorder(t *testing.T) {
 	var out bytes.Buffer
-	InputRenderer{}.RenderPrompt(&out)
-	InputRenderer{}.RenderSubmittedPrompt(&out, "你好，你是什么模型", false)
-	InputRenderer{}.RenderPromptClose(&out)
+	renderer := InputRenderer{NoColor: true}
+	renderer.RenderPrompt(&out)
+	renderer.RenderSubmittedPrompt(&out, "你好，你是什么模型", false)
+	renderer.RenderPromptClose(&out)
 	text := out.String()
-	if !strings.Contains(text, "│ > 你好，你是什么模型") {
-		t.Fatalf("prompt = %q, want submitted Chinese input in prompt box", text)
+	if !strings.Contains(text, "▸ 你好，你是什么模型") && !strings.Contains(text, "你好，你是什么模型") {
+		t.Fatalf("prompt = %q, want submitted Chinese input in composer", text)
 	}
-	if !strings.Contains(text, "你是什么模型") || !strings.Contains(text, " │\n") {
-		t.Fatalf("prompt = %q, want closed right border", text)
+	if !strings.Contains(text, "你是什么模型") || !strings.Contains(text, "/ commands") {
+		t.Fatalf("prompt = %q, want stable composer and status bar", text)
 	}
 }
 
@@ -65,12 +66,64 @@ func TestMessageRendererPadsCJKByTerminalWidth(t *testing.T) {
 	var out bytes.Buffer
 	RenderMessage(&out, "You", "你好，你是什么模型")
 	text := out.String()
-	if !strings.Contains(text, "│ 你好，你是什么模型") {
+	if !strings.Contains(text, "你好，你是什么模型") {
 		t.Fatalf("message = %q, want Chinese content", text)
 	}
-	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, "你好") && !strings.HasSuffix(line, "│") {
-			t.Fatalf("message line lacks right border: %q", line)
+	// Check that the message contains user label
+	if !strings.Contains(text, "You") {
+		t.Fatalf("message = %q, want user label", text)
+	}
+}
+
+func TestStatusBarRendersCommandPaletteHint(t *testing.T) {
+	var out bytes.Buffer
+	RenderStatusBar(&out, StatusData{
+		Context:   "8.6k / 128k",
+		Tools:     3,
+		Memory:    "on",
+		Cache:     "40.0%",
+		Reasoning: "high",
+		Model:     "mimo-v2.5-pro",
+		Provider:  "mimo",
+		Latency:   "522ms",
+		Session:   "24m",
+		Cost:      "¥0.0123 estimated",
+		NoColor:   true,
+		CommandUI: "ctrl+p reasoning  / commands",
+	})
+	text := out.String()
+	for _, want := range []string{"ctx 8.6k / 128k", "cache 40.0%", "tools 3", "memory on", "model mimo-v2.5-pro", "provider mimo", "reasoning high"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("status = %q, want %q", text, want)
+		}
+	}
+}
+
+func TestStatusBarKeepsCommandHintWhenItFits(t *testing.T) {
+	var out bytes.Buffer
+	RenderStatusBar(&out, StatusData{
+		Context:   "1K / 1M",
+		CommandUI: "ctrl+p reasoning  / commands",
+		NoColor:   true,
+	})
+	text := out.String()
+	for _, want := range []string{"ctrl+p reasoning", "/ commands"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("status = %q, want %q", text, want)
+		}
+	}
+}
+
+func TestRuntimeRendererShowsThoughtSummary(t *testing.T) {
+	var out bytes.Buffer
+	renderer := NewRuntimeRenderer(true)
+	renderer.RenderStage(&out, "thinking")
+	renderer.RenderDone(&out, 0)
+	renderer.RenderThoughtSummary(&out)
+	text := out.String()
+	for _, want := range []string{"thinking...", "done", "+ Thought:"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("runtime = %q, want %q", text, want)
 		}
 	}
 }

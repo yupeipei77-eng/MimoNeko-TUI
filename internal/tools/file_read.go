@@ -11,9 +11,10 @@ import (
 // FileReadTool reads file contents within the workspace root.
 type FileReadTool struct{}
 
-func (t *FileReadTool) Name() string        { return "file_read" }
-func (t *FileReadTool) Description() string  { return "Read file contents within the workspace root" }
-func (t *FileReadTool) RiskLevel() string    { return "low" }
+func (t *FileReadTool) Name() string         { return "file_read" }
+func (t *FileReadTool) Description() string   { return "Read file contents within the workspace root" }
+func (t *FileReadTool) RiskLevel() string     { return "low" }
+func (t *FileReadTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 
 func (t *FileReadTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
 	path, ok := req.Args["path"]
@@ -34,7 +35,7 @@ func (t *FileReadTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, 
 		return toolError("file_read", fmt.Sprintf("path %q is a sensitive file, reading is denied", path)), nil
 	}
 
-	// Check protected directories (.git, .reasonforge)
+	// Check protected directories (.git, .mimoneko)
 	if IsUnderProtectedDir(path) {
 		return toolError("file_read", fmt.Sprintf("path %q is under a protected directory, reading is denied", path)), nil
 	}

@@ -1,4 +1,4 @@
-// Package modelrouter implements the Model Router layer for ReasonForge.
+// Package modelrouter implements the Model Router layer for MimoNeko.
 //
 // The Model Router is responsible for:
 //   - Converting a ContextEngine Bundle into OpenAI-compatible messages.
@@ -15,7 +15,7 @@ package modelrouter
 import (
 	"context"
 
-	"github.com/reasonforge/reasonforge/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
 )
 
 // Provider is the interface that model providers must implement.

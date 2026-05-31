@@ -1,0 +1,5 @@
+# Patch manager configuration
+# Controls how diffs from worktrees are previewed and applied.
+max_diff_bytes: 131072
+require_clean_main: true
+allow_binary: false

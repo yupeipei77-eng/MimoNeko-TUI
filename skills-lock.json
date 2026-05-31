@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "skills": {
+    "api-error-handling": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "skillPath": "skills/api-error-handling/SKILL.md",
+      "computedHash": "92f7e9408df080873494325afd75b91b91b4ed75ecc27e84086fa56d7eaca382"
+    },
+    "application-security": {
+      "source": "oakoss/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/application-security/SKILL.md",
+      "computedHash": "d4fbff075f57261889f8793fce70f93426680e6dc8a0754f88d55ce3d1d1daf1"
+    },
+    "architecture": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "engineering/skills/architecture/SKILL.md",
+      "computedHash": "481afeee512fabfcd6efd78f4cc1c7024f443f8be376cf5c890a806b8511d73a"
+    },
+    "code-review": {
+      "source": "alinaqi/claude-bootstrap",
+      "sourceType": "github",
+      "skillPath": "skills/code-review/SKILL.md",
+      "computedHash": "0c011736a589da54cee33e51e400b5c04949e2cfa5ce144a42cecb5c8df1ecd9"
+    },
+    "concurrency-patterns": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "skillPath": "skills/concurrency-patterns/SKILL.md",
+      "computedHash": "dca77386dd8f911298e53e15da6fc7e167e6bb3a7dfa740b796245bd2d0096ef"
+    },
+    "css-first": {
+      "source": "luko248/css-first-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "a076776d509b55368e27bddcf1234566ce594b6cd4fdd39053dec5fd6c861a22"
+    },
+    "debug-cli": {
+      "source": "antinomyhq/forge",
+      "sourceType": "github",
+      "skillPath": ".forge/skills/debug-cli/SKILL.md",
+      "computedHash": "80dae464a98c83468b05108a96107f6359665467e1c2b5349f407efabe3f57e8"
+    },
+    "docker": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "docker/SKILL.md",
+      "computedHash": "d7cde6ea1ffb9730f2864351ab3de766830f8734d631c9326b865969d5a86460"
+    },
+    "frontend-performance": {
+      "source": "b-open-io/prompts",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-performance/SKILL.md",
+      "computedHash": "4b92ea2f097337c93cd6409aad5756da7dc0b98d77231919155ecbccec1ec2b6"
+    },
+    "git-essentials": {
+      "source": "sundial-org/awesome-openclaw-skills",
+      "sourceType": "github",
+      "skillPath": "skills/git-essentials/SKILL.md",
+      "computedHash": "127928e018a9fdacdeea1fa2589a5d50ea085e327972c7699ae434182585ac99"
+    },
+    "go-code-review": {
+      "source": "cxuu/golang-skills",
+      "sourceType": "github",
+      "skillPath": "skills/go-code-review/SKILL.md",
+      "computedHash": "08575efc2def516e03f3a9c8071ed4c523b973760446c6c5d7b282d7d4c00297"
+    },
+    "golang-dependency-management": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-dependency-management/SKILL.md",
+      "computedHash": "4042f103f0441ceeb95cc536c93186e6360dcd4d4d203846cad91a7feab8b7cf"
+    },
+    "logging-best-practices": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "skillPath": "skills/logging-best-practices/SKILL.md",
+      "computedHash": "e7fd822c9e40d192715e3e82e3dd3cb9152a554f1bf323bc9aedffa3801d5ba4"
+    },
+    "modern-go": {
+      "source": "smallnest/goal-workflow",
+      "sourceType": "github",
+      "skillPath": "skills/modern-go/SKILL.md",
+      "computedHash": "08a4f17059499147ed7ab4bf5d7880795b2c825cdfb2d3d9be97dcb869bd923b"
+    },
+    "performance-engineer": {
+      "source": "rmyndharis/antigravity-skills",
+      "sourceType": "github",
+      "skillPath": "skills/performance-engineer/SKILL.md",
+      "computedHash": "012b364e87b44c1ff50a86602325af8f2c1fa0ac2f9c3b0162f360db8ad24b8d"
+    },
+    "quality-documentation-manager": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "skillPath": "cli-tool/components/skills/enterprise-communication/quality-documentation-manager/SKILL.md",
+      "computedHash": "600c1efa1cd9c5fe31c9a93891ae2b65bfafdd94d7897614b1379226b7a21bc3"
+    },
+    "refactor": {
+      "source": "parcadei/continuous-claude-v3",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/refactor/SKILL.md",
+      "computedHash": "e6321799351e747819788812676b224011a8fa44762d6c0766b818098af2b183"
+    },
+    "secure": {
+      "source": "whawkinsiv/claude-code-superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/secure/SKILL.md",
+      "computedHash": "b1db2715d77893d46b3e2da110cbef0ad154b38831b7e2b05a58683d68e0a574"
+    },
+    "test": {
+      "source": "parcadei/continuous-claude-v3",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/test/SKILL.md",
+      "computedHash": "578d7c69b31cacf6eb17957ce5e8f2a0bae8b0ace670755c4688260aa2c70e57"
+    },
+    "yaml": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/yaml/SKILL.md",
+      "computedHash": "fe1e343b086e89286300dc3a8c754bfa0ab0d2f1ff9525dd3ade3e8dcb3739fb"
+    }
+  }
+}

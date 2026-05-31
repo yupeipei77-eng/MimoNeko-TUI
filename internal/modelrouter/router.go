@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // FallbackEntry is a single entry in the fallback chain configuration.

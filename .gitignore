@@ -1,6 +1,6 @@
-.reasonforge/
-/reasonforge.exe
-/reasonforge
+.nekonomimo/
+/mimoneko.exe
+/mimoneko
 /nul
 /0
 /prompts/
@@ -10,3 +10,4 @@ dist/
 coverage.out
 *.test
 /neko.exe
+/MimoNeko.exe

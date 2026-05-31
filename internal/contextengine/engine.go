@@ -7,20 +7,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/config"
-	"github.com/reasonforge/reasonforge/internal/conversation"
-	"github.com/reasonforge/reasonforge/internal/prefix"
-	"github.com/reasonforge/reasonforge/internal/scratchpad"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/conversation"
+	"github.com/mimoneko/mimoneko/internal/memory"
+	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/scratchpad"
 )
 
 // DefaultContextEngine assembles context bundles in the order:
-// Immutable Prefix → Conversation Log → Scratchpad → Current User Input.
+// Immutable Prefix -> Conversation Log -> Scratchpad -> Current User Input.
 type DefaultContextEngine struct {
 	prefixBuilder   prefix.PrefixBuilder
 	conversationLog conversation.ConversationLog
 	scratchpad      scratchpad.Scratchpad
 	cacheRegistry   cache.CacheRegistry
+	memoryStore     memory.MemoryStore
 	budgetGuard     *BudgetGuard
 	repoRoot        string
 	prefixCfg       config.PrefixConfig
@@ -45,6 +47,10 @@ func NewDefaultContextEngine(
 		repoRoot:        repoRoot,
 		prefixCfg:       prefixCfg,
 	}
+}
+
+func (e *DefaultContextEngine) SetMemoryStore(store memory.MemoryStore) {
+	e.memoryStore = store
 }
 
 // effectiveRoot returns the repo root from the request if set, otherwise the engine default.
@@ -106,17 +112,25 @@ func (e *DefaultContextEngine) Build(ctx context.Context, req BuildRequest) (Bun
 	var snap scratchpad.Snapshot
 	if req.TaskID != "" {
 		snap, err = e.scratchpad.Snapshot(ctx, scratchpad.Scope{
-			TaskID:     req.TaskID,
+			TaskID:      req.TaskID,
 			TokenBudget: req.Budget.Scratchpad,
 		})
 		if err != nil {
 			return Bundle{}, fmt.Errorf("snapshot scratchpad: %w", err)
 		}
 	}
+	memoryResults, memoryItems, err := e.retrieveMemory(ctx, req)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("retrieve memory: %w", err)
+	}
+	if len(memoryItems) > 0 {
+		snap.Items = mergeMemoryItems(snap.Items, memoryItems, req.Budget.Scratchpad)
+	}
 
 	// 4. Compute token estimates
 	convTokens := estimateEventTokens(convTail)
 	scratchTokens := estimateItemTokens(snap.Items)
+	memoryTokens := estimateMemoryTokens(snap.Items)
 	currentInputTokens := prefix.EstimateTokens(req.CurrentInput)
 	totalTokens := prefixDoc.TokenEstimate + convTokens + scratchTokens + currentInputTokens
 	totalBudget := req.Budget.ImmutablePrefix + req.Budget.Conversation + req.Budget.Scratchpad
@@ -143,6 +157,7 @@ func (e *DefaultContextEngine) Build(ctx context.Context, req BuildRequest) (Bun
 	report := ContextReport{
 		PrefixTokens:       prefixDoc.TokenEstimate,
 		ConversationTokens: convTokens,
+		MemoryTokens:       memoryTokens,
 		ScratchpadTokens:   scratchTokens,
 		CurrentInputTokens: currentInputTokens,
 		TotalTokens:        totalTokens,
@@ -150,10 +165,11 @@ func (e *DefaultContextEngine) Build(ctx context.Context, req BuildRequest) (Bun
 	}
 
 	return Bundle{
-		ImmutablePrefix:  prefixDoc,
+		ImmutablePrefix: prefixDoc,
 		Volatile: VolatileContext{
 			ConversationTail: convTail,
 			Scratchpad:       snap,
+			MemoryResults:    memoryResults,
 		},
 		CurrentInput:     req.CurrentInput,
 		Layers:           layers,
@@ -264,10 +280,87 @@ func estimateEventTokens(events []conversation.Event) int {
 	return total
 }
 
+func (e *DefaultContextEngine) retrieveMemory(ctx context.Context, req BuildRequest) ([]memory.SearchResult, []scratchpad.Item, error) {
+	if e.memoryStore == nil {
+		return nil, nil, nil
+	}
+	queryText := strings.TrimSpace(req.MemoryQuery)
+	if queryText == "" {
+		queryText = strings.TrimSpace(string(req.CurrentInput))
+	}
+	if queryText == "" {
+		return nil, nil, nil
+	}
+	limit := req.MemoryLimit
+	if limit <= 0 {
+		limit = 5
+	}
+	results, err := e.memoryStore.Search(ctx, memory.SearchQuery{
+		Scope: strings.TrimSpace(req.MemoryScope),
+		Text:  queryText,
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	items := make([]scratchpad.Item, 0, len(results))
+	for _, result := range results {
+		record := result.Record
+		content := fmt.Sprintf("[memory:%s score=%.2f]\n%s", record.ID, result.Score, record.Text)
+		items = append(items, scratchpad.Item{
+			ID:      "memory_" + record.ID,
+			TaskID:  req.TaskID,
+			Kind:    scratchpad.ItemKindRAGResult,
+			Content: []byte(content),
+			Metadata: map[string]string{
+				"source": "memory",
+				"id":     record.ID,
+				"scope":  record.Scope,
+			},
+			Priority:  100,
+			CreatedAt: record.UpdatedAt,
+		})
+	}
+	return results, items, nil
+}
+
+func mergeMemoryItems(existing, memoryItems []scratchpad.Item, tokenBudget int) []scratchpad.Item {
+	if len(memoryItems) == 0 {
+		return existing
+	}
+	combined := make([]scratchpad.Item, 0, len(memoryItems)+len(existing))
+	combined = append(combined, memoryItems...)
+	combined = append(combined, existing...)
+	if tokenBudget <= 0 {
+		return combined
+	}
+	selected := make([]scratchpad.Item, 0, len(combined))
+	totalTokens := 0
+	for _, item := range combined {
+		tokens := prefix.EstimateTokens(item.Content)
+		if totalTokens+tokens > tokenBudget {
+			continue
+		}
+		totalTokens += tokens
+		selected = append(selected, item)
+	}
+	return selected
+}
+
 func estimateItemTokens(items []scratchpad.Item) int {
 	total := 0
 	for _, i := range items {
 		total += prefix.EstimateTokens(i.Content)
+	}
+	return total
+}
+
+func estimateMemoryTokens(items []scratchpad.Item) int {
+	total := 0
+	for _, item := range items {
+		if item.Kind == scratchpad.ItemKindRAGResult && item.Metadata["source"] == "memory" {
+			total += prefix.EstimateTokens(item.Content)
+		}
 	}
 	return total
 }

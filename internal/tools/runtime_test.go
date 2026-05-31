@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/mimoneko/mimoneko/internal/events"
 )
 
 func TestRuntimeUnknownTool(t *testing.T) {
@@ -33,7 +33,7 @@ func TestRuntimeDisabledTool(t *testing.T) {
 		DenyReadPaths:  DefaultDenyReadPaths(),
 	})
 
-	auditPath := filepath.Join(root, ".reasonforge", "logs", "tools.jsonl")
+	auditPath := filepath.Join(root, ".mimoneko", "logs", "tools.jsonl")
 	audit, err := NewAuditLog(auditPath)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestRuntimeMissingRepoRoot(t *testing.T) {
 	_ = registry.Register(&FileReadTool{})
 
 	guard := NewSafetyGuard(ToolPolicy{})
-	auditPath := filepath.Join(root, ".reasonforge", "logs", "tools.jsonl")
+	auditPath := filepath.Join(root, ".mimoneko", "logs", "tools.jsonl")
 	audit, _ := NewAuditLog(auditPath)
 	defer audit.Close()
 
@@ -215,6 +215,7 @@ type slowTool struct{}
 func (t *slowTool) Name() string        { return "slow_tool" }
 func (t *slowTool) Description() string { return "A slow test tool" }
 func (t *slowTool) RiskLevel() string   { return "low" }
+func (t *slowTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 func (t *slowTool) Run(ctx context.Context, _ ToolRequest) (ToolResponse, error) {
 	select {
 	case <-time.After(30 * time.Second):

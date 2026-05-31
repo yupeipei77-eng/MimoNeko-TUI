@@ -1,0 +1,6 @@
+# Test validation configuration (Phase 6)
+# Controls how test validation is executed during patch review.
+default_test_commands:
+  - go-test
+max_output_bytes: 65536
+timeout_seconds: 120

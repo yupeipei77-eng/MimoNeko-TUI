@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 func TestModelChatSuccess(t *testing.T) {
@@ -18,7 +18,7 @@ func TestModelChatSuccess(t *testing.T) {
 		if r.URL.Path != "/chat/completions" {
 			t.Fatalf("path = %s, want /chat/completions", r.URL.Path)
 		}
-		fmt.Fprint(w, `{"model":"chat-model","choices":[{"message":{"content":"你好，我在。"}}]}`)
+		fmt.Fprint(w, `{"model":"chat-model","choices":[{"message":{"content":"你好，我在。"}}],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}`)
 	}))
 	defer server.Close()
 	saveChatModel(t, root, server.URL)
@@ -29,6 +29,27 @@ func TestModelChatSuccess(t *testing.T) {
 	}
 	if result.Response != "你好，我在。" || result.Provider != "chat" || result.Model != "chat-model" {
 		t.Fatalf("result = %+v, want sanitized chat response", result)
+	}
+	if result.PromptTokens != 12 || result.CompletionTokens != 5 || result.TotalTokens != 17 {
+		t.Fatalf("usage = %+v, want parsed usage", result)
+	}
+}
+
+func TestModelChatParsesCachedTokens(t *testing.T) {
+	root := setupChatRoot(t)
+	t.Setenv("CHAT_API_KEY", "sk-chat-cache")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"model":"chat-model","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_tokens_details":{"cached_tokens":40}}}`)
+	}))
+	defer server.Close()
+	saveChatModel(t, root, server.URL)
+
+	result, err := Chat(context.Background(), root, ChatOptions{Provider: "chat", Model: "chat-model", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CachedTokens != 40 || !result.CachedTokensKnown {
+		t.Fatalf("result = %+v, want cached token details", result)
 	}
 }
 

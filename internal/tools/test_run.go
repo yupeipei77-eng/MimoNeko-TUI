@@ -22,9 +22,10 @@ type TestCommandDef struct {
 	TimeoutSeconds int
 }
 
-func (t *TestRunTool) Name() string        { return "test_run" }
-func (t *TestRunTool) Description() string  { return "Execute predefined test commands from configuration" }
-func (t *TestRunTool) RiskLevel() string    { return "medium" }
+func (t *TestRunTool) Name() string         { return "test_run" }
+func (t *TestRunTool) Description() string   { return "Execute predefined test commands from configuration" }
+func (t *TestRunTool) RiskLevel() string     { return "medium" }
+func (t *TestRunTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 
 func (t *TestRunTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
 	commandName, ok := req.Args["command_name"]

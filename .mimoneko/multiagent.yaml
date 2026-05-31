@@ -1,0 +1,10 @@
+# Multi-agent runtime configuration (Phase 7)
+# Controls how Planner->Coder->Reviewer iterations work.
+max_iterations: 2
+max_allowed_iterations: 5
+default_worktree: true
+default_dry_run: true
+planner_model: ""
+coder_model: ""
+reviewer_model: ""
+reviewer_use_model_review: false

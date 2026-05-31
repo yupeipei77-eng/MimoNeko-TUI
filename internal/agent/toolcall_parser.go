@@ -22,7 +22,7 @@ func ParseToolCall(text string) (*ToolCall, error) {
 	start := -1
 	depth := 0
 	var found []*ToolCall
-	for i := 0; i < len(text); i++ {
+	for i := range len(text) {
 		if text[i] == '{' {
 			if depth == 0 {
 				start = i
@@ -97,7 +97,7 @@ func ExtractModelText(text string) string {
 	// Find and remove the tool_call JSON object
 	start := -1
 	depth := 0
-	for i := 0; i < len(text); i++ {
+	for i := range len(text) {
 		if text[i] == '{' {
 			if depth == 0 {
 				start = i

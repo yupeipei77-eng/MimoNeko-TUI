@@ -1,0 +1,10 @@
+# Event system configuration (Phase 8)
+# Controls structured event recording for run progress tracking.
+enabled: true
+store_path: .nekonomimo/events/run_events.jsonl
+max_message_bytes: 2048
+max_metadata_value_bytes: 512
+emit_tool_events: true
+emit_model_events: true
+emit_patch_events: true
+emit_validation_events: true

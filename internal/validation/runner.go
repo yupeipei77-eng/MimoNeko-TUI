@@ -1,4 +1,4 @@
-// Package validation implements the test validation runner for ReasonForge.
+// Package validation implements the test validation runner for MimoNeko.
 //
 // ValidationRunner executes test commands through ToolRuntime (test_run tool),
 // never directly executing arbitrary shell commands. All test commands must
@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/review"
-	"github.com/reasonforge/reasonforge/internal/tools"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/tools"
 )
 
 // DefaultValidationConfig returns safe defaults for validation.

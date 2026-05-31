@@ -3,7 +3,7 @@ package multiagent
 import (
 	"strings"
 
-	"github.com/reasonforge/reasonforge/internal/review"
+	"github.com/mimoneko/mimoneko/internal/review"
 )
 
 // SharedTaskContext carries structured information between agents in a multi-agent run.

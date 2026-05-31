@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/prefix"
 )
 
 // JSONLCacheRegistry is a JSONL-backed implementation of CacheRegistry.

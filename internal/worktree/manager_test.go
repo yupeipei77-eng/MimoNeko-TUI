@@ -23,7 +23,7 @@ func setupGitRepo(t *testing.T) string {
 	}
 
 	// Configure git user
-	cmd = exec.Command("git", "config", "user.email", "test@reasonforge.dev")
+	cmd = exec.Command("git", "config", "user.email", "test@MimoNeko.dev")
 	cmd.Dir = root
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git config email: %v: %s", err, string(output))
@@ -95,8 +95,8 @@ func TestCreateWorktree(t *testing.T) {
 	if info.State != WorktreeStateActive {
 		t.Fatalf("State = %q, want active", info.State)
 	}
-	if !strings.HasPrefix(info.Branch, "reasonforge/test-task-1/") {
-		t.Fatalf("Branch = %q, want prefix reasonforge/test-task-1/", info.Branch)
+	if !strings.HasPrefix(info.Branch, "MimoNeko/test-task-1/") {
+		t.Fatalf("Branch = %q, want prefix MimoNeko/test-task-1/", info.Branch)
 	}
 
 	// Worktree directory should exist
@@ -104,15 +104,15 @@ func TestCreateWorktree(t *testing.T) {
 		t.Fatalf("worktree path %q does not exist", info.Path)
 	}
 
-	// Worktree path should be under .reasonforge/worktrees
+	// Worktree path should be under .mimoneko/worktrees
 	if !IsWorktreePathSafe(root, info.Path) {
-		t.Fatalf("worktree path %q is not under .reasonforge/worktrees", info.Path)
+		t.Fatalf("worktree path %q is not under .mimoneko/worktrees", info.Path)
 	}
 }
 
 func TestCreateWorktreeRequiresGitRepo(t *testing.T) {
 	root := t.TempDir() // not a git repo
-	registryPath := filepath.Join(root, ".reasonforge", "worktrees", "registry.jsonl")
+	registryPath := filepath.Join(root, ".mimoneko", "worktrees", "registry.jsonl")
 	registry, err := NewRegistry(registryPath)
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
@@ -132,7 +132,7 @@ func TestCreateWorktreeRequiresGitRepo(t *testing.T) {
 	}
 }
 
-func TestWorktreePathUnderDotReasonforge(t *testing.T) {
+func TestWorktreePathUnderDotMimoNeko(t *testing.T) {
 	root := setupGitRepo(t)
 	mgr := setupManager(t, root)
 
@@ -145,7 +145,7 @@ func TestWorktreePathUnderDotReasonforge(t *testing.T) {
 	}
 
 	absPath, _ := filepath.Abs(info.Path)
-	absExpected, _ := filepath.Abs(filepath.Join(root, ".reasonforge", "worktrees"))
+	absExpected, _ := filepath.Abs(filepath.Join(root, ".mimoneko", "worktrees"))
 	if !strings.HasPrefix(absPath, absExpected+string(os.PathSeparator)) {
 		t.Fatalf("path %q is not under %q", absPath, absExpected)
 	}
@@ -403,7 +403,7 @@ func TestRegistryPermissions(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	registryPath := filepath.Join(root, ".reasonforge", "worktrees", "registry.jsonl")
+	registryPath := filepath.Join(root, ".mimoneko", "worktrees", "registry.jsonl")
 
 	registry, err := NewRegistry(registryPath)
 	if err != nil {
@@ -444,8 +444,8 @@ func TestRegistryAppendOnly(t *testing.T) {
 		ID:        "wt_001",
 		TaskID:    "task-1",
 		RepoRoot:  "/tmp/repo",
-		Path:      "/tmp/repo/.reasonforge/worktrees/task-1/wt_001",
-		Branch:    "reasonforge/task-1/001",
+		Path:      "/tmp/repo/.mimoneko/worktrees/task-1/wt_001",
+		Branch:    "MimoNeko/task-1/001",
 		BaseRef:   "HEAD",
 		CreatedAt: time.Now().UTC(),
 		State:     WorktreeStateActive,
@@ -459,8 +459,8 @@ func TestRegistryAppendOnly(t *testing.T) {
 		ID:        "wt_002",
 		TaskID:    "task-2",
 		RepoRoot:  "/tmp/repo",
-		Path:      "/tmp/repo/.reasonforge/worktrees/task-2/wt_002",
-		Branch:    "reasonforge/task-2/002",
+		Path:      "/tmp/repo/.mimoneko/worktrees/task-2/wt_002",
+		Branch:    "MimoNeko/task-2/002",
 		BaseRef:   "HEAD",
 		CreatedAt: time.Now().UTC(),
 		State:     WorktreeStateActive,
@@ -558,7 +558,7 @@ func TestIsPathTraversal(t *testing.T) {
 func TestIsWorktreePathSafe(t *testing.T) {
 	root := t.TempDir()
 
-	safe := filepath.Join(root, ".reasonforge", "worktrees", "task-1", "wt_001")
+	safe := filepath.Join(root, ".mimoneko", "worktrees", "task-1", "wt_001")
 	if !IsWorktreePathSafe(root, safe) {
 		t.Fatalf("expected %q to be safe", safe)
 	}

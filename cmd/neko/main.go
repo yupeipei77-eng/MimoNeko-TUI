@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/reasonforge/reasonforge/internal/cli"
+	"github.com/mimoneko/mimoneko/internal/cli"
 )
 
 func main() {

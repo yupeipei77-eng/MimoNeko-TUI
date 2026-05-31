@@ -296,7 +296,7 @@ func TestRuleBasedReviewer_SensitivePaths(t *testing.T) {
 	cfg := DefaultRuleBasedReviewerConfig()
 	reviewer := NewRuleBasedReviewer(cfg)
 
-	paths := []string{".env", "cert.pem", "id_rsa.key", ".git/config", ".reasonforge/config.yaml"}
+	paths := []string{".env", "cert.pem", "id_rsa.key", ".git/config", ".mimoneko/config.yaml"}
 	for _, path := range paths {
 		preview := PreviewData{
 			WorktreeID: "wt_test",

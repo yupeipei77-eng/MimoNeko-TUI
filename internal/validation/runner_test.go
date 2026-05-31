@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/review"
-	"github.com/reasonforge/reasonforge/internal/tools"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/tools"
 )
 
 // mockToolRuntime implements tools.ToolRuntime for testing.
@@ -155,7 +155,7 @@ func TestValidationRunner_UsesWorktreePath(t *testing.T) {
 	}
 	runner := NewValidationRunner(rt, DefaultValidationConfig())
 
-	worktreePath := "/tmp/repo/.reasonforge/worktrees/task_001/wt_abc"
+	worktreePath := "/tmp/repo/.mimoneko/worktrees/task_001/wt_abc"
 
 	_, err := runner.Validate(context.Background(), review.ValidationRequest{
 		RepoRoot:       worktreePath,

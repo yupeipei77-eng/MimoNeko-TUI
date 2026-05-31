@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 	"unicode"
 )
 
 const (
-	CanvasWidth   = 104
-	DialogWidth   = 78
+	CanvasWidth   = 132
+	DialogWidth   = 112
 	DialogPadding = (CanvasWidth - DialogWidth) / 2
-	ansiReset     = "\x1b[0m"
-	ansiErrorRed  = "\x1b[31m"
 )
 
 type Message struct {
@@ -24,6 +23,7 @@ type Message struct {
 type MessageRenderer struct {
 	history []Message
 	NoColor bool
+	Delay   time.Duration
 }
 
 func NewMessageRenderer(noColor bool) MessageRenderer {
@@ -55,97 +55,210 @@ func (r *MessageRenderer) History() []Message {
 	return out
 }
 
+func (r *MessageRenderer) Reset() {
+	r.history = nil
+}
+
 func (r *MessageRenderer) RenderLast(w io.Writer) {
 	if len(r.history) == 0 {
 		return
 	}
 	msg := r.history[len(r.history)-1]
-	RenderMessageStyled(w, msg.Role, msg.Text, msg.Error, r.NoColor)
+	RenderMessageStyled(w, msg.Role, msg.Text, msg.Error, r.NoColor, r.Delay)
 }
 
 func RenderMessage(w io.Writer, role, text string) {
-	RenderMessageStyled(w, role, text, false, true)
+	RenderMessageStyled(w, role, text, false, true, 0)
 }
 
 func RenderErrorMessage(w io.Writer, role, text string, noColor bool) {
-	RenderMessageStyled(w, role, text, true, noColor)
+	RenderMessageStyled(w, role, text, true, noColor, 0)
 }
 
-func RenderMessageStyled(w io.Writer, role, text string, isError, noColor bool) {
+func RenderMessageStyled(w io.Writer, role, text string, isError, noColor bool, delay time.Duration) {
 	if role == "" {
 		role = "Message"
 	}
-	indent := strings.Repeat(" ", DialogPadding)
-	innerWidth := DialogWidth - 4
-	title := " " + role + " "
-	ruleWidth := DialogWidth - 2 - visibleLen(title)
-	if ruleWidth < 1 {
-		ruleWidth = 1
+	if isUserRole(role) {
+		renderUserBlock(w, text, noColor)
+		return
 	}
-	writeStyledLine(w, fmt.Sprintf("%s╭%s%s╮\n", indent, title, strings.Repeat("─", ruleWidth)), isError, noColor)
+	renderAssistantBlock(w, role, text, isError, noColor, delay)
+}
+
+func renderUserBlock(w io.Writer, text string, noColor bool) {
+	indent := strings.Repeat(" ", DialogPadding)
+	innerWidth := DialogWidth - 6
+
+	// User label with accent icon
+	fmt.Fprintf(w, "%s%s %s\n", indent, paintUserAccent("▸", noColor), paintBold("You", noColor))
+
+	// Message content with subtle cyan-tinted background
 	for _, line := range splitLines(text) {
 		for _, wrapped := range wrapLine(line, innerWidth) {
-			writeStyledLine(w, fmt.Sprintf("%s│ %s │\n", indent, padRight(wrapped, innerWidth)), isError, noColor)
+			display := truncateToWidth(wrapped, innerWidth)
+			panel := "  " + padRight(display, innerWidth+2)
+			fmt.Fprintf(w, "%s%s\n", indent, paintUserPanel(panel, noColor))
 		}
 	}
-	writeStyledLine(w, fmt.Sprintf("%s╰%s╯\n", indent, strings.Repeat("─", DialogWidth-2)), isError, noColor)
 	fmt.Fprintln(w)
+}
+
+func renderAssistantBlock(w io.Writer, role, text string, isError, noColor bool, delay time.Duration) {
+	indent := strings.Repeat(" ", DialogPadding)
+	innerWidth := DialogWidth - 2
+	label := emptyAs(role, "MIMO")
+
+	// Assistant label with icon
+	if isError {
+		fmt.Fprintf(w, "%s%s %s\n", indent, paintError("✗", noColor), paintBold(label, noColor))
+	} else {
+		fmt.Fprintf(w, "%s%s %s\n", indent, paintAccent("●", noColor), paintMuted(label, noColor))
+	}
+
+	// Message content
+	for _, line := range splitLines(text) {
+		wrappedLines := wrapLine(line, innerWidth)
+		for _, wrapped := range wrappedLines {
+			display := truncateToWidth(wrapped, innerWidth)
+			fmt.Fprint(w, indent)
+			writeStreamingText(w, display, isError, noColor, delay)
+			fmt.Fprintln(w)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+func isUserRole(role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	return role == "user" || role == "you"
 }
 
 func writeStyledLine(w io.Writer, line string, isError, noColor bool) {
 	if isError && !noColor {
-		fmt.Fprint(w, ansiErrorRed, line, ansiReset)
+		fmt.Fprint(w, paintError(line, noColor))
 		return
 	}
 	fmt.Fprint(w, line)
+}
+
+func writeStreamingText(w io.Writer, text string, isError, noColor bool, delay time.Duration) {
+	if delay <= 0 {
+		writeStyledLine(w, text, isError, noColor)
+		return
+	}
+	for _, r := range text {
+		writeStyledLine(w, string(r), isError, noColor)
+		time.Sleep(delay)
+	}
 }
 
 type InputRenderer struct {
 	Model     string
 	Provider  string
 	Reasoning string
+	Context   string
+	Cost      string
+	Tools     int
+	Memory    string
+	Cache     string
+	Latency   string
+	Session   string
+	CommandUI string
+	NoColor   bool
 }
 
 func NewInputRenderer(model, provider, reasoning string) InputRenderer {
 	return InputRenderer{
 		Model:     emptyAs(model, "model"),
 		Provider:  emptyAs(provider, "provider"),
-		Reasoning: emptyAs(reasoning, "reasoning"),
+		Reasoning: strings.TrimSpace(reasoning),
 	}
 }
 
 func (r InputRenderer) RenderPrompt(w io.Writer) {
 	indent := strings.Repeat(" ", DialogPadding)
-	innerWidth := DialogWidth - 4
-	fmt.Fprintf(w, "%s╭%s╮\n", indent, strings.Repeat("─", DialogWidth-2))
-	fmt.Fprintf(w, "%s│ %s │\n", indent, padRight(`Ask anything...  "Read README and summarize it"`, innerWidth))
+	innerWidth := DialogWidth - 5
+
+	// Top border with accent corners
+	fmt.Fprintf(w, "%s%s%s%s\n", indent,
+		paintAccent("╭", r.NoColor),
+		paintMuted(strings.Repeat("─", innerWidth+2), r.NoColor),
+		paintAccent("╮", r.NoColor))
+
+	// Placeholder text with icon
+	placeholderText := "Ask anything..."
+	exampleText := `"Fix broken tests"`
+	placeholder := padRight("  "+placeholderText+"  "+exampleText, innerWidth)
+	fmt.Fprintf(w, "%s%s %s %s\n", indent,
+		paintAccent("│", r.NoColor),
+		paintDim(placeholder, r.NoColor),
+		paintAccent("│", r.NoColor))
+
 	r.RenderPromptInput(w)
 }
 
 func (r InputRenderer) RenderPromptInput(w io.Writer) {
 	indent := strings.Repeat(" ", DialogPadding)
-	innerWidth := DialogWidth - 4
-	meta := fmt.Sprintf("Chat  ·  %s  ·  %s  ·  %s", r.Model, r.Provider, r.Reasoning)
-	fmt.Fprintf(w, "%s│ %s │\n", indent, padRight(meta, innerWidth))
-	fmt.Fprintf(w, "%s│ > ", indent)
+	innerWidth := DialogWidth - 5
+	parts := []string{"Build", r.Model, r.Provider}
+	if strings.TrimSpace(r.Reasoning) != "" {
+		parts = append(parts, strings.TrimSpace(r.Reasoning))
+	}
+	meta := strings.Join(parts, " · ")
+
+	// Meta line with subtle styling
+	fmt.Fprintf(w, "%s%s %s %s\n", indent,
+		paintAccent("│", r.NoColor),
+		paintMuted(padRight("  "+meta, innerWidth), r.NoColor),
+		paintAccent("│", r.NoColor))
+
+	// Input line with prompt cursor
+	promptSymbol := paintAccent("▸", r.NoColor)
+	fmt.Fprintf(w, "%s%s %s %s", indent,
+		paintAccent("│", r.NoColor),
+		paintPanel(padRight("  "+promptSymbol+" ", innerWidth), r.NoColor),
+		paintAccent("│", r.NoColor))
 }
 
-func (InputRenderer) RenderPromptClose(w io.Writer) {
+func (r InputRenderer) RenderPromptClose(w io.Writer) {
 	indent := strings.Repeat(" ", DialogPadding)
-	fmt.Fprintf(w, "%s╰%s╯\n\n", indent, strings.Repeat("─", DialogWidth-2))
+	innerWidth := DialogWidth - 5
+
+	// Bottom border
+	fmt.Fprintf(w, "%s%s%s%s\n", indent,
+		paintAccent("╰", r.NoColor),
+		paintMuted(strings.Repeat("─", innerWidth+2), r.NoColor),
+		paintAccent("╯", r.NoColor))
+
+	RenderStatusBar(w, StatusData{
+		Context:   r.Context,
+		Tools:     r.Tools,
+		Memory:    r.Memory,
+		Cache:     r.Cache,
+		Reasoning: r.Reasoning,
+		Model:     r.Model,
+		Provider:  r.Provider,
+		Latency:   r.Latency,
+		Session:   r.Session,
+		Cost:      r.Cost,
+		NoColor:   r.NoColor,
+		CommandUI: r.CommandUI,
+	})
+	fmt.Fprintln(w)
 }
 
-func (InputRenderer) RenderSubmittedPrompt(w io.Writer, input string, rewrite bool) {
+func (r InputRenderer) RenderSubmittedPrompt(w io.Writer, input string, rewrite bool) {
 	indent := strings.Repeat(" ", DialogPadding)
-	innerWidth := DialogWidth - 4
-	line := "> " + input
+	innerWidth := DialogWidth - 5
+	line := "  > " + input
 	if rewrite {
 		fmt.Fprint(w, "\x1b[1A\r\x1b[2K")
-		fmt.Fprintf(w, "%s│ %s │\n", indent, padRight(line, innerWidth))
+		fmt.Fprintf(w, "%s%s%s\n", indent, paintLabel("▌", r.NoColor), paintPanel(padRight(line, innerWidth), r.NoColor))
 		return
 	}
-	remainingWidth := innerWidth - terminalWidth("> ")
-	fmt.Fprintf(w, "%s │\n", padRight(input, remainingWidth))
+	remainingWidth := innerWidth - terminalWidth("  > ")
+	fmt.Fprintf(w, "%s\n", padRight(input, remainingWidth))
 }
 
 func splitLines(text string) []string {

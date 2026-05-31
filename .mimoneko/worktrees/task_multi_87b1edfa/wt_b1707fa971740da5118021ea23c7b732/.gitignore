@@ -1,0 +1,12 @@
+.nekonomimo/
+/reasonforge.exe
+/reasonforge
+/nul
+/0
+/prompts/
+/schemas/
+bin/
+dist/
+coverage.out
+*.test
+/neko.exe

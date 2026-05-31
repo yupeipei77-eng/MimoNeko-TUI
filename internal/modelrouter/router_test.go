@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/contextengine"
-	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/prefix"
 )
 
 // stubCacheRegistry is a test CacheRegistry that records observations.
@@ -387,7 +387,7 @@ func TestRouterEmptyModelUsesFallbackChainEntryModels(t *testing.T) {
 	)
 
 	resp, err := router.Complete(context.Background(), CompletionRequest{
-		Model:  "", // empty — should use default + fallback_chain entry models
+		Model:  "", // empty → should use default + fallback_chain entry models
 		Bundle: makeTestBundle(),
 	})
 	if err != nil {

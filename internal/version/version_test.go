@@ -9,7 +9,7 @@ func TestString(t *testing.T) {
 	})
 
 	Version = "test-version"
-	if got := String(); got != "reasonforge test-version" {
-		t.Fatalf("String() = %q, want reasonforge test-version", got)
+	if got := String(); got != "MimoNeko test-version" {
+		t.Fatalf("String() = %q, want MimoNeko test-version", got)
 	}
 }

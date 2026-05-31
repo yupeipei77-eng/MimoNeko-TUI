@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/task"
-	"github.com/reasonforge/reasonforge/internal/worktree"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/mimoneko/mimoneko/internal/worktree"
 )
 
 // setupPatchTest creates a git repo with a worktree that has modifications.
@@ -22,7 +22,7 @@ func setupPatchTest(t *testing.T) (string, *GitPatchManager, string) {
 	// Create git repo
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	// Create initial files
@@ -308,7 +308,7 @@ func TestApplyWithViolationsRefuses(t *testing.T) {
 func TestApplyDirtyMainRefuses(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -405,7 +405,7 @@ func TestApplyDryRunNoModification(t *testing.T) {
 func TestApplySuccessModifiesMain(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -529,7 +529,7 @@ func TestDiscardDoesNotAffectMain(t *testing.T) {
 func TestBinaryDiffDenied(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -601,7 +601,7 @@ func TestBinaryDiffDenied(t *testing.T) {
 func TestSensitiveFileViolation(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -683,7 +683,7 @@ func (m *failingUpdateStateManager) UpdateState(_ context.Context, _ string, _ w
 func TestApplyNewUntrackedFileSuccess(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -774,7 +774,7 @@ func TestApplyNewUntrackedFileSuccess(t *testing.T) {
 func TestPreviewDiffIncludesUntrackedFile(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -839,7 +839,7 @@ func TestPreviewDiffIncludesUntrackedFile(t *testing.T) {
 func TestApplyNewSensitiveFileRejected(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -922,7 +922,7 @@ func TestApplyNewSensitiveFileRejected(t *testing.T) {
 func TestApplyNewFileDryRunDoesNotWrite(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -985,7 +985,7 @@ func TestApplyNewFileDryRunDoesNotWrite(t *testing.T) {
 func TestApplyStateUpdatedToApplied(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -1054,7 +1054,7 @@ func TestApplyStateUpdatedToApplied(t *testing.T) {
 func TestApplyStateUpdateFailureObservable(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -1125,7 +1125,7 @@ func TestApplyStateUpdateFailureObservable(t *testing.T) {
 func TestPreviewSensitiveUntrackedFileDoesNotExposeContent(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -1197,7 +1197,7 @@ func TestPreviewSensitiveUntrackedFileDoesNotExposeContent(t *testing.T) {
 func TestPreviewSafeUntrackedFileStillIncludesDiff(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -1269,7 +1269,7 @@ func TestPreviewSafeUntrackedFileStillIncludesDiff(t *testing.T) {
 func TestApplySafeUntrackedFileStillWorks(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -1338,7 +1338,7 @@ func TestApplySafeUntrackedFileStillWorks(t *testing.T) {
 func TestApplySensitiveUntrackedFileRejected(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -1420,7 +1420,7 @@ func TestApplySensitiveUntrackedFileRejected(t *testing.T) {
 func TestPreviewTrackedSensitiveModificationDoesNotExposeContent(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGit(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGit(t, root, "config", "user.name", "Test")
 
 	// Create and commit a tracked .env file

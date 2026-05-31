@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/mimoneko/mimoneko/internal/events"
 )
 
 // mockStore implements Store for testing.
@@ -148,7 +148,7 @@ func TestDashboardHandlesMissingEventStore(t *testing.T) {
 	RenderRunsList(&buf, nil, 0)
 
 	output := buf.String()
-	if !strings.Contains(output, "ReasonForge Dashboard") {
+	if !strings.Contains(output, "MimoNeko Dashboard") {
 		t.Error("expected dashboard header")
 	}
 }
@@ -237,7 +237,7 @@ func TestDashboardLimitRuns(t *testing.T) {
 	output := buf.String()
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
-	// Header lines: "ReasonForge Dashboard", blank, "Recent Runs", column header, then data
+	// Header lines: "MimoNeko Dashboard", blank, "Recent Runs", column header, then data
 	// With limit=3, we expect 3 data rows
 	dataLines := 0
 	for _, line := range lines {

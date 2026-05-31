@@ -73,7 +73,7 @@ type WorktreeInfo struct {
 
 // WorktreeManager manages isolated git worktrees for agent task execution.
 //
-// All worktrees are created under .reasonforge/worktrees/<task_id>/<worktree_id>.
+// All worktrees are created under .mimoneko/worktrees/<task_id>/<worktree_id>.
 // The manager maintains a JSONL registry of all worktrees it has created.
 // It will never delete worktrees it did not create.
 type WorktreeManager interface {

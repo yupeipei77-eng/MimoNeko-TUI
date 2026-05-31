@@ -1,4 +1,4 @@
-// Package multiagent implements the Multi-Agent Runtime for ReasonForge.
+// Package multiagent implements the Multi-Agent Runtime for MimoNeko.
 //
 // The multi-agent runtime orchestrates Planner -> Coder -> Reviewer agents
 // in an iteration loop. It does NOT reimplement tools, patches, or reviews;
@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/agent"
-	"github.com/reasonforge/reasonforge/internal/review"
-	"github.com/reasonforge/reasonforge/internal/task"
+	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/task"
 )
 
 // MultiAgentState represents the lifecycle state of a multi-agent run.

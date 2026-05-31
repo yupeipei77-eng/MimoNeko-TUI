@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/reasonforge/reasonforge/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
 )
 
 func TestBundleToMessagesOrder(t *testing.T) {

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/agent"
-	"github.com/reasonforge/reasonforge/internal/review"
-	"github.com/reasonforge/reasonforge/internal/task"
-	"github.com/reasonforge/reasonforge/internal/worktree"
+	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/mimoneko/mimoneko/internal/worktree"
 )
 
 // ReviewerAgent adapts PatchReviewManager for the multi-agent pipeline.
@@ -63,11 +63,21 @@ type ReviewRequest struct {
 	Model          string
 }
 
+// ReviewCategory classifies the nature of review findings.
+type ReviewCategory string
+
+const (
+	ReviewCategoryCodeIssue   ReviewCategory = "code_issue"
+	ReviewCategoryPlanIssue   ReviewCategory = "plan_issue"
+	ReviewCategorySafetyIssue ReviewCategory = "safety_issue"
+)
+
 // ReviewResult is the output of ReviewerAgent.Review.
 type ReviewResult struct {
 	Report         review.PatchReviewReport
 	Message        AgentMessage
 	Recommendation review.ReviewRecommendation
+	Category       ReviewCategory
 }
 
 // Review delegates to PatchReviewManager and optionally generates a summary.
@@ -116,10 +126,13 @@ func (r *ReviewerAgent) Review(ctx context.Context, req ReviewRequest) (ReviewRe
 	// Build the reviewer message
 	messageContent := buildReviewerMessage(report, recommendation, summary)
 
+	// Classify the review findings
+	category := classifyReviewFindings(report)
+
 	msg := AgentMessage{
 		Role:      AgentRoleReviewer,
 		Content:   messageContent,
-		Metadata:  map[string]string{"recommendation": string(recommendation), "risk_level": report.RiskScore.Level},
+		Metadata:  map[string]string{"recommendation": string(recommendation), "risk_level": report.RiskScore.Level, "category": string(category)},
 		CreatedAt: time.Now().UTC(),
 	}
 
@@ -127,6 +140,7 @@ func (r *ReviewerAgent) Review(ctx context.Context, req ReviewRequest) (ReviewRe
 		Report:         report,
 		Message:        msg,
 		Recommendation: recommendation,
+		Category:       category,
 	}, nil
 }
 
@@ -152,4 +166,32 @@ func buildReviewerMessage(report review.PatchReviewReport, recommendation review
 	}
 
 	return msg
+}
+
+// classifyReviewFindings determines the primary review category based on findings.
+func classifyReviewFindings(report review.PatchReviewReport) ReviewCategory {
+	// Safety violations take priority
+	if len(report.Preview.Violations) > 0 {
+		return ReviewCategorySafetyIssue
+	}
+
+	// Check for critical security findings
+	for _, f := range report.Findings {
+		if f.Severity == review.SeverityCritical && f.Category == review.CategorySecurity {
+			return ReviewCategorySafetyIssue
+		}
+	}
+
+	// Check for plan-level issues (very large changes suggest plan problems)
+	if report.Preview.Summary.FilesChanged > 10 || report.Preview.Summary.Additions+report.Preview.Summary.Deletions > 500 {
+		return ReviewCategoryPlanIssue
+	}
+
+	// Check if validation failed (code issue)
+	if report.Validation != nil && !report.Validation.Success {
+		return ReviewCategoryCodeIssue
+	}
+
+	// Default to code issue
+	return ReviewCategoryCodeIssue
 }

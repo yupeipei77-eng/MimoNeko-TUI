@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 func TestModelCapabilityPresetMatchesKnownModel(t *testing.T) {
@@ -14,7 +14,7 @@ func TestModelCapabilityPresetMatchesKnownModel(t *testing.T) {
 	if !ok {
 		t.Fatal("expected known mimo capability")
 	}
-	if capability.MaxContextTokens != 131072 || capability.ReasoningLevel != "high" {
+	if capability.MaxContextTokens != 1_000_000 || capability.ReasoningLevel != "high" {
 		t.Fatalf("capability = %+v, want context and reasoning", capability)
 	}
 }
@@ -54,8 +54,8 @@ func TestModelEnrichWritesMissingContextLength(t *testing.T) {
 		t.Fatalf("updated = %+v, want one update", result.Updated)
 	}
 	model := loadCapabilityModel(t, root)
-	if model.MaxContextTokens != 131072 {
-		t.Fatalf("max_context_tokens = %d, want 131072", model.MaxContextTokens)
+	if model.MaxContextTokens != 1_000_000 {
+		t.Fatalf("max_context_tokens = %d, want 1000000", model.MaxContextTokens)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestCapabilityDoesNotLeakAPIKey(t *testing.T) {
 	if _, err := Enrich(root, EnrichOptions{All: true}); err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(filepath.Join(root, ".reasonforge", "models.yaml"))
+	content, err := os.ReadFile(filepath.Join(root, ".mimoneko", "models.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

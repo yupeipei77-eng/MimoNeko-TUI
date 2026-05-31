@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // ImmutablePrefixBuilder builds byte-stable immutable prefixes from

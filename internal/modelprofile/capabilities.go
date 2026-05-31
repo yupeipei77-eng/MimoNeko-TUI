@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 const (
@@ -43,10 +43,47 @@ var capabilityPresets = []ModelCapability{
 	{
 		Provider:            "mimo",
 		Model:               "mimo-v2.5-pro",
-		MaxContextTokens:    131072,
+		MaxContextTokens:    1_000_000,
 		ReasoningLevel:      "high",
 		SupportsPrefixCache: false,
 		Source:              CapabilitySourcePreset,
+		Pricing: &config.ModelPricingConfig{
+			Currency:               "CNY",
+			InputPer1MTokens:       3.13,
+			OutputPer1MTokens:      6.26,
+			CachedInputPer1MTokens: 0,
+			Source:                 CapabilitySourcePreset,
+		},
+	},
+	{
+		Provider:            "mimo",
+		Model:               "mimo-v2.5",
+		MaxContextTokens:    1_000_000,
+		ReasoningLevel:      "medium",
+		SupportsPrefixCache: false,
+		Source:              CapabilitySourcePreset,
+		Pricing: &config.ModelPricingConfig{
+			Currency:               "CNY",
+			InputPer1MTokens:       1.01,
+			OutputPer1MTokens:      2.02,
+			CachedInputPer1MTokens: 0,
+			Source:                 CapabilitySourcePreset,
+		},
+	},
+	{
+		Provider:            "mimo",
+		Model:               "mimo-v2-pro",
+		MaxContextTokens:    1_000_000,
+		ReasoningLevel:      "high",
+		SupportsPrefixCache: false,
+		Source:              CapabilitySourcePreset,
+		Pricing: &config.ModelPricingConfig{
+			Currency:               "CNY",
+			InputPer1MTokens:       7.20,
+			OutputPer1MTokens:      21.60,
+			CachedInputPer1MTokens: 0,
+			Source:                 CapabilitySourcePreset,
+		},
 	},
 }
 

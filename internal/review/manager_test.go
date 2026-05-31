@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/patch"
-	"github.com/reasonforge/reasonforge/internal/task"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/patch"
+	"github.com/mimoneko/mimoneko/internal/task"
 )
 
 // mockPatchManager implements patch.PatchManager for testing.

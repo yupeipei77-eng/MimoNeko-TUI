@@ -26,11 +26,11 @@ var homeTemplate = template.Must(template.New("home").Parse(baseCSS + `
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ReasonForge Dashboard</title>
+  <title>MimoNeko Dashboard</title>
 </head>
 <body>
   <header>
-    <h1>ReasonForge Dashboard</h1>
+    <h1>MimoNeko Dashboard</h1>
     <p class="muted">Local read-only run monitor</p>
   </header>
   <main>
@@ -137,11 +137,11 @@ var runTemplate = template.Must(template.New("run").Parse(baseCSS + `
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ReasonForge Run Detail</title>
+  <title>MimoNeko Run Detail</title>
 </head>
 <body>
   <header>
-    <h1>ReasonForge Dashboard</h1>
+    <h1>MimoNeko Dashboard</h1>
     <p><a href="/">Recent Runs</a></p>
   </header>
   <main>
@@ -246,7 +246,7 @@ var messageTemplate = template.Must(template.New("message").Parse(baseCSS + `
 </head>
 <body>
   <header>
-    <h1>ReasonForge Dashboard</h1>
+    <h1>MimoNeko Dashboard</h1>
     <p><a href="/">Recent Runs</a></p>
   </header>
   <main>

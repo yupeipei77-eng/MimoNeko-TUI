@@ -13,7 +13,7 @@ import (
 type GitWorktreeManager struct {
 	registry      *Registry
 	branchPrefix  string
-	worktreeRoot  string // relative path under repo, e.g. ".reasonforge/worktrees"
+	worktreeRoot  string // relative path under repo, e.g. ".mimoneko/worktrees"
 	maxActive     int
 	keepFailed    bool
 	keepCancelled bool
@@ -21,7 +21,7 @@ type GitWorktreeManager struct {
 
 // GitWorktreeManagerConfig configures the GitWorktreeManager.
 type GitWorktreeManagerConfig struct {
-	// BranchPrefix is the prefix for worktree branch names (default: "reasonforge").
+	// BranchPrefix is the prefix for worktree branch names (default: "MimoNeko").
 	BranchPrefix string
 
 	// MaxActive is the maximum number of active worktrees (default: 10).
@@ -37,7 +37,7 @@ type GitWorktreeManagerConfig struct {
 // DefaultGitWorktreeManagerConfig returns safe defaults.
 func DefaultGitWorktreeManagerConfig() GitWorktreeManagerConfig {
 	return GitWorktreeManagerConfig{
-		BranchPrefix:  "reasonforge",
+		BranchPrefix:  "MimoNeko",
 		MaxActive:     10,
 		KeepFailed:    true,
 		KeepCancelled: true,
@@ -47,7 +47,7 @@ func DefaultGitWorktreeManagerConfig() GitWorktreeManagerConfig {
 // NewGitWorktreeManager creates a GitWorktreeManager with the given registry and config.
 func NewGitWorktreeManager(registry *Registry, cfg GitWorktreeManagerConfig) *GitWorktreeManager {
 	if cfg.BranchPrefix == "" {
-		cfg.BranchPrefix = "reasonforge"
+		cfg.BranchPrefix = "MimoNeko"
 	}
 	if cfg.MaxActive <= 0 {
 		cfg.MaxActive = 10
@@ -55,7 +55,7 @@ func NewGitWorktreeManager(registry *Registry, cfg GitWorktreeManagerConfig) *Gi
 	return &GitWorktreeManager{
 		registry:      registry,
 		branchPrefix:  cfg.BranchPrefix,
-		worktreeRoot:  ".reasonforge/worktrees",
+		worktreeRoot:  ".mimoneko/worktrees",
 		maxActive:     cfg.MaxActive,
 		keepFailed:    cfg.KeepFailed,
 		keepCancelled: cfg.KeepCancelled,
@@ -93,14 +93,14 @@ func (m *GitWorktreeManager) Create(ctx context.Context, req CreateWorktreeReque
 	// 5. Compute short ID for branch name
 	shortID := wtID[len("wt_") : len("wt_")+8] // first 8 hex chars
 
-	// 6. Compute branch name: reasonforge/<task_id>/<short_id>
+	// 6. Compute branch name: MimoNeko/<task_id>/<short_id>
 	sanitizedTaskID, _ := SanitizeBranchName(safeTaskID, 40)
 	branchName := fmt.Sprintf("%s/%s/%s", m.branchPrefix, sanitizedTaskID, shortID)
 
-	// 7. Compute worktree path: .reasonforge/worktrees/<task_id>/<worktree_id>
+	// 7. Compute worktree path: .mimoneko/worktrees/<task_id>/<worktree_id>
 	wtPath := filepath.Join(req.RepoRoot, m.worktreeRoot, safeTaskID, wtID)
 
-	// 8. Verify path is within .reasonforge/worktrees
+	// 8. Verify path is within .mimoneko/worktrees
 	absWtPath, err := filepath.Abs(wtPath)
 	if err != nil {
 		return WorktreeInfo{}, fmt.Errorf("worktree: resolve path: %w", err)
@@ -110,7 +110,7 @@ func (m *GitWorktreeManager) Create(ctx context.Context, req CreateWorktreeReque
 		return WorktreeInfo{}, fmt.Errorf("worktree: resolve root: %w", err)
 	}
 	if !strings.HasPrefix(absWtPath, absExpectedRoot+string(os.PathSeparator)) {
-		return WorktreeInfo{}, fmt.Errorf("worktree: path escapes .reasonforge/worktrees")
+		return WorktreeInfo{}, fmt.Errorf("worktree: path escapes .mimoneko/worktrees")
 	}
 
 	// 9. Create parent directory
@@ -284,13 +284,13 @@ func verifyGitRepo(path string) error {
 }
 
 // IsWorktreePathSafe checks that a worktree path is within the expected
-// .reasonforge/worktrees directory.
+// .mimoneko/worktrees directory.
 func IsWorktreePathSafe(repoRoot, wtPath string) bool {
 	absWtPath, err := filepath.Abs(wtPath)
 	if err != nil {
 		return false
 	}
-	absExpectedRoot, err := filepath.Abs(filepath.Join(repoRoot, ".reasonforge", "worktrees"))
+	absExpectedRoot, err := filepath.Abs(filepath.Join(repoRoot, ".mimoneko", "worktrees"))
 	if err != nil {
 		return false
 	}

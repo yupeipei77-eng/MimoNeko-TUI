@@ -3,6 +3,8 @@ package review
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // RuleBasedReviewerConfig configures the rule-based reviewer thresholds.
@@ -235,7 +237,7 @@ var sensitivePaths = []string{
 	"*.pem",
 	"*.key",
 	".git",
-	".reasonforge",
+	config.DirName(),
 }
 
 // isSensitivePath checks whether a path matches sensitive patterns.

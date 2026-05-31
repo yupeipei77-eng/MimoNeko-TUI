@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/agent"
-	"github.com/reasonforge/reasonforge/internal/cache"
-	"github.com/reasonforge/reasonforge/internal/contextengine"
-	"github.com/reasonforge/reasonforge/internal/modelrouter"
-	"github.com/reasonforge/reasonforge/internal/patch"
-	"github.com/reasonforge/reasonforge/internal/prefix"
-	"github.com/reasonforge/reasonforge/internal/review"
-	"github.com/reasonforge/reasonforge/internal/task"
-	"github.com/reasonforge/reasonforge/internal/worktree"
+	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/cache"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/mimoneko/mimoneko/internal/modelrouter"
+	"github.com/mimoneko/mimoneko/internal/patch"
+	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/mimoneko/mimoneko/internal/worktree"
 )
 
 // === Mock implementations ===
@@ -77,7 +77,7 @@ func (m *mockWorktreeMgr) Create(ctx context.Context, req worktree.CreateWorktre
 	return worktree.WorktreeInfo{
 		ID:        "wt_mock",
 		TaskID:    req.TaskID,
-		Path:      filepath.Join(req.RepoRoot, ".reasonforge", "worktrees", "wt_mock"),
+		Path:      filepath.Join(req.RepoRoot, ".mimoneko", "worktrees", "wt_mock"),
 		RepoRoot:  req.RepoRoot,
 		State:     worktree.WorktreeStateActive,
 		CreatedAt: time.Now().UTC(),
@@ -89,7 +89,7 @@ func (m *mockWorktreeMgr) Remove(ctx context.Context, id string) error { return 
 func (m *mockWorktreeMgr) Get(ctx context.Context, id string) (worktree.WorktreeInfo, error) {
 	return worktree.WorktreeInfo{
 		ID:    id,
-		Path:  "/tmp/repo/.reasonforge/worktrees/" + id,
+		Path:  "/tmp/repo/.mimoneko/worktrees/" + id,
 		State: worktree.WorktreeStateActive,
 	}, nil
 }
@@ -623,7 +623,7 @@ func TestMultiAgentRuntime_FinalCheckpointFailureMarksFailed(t *testing.T) {
 }
 
 func TestMultiAgentRuntime_CoderFailedCheckpointFailureMarksFailed(t *testing.T) {
-	// Coder fails → coder_failed checkpoint also fails.
+	// Coder fails �?coder_failed checkpoint also fails.
 	// The result must be failed with "checkpoint failed" in Error.
 	deps := buildTestDependenciesWithReviewMgr(&fixedReviewMgr{
 		report: review.PatchReviewReport{
@@ -657,7 +657,7 @@ func TestMultiAgentRuntime_CoderFailedCheckpointFailureMarksFailed(t *testing.T)
 }
 
 func TestMultiAgentRuntime_CancelledCheckpointFailureMarksFailed(t *testing.T) {
-	// Context cancelled → cancelled checkpoint also fails.
+	// Context cancelled �?cancelled checkpoint also fails.
 	// The result must be failed with "checkpoint failed" in Error.
 	deps := buildTestDependencies(review.RecommendationApprove)
 	deps.CheckpointStore = &selectiveFailingCheckpointStore{
@@ -831,7 +831,7 @@ func buildTestDependencies(recommendation review.ReviewRecommendation) Dependenc
 
 func buildTestDependenciesWithReviewMgr(mgr review.PatchReviewManager) Dependencies {
 	tmpDir := tTempDir()
-	cpPath := filepath.Join(tmpDir, ".reasonforge", "checkpoints", "multi_agent_runs.jsonl")
+	cpPath := filepath.Join(tmpDir, ".mimoneko", "checkpoints", "multi_agent_runs.jsonl")
 	cpStore, _ := NewJSONLMultiAgentCheckpointStore(cpPath)
 
 	return Dependencies{

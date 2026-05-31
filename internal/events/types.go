@@ -1,4 +1,4 @@
-// Package events implements the structured event system for ReasonForge.
+// Package events implements the structured event system for MimoNeko.
 //
 // The event system records run lifecycle events (run.started, planner.started,
 // coder.finished, etc.) so that subsequent phases (Dashboard / TUI / Desktop)
@@ -56,6 +56,10 @@ const (
 	// Patch preview events
 	EventPatchPreviewStarted  EventType = "patch.preview.started"
 	EventPatchPreviewFinished EventType = "patch.preview.finished"
+
+	// Streaming events
+	EventStreamDelta EventType = "stream.delta"
+	EventStreamDone  EventType = "stream.done"
 )
 
 // IsTerminal returns true if the event type represents a terminal state

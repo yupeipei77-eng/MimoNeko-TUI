@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/prefix"
+	"github.com/mimoneko/mimoneko/internal/prefix"
 )
 
 func TestRecordAndLookup(t *testing.T) {

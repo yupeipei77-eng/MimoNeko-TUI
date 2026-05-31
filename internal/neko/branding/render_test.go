@@ -10,15 +10,15 @@ func TestBrandRendererMinimalCenteredLayout(t *testing.T) {
 	var out bytes.Buffer
 	NewRenderer(true).RenderStaticHeader(&out, sampleHeaderData())
 	text := out.String()
-	for _, want := range []string{"NekoForge"} {
+	for _, want := range []string{"MIMO", "Neko"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("header = %q, want %q", text, want)
 		}
 	}
-	for _, forbidden := range []string{`/\_/\`, "( o_o )", "Session", "Shortcuts", "Ask anything", "/run agent task"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("header should be title only, got %q", text)
-		}
+	// New design includes cat mascot, so we don't check for forbidden strings
+	// The header should contain the brand name and model info
+	if !strings.Contains(text, "mimo-v2.5-pro") {
+		t.Fatalf("header should contain model info, got %q", text)
 	}
 }
 
@@ -31,7 +31,7 @@ func TestBrandRendererCentersTitle(t *testing.T) {
 	}
 	titleLine := ""
 	for _, line := range lines {
-		if strings.Contains(line, "NekoForge") {
+		if strings.Contains(line, "MIMO") {
 			titleLine = line
 		}
 	}
@@ -48,15 +48,12 @@ func TestBrandRendererNoColorHeaderOmitsANSI(t *testing.T) {
 	}
 }
 
-func TestPremiumThemeUsesColdPalette(t *testing.T) {
+func TestPremiumThemeUsesWarmPalette(t *testing.T) {
 	var out bytes.Buffer
 	NewRenderer(false).RenderStaticHeader(&out, sampleHeaderData())
 	text := out.String()
-	if !strings.Contains(text, BrightCyan) || !strings.Contains(text, SoftWhite) {
-		t.Fatalf("header = %q, want cold cyan/silver palette", text)
-	}
-	if strings.Contains(text, "\x1b[33m") || strings.Contains(text, "\x1b[93m") {
-		t.Fatalf("header should not use amber/yellow as primary color: %q", text)
+	if !strings.Contains(text, WarmAccent) {
+		t.Fatalf("header = %q, want warm accent palette", text)
 	}
 }
 

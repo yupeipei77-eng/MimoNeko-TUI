@@ -3,7 +3,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/reasonforge/reasonforge/internal/config"
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // toolError returns a ToolResponse indicating failure.

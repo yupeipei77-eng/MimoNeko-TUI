@@ -1,10 +1,11 @@
 package prefix
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -14,7 +15,7 @@ func NormalizeLineEndings(data []byte) []byte {
 		return data
 	}
 	var b []byte
-	for i := 0; i < len(data); i++ {
+	for i := range len(data) {
 		if data[i] == '\r' {
 			if i+1 < len(data) && data[i+1] == '\n' {
 				// CRLF -> LF, skip the CR
@@ -79,7 +80,7 @@ func sortKeys(v any) any {
 		for k := range val {
 			keys = append(keys, k)
 		}
-		sort.Strings(keys)
+		slices.Sort(keys)
 		sorted := make(map[string]any, len(val))
 		for _, k := range keys {
 			sorted[k] = sortKeys(val[k])
@@ -105,8 +106,8 @@ func CanonicalTools(schemas []ToolSchema) []byte {
 	// Sort by name
 	sorted := make([]ToolSchema, len(schemas))
 	copy(sorted, schemas)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Name < sorted[j].Name
+	slices.SortFunc(sorted, func(a, b ToolSchema) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	// Canonicalize each schema and concatenate

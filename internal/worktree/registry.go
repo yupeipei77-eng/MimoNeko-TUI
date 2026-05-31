@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/mimoneko/mimoneko/internal/config"
 )
 
 // Registry stores worktree metadata as append-only JSONL.
@@ -98,7 +100,7 @@ func (r *Registry) Path() string {
 
 // DefaultRegistryPath returns the default registry path under repoRoot.
 func DefaultRegistryPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".reasonforge", "worktrees", "registry.jsonl")
+	return filepath.Join(repoRoot, config.DirName(), "worktrees", "registry.jsonl")
 }
 
 // generateWorktreeID creates a cryptographically random 16-byte hex string.

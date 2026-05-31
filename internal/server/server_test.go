@@ -11,22 +11,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/config"
-	"github.com/reasonforge/reasonforge/internal/events"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/events"
 )
 
 func testRootConfig(root string, enabled bool) *config.Root {
 	return &config.Root{
 		Events: config.EventsConfig{
 			Enabled:   enabled,
-			StorePath: ".reasonforge/events/run_events.jsonl",
+			StorePath: ".mimoneko/events/run_events.jsonl",
 		},
 	}
 }
 
 func writeTestEvents(t *testing.T, root string, evts ...events.RunEvent) {
 	t.Helper()
-	path := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	path := filepath.Join(root, ".mimoneko", "events", "run_events.jsonl")
 	store, err := events.NewJSONLRunEventStore(path)
 	if err != nil {
 		t.Fatalf("NewJSONLRunEventStore() error = %v", err)
@@ -169,7 +169,7 @@ func TestAPIRunNotFound(t *testing.T) {
 
 func TestAPIRunsHandlesEmptyStore(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	path := filepath.Join(root, ".mimoneko", "events", "run_events.jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestDashboardHomePageRenders(t *testing.T) {
 	newTestServer(root, true).Handler().ServeHTTP(rr, req)
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "ReasonForge Dashboard") {
+	if !strings.Contains(body, "MimoNeko Dashboard") {
 		t.Fatalf("home page missing title: %s", body)
 	}
 	if !strings.Contains(body, "Recent Runs") {

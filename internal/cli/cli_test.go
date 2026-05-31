@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/agent"
-	"github.com/reasonforge/reasonforge/internal/config"
-	"github.com/reasonforge/reasonforge/internal/events"
-	"github.com/reasonforge/reasonforge/internal/modelprofile"
-	"github.com/reasonforge/reasonforge/internal/modelrouter"
-	"github.com/reasonforge/reasonforge/internal/multiagent"
-	webserver "github.com/reasonforge/reasonforge/internal/server"
-	"github.com/reasonforge/reasonforge/internal/task"
-	"github.com/reasonforge/reasonforge/internal/worktree"
+	"github.com/mimoneko/mimoneko/internal/agent"
+	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/modelprofile"
+	"github.com/mimoneko/mimoneko/internal/modelrouter"
+	"github.com/mimoneko/mimoneko/internal/multiagent"
+	webserver "github.com/mimoneko/mimoneko/internal/server"
+	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/mimoneko/mimoneko/internal/worktree"
 )
 
 type cliSequenceModelRouter struct {
@@ -53,7 +53,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(version) code = %d", code)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "reasonforge 0.1.0-dev" {
+	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.0-dev" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -66,7 +66,7 @@ func TestInitThenDoctor(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(init) code = %d", code)
 	}
-	if !strings.Contains(initOut.String(), "Initialized ReasonForge") {
+	if !strings.Contains(initOut.String(), "Initialized MimoNeko") {
 		t.Fatalf("init output = %q", initOut.String())
 	}
 
@@ -79,32 +79,32 @@ func TestInitThenDoctor(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, doctorErr.String())
 	}
-	if !strings.Contains(doctorOut.String(), "ReasonForge doctor OK") {
+	if !strings.Contains(doctorOut.String(), "MimoNeko Doctor Report") {
 		t.Fatalf("doctor output = %q", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "config_dir=") {
-		t.Fatalf("doctor output = %q, want config_dir line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "config_exists=true") {
+		t.Fatalf("doctor output = %q, want config_exists line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "default_model=local-coder") {
-		t.Fatalf("doctor output = %q, want default_model line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "system_prompt=true") {
+		t.Fatalf("doctor output = %q, want system_prompt line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "immutable_prefix_sources=3") {
-		t.Fatalf("doctor output = %q, want immutable_prefix_sources line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "coding_rules=true") {
+		t.Fatalf("doctor output = %q, want coding_rules line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "prefix_canonicalization=enabled") {
-		t.Fatalf("doctor output = %q, want prefix_canonicalization line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "tools_schema=true") {
+		t.Fatalf("doctor output = %q, want tools_schema line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "budget_warn_ratio=") {
-		t.Fatalf("doctor output = %q, want budget_warn_ratio line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "models_configured=true") {
+		t.Fatalf("doctor output = %q, want models_configured line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "budget_block_ratio=") {
-		t.Fatalf("doctor output = %q, want budget_block_ratio line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "worktree_config=true") {
+		t.Fatalf("doctor output = %q, want worktree_config line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "cache_estimated_ttl=") {
-		t.Fatalf("doctor output = %q, want cache_estimated_ttl line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "patch_config=true") {
+		t.Fatalf("doctor output = %q, want patch_config line", doctorOut.String())
 	}
-	if !strings.Contains(doctorOut.String(), "event_id_collision_resistant=true") {
-		t.Fatalf("doctor output = %q, want event_id_collision_resistant line", doctorOut.String())
+	if !strings.Contains(doctorOut.String(), "events_config=true") {
+		t.Fatalf("doctor output = %q, want events_config line", doctorOut.String())
 	}
 }
 
@@ -136,7 +136,7 @@ func TestInitRepairDoesNotOverwriteModelsConfig(t *testing.T) {
 	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
 		t.Fatalf("Run(init) code = %d", code)
 	}
-	modelsPath := filepath.Join(root, ".reasonforge", "models.yaml")
+	modelsPath := filepath.Join(root, config.DirName(), "models.yaml")
 	custom := []byte(`providers:
   - name: custom-provider
     type: openai-compatible
@@ -196,7 +196,7 @@ func TestDoctorDetectsMissingSystemPrompt(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("Run(doctor) code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "missing required prefix source: prompts/system.md") {
+	if !strings.Contains(stderr.String(), "system prompt") || !strings.Contains(stderr.String(), "missing") {
 		t.Fatalf("stderr = %q, want missing system prompt", stderr.String())
 	}
 }
@@ -208,7 +208,7 @@ func TestDoctorDetectsMissingCodingRules(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("Run(doctor) code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "missing required prefix source: prompts/coding_rules.md") {
+	if !strings.Contains(stderr.String(), "coding rules") || !strings.Contains(stderr.String(), "missing") {
 		t.Fatalf("stderr = %q, want missing coding rules", stderr.String())
 	}
 }
@@ -220,7 +220,7 @@ func TestDoctorDetectsMissingToolsSchema(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("Run(doctor) code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "missing required prefix source: schemas/tools.json") {
+	if !strings.Contains(stderr.String(), "tools schema") || !strings.Contains(stderr.String(), "missing") {
 		t.Fatalf("stderr = %q, want missing tools schema", stderr.String())
 	}
 }
@@ -229,7 +229,7 @@ func TestDoctorSuggestsInitRepair(t *testing.T) {
 	root := initRootForDoctorMissingTest(t, "prompts/system.md")
 	var stderr bytes.Buffer
 	_ = Run([]string{"doctor", "--dir", root}, Env{Stderr: &stderr})
-	if !strings.Contains(stderr.String(), "reasonforge init --repair") {
+	if !strings.Contains(stderr.String(), "mimoneko init --repair") {
 		t.Fatalf("stderr = %q, want init --repair suggestion", stderr.String())
 	}
 }
@@ -259,7 +259,7 @@ func TestFirstRunInitThenDoctorPasses(t *testing.T) {
 }
 
 func TestFirstRunInitThenRunDoesNotFailMissingPrefixSource(t *testing.T) {
-	t.Setenv("REASONFORGE_API_KEY", "")
+	t.Setenv("MimoNeko_API_KEY", "")
 	root := t.TempDir()
 	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
 		t.Fatalf("Run(init) code = %d", code)
@@ -306,7 +306,7 @@ func TestInitDoesNotOverwriteExistingModelProvider(t *testing.T) {
 	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
 		t.Fatalf("Run(init) code = %d", code)
 	}
-	modelsPath := filepath.Join(root, ".reasonforge", "models.yaml")
+	modelsPath := filepath.Join(root, config.DirName(), "models.yaml")
 	original := []byte(`providers:
   - name: preserved
     type: openai-compatible
@@ -376,7 +376,7 @@ func TestNoArgsReturnsUsageError(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("Run(nil) code = %d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "Usage: reasonforge <command>") {
+	if !strings.Contains(stderr.String(), "Usage: mimoneko <command>") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
@@ -424,7 +424,7 @@ func TestDoctorReportsMissingConfig(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("Run(doctor) code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "doctor failed") {
+	if !strings.Contains(stderr.String(), "config directory does not exist") {
 		t.Fatalf("stderr = %q, want doctor failure", stderr.String())
 	}
 }
@@ -516,8 +516,8 @@ func TestModelsCommand(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "ReasonForge Models") {
-		t.Fatalf("models output = %q, want ReasonForge Models header", output)
+	if !strings.Contains(output, "MimoNeko Models") {
+		t.Fatalf("models output = %q, want MimoNeko Models header", output)
 	}
 	if !strings.Contains(output, "default_model=local-coder") {
 		t.Fatalf("models output = %q, want default_model line", output)
@@ -531,7 +531,7 @@ func TestModelsCommand(t *testing.T) {
 	if !strings.Contains(output, "base_url=http://127.0.0.1:11434/v1") {
 		t.Fatalf("models output = %q, want base_url line", output)
 	}
-	if !strings.Contains(output, "api_key_env=REASONFORGE_API_KEY") {
+	if !strings.Contains(output, "api_key_env=MimoNeko_API_KEY") {
 		t.Fatalf("models output = %q, want api_key_env line", output)
 	}
 	if !strings.Contains(output, "api_key_status=") {
@@ -703,7 +703,7 @@ func TestModelListDoesNotLeakAPIKey(t *testing.T) {
 func TestModelListShowsConfiguredMissing(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	t.Setenv("MIMO_API_KEY", "sk-configured-for-status")
-	t.Setenv("REASONFORGE_API_KEY", "")
+	t.Setenv("MimoNeko_API_KEY", "")
 	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro")
 	var stdout bytes.Buffer
 	code := Run([]string{"model", "list", "--dir", root}, Env{Stdout: &stdout})
@@ -815,7 +815,7 @@ func TestModelDiscoverWriteCapabilities(t *testing.T) {
 	}
 	cfg := loadConfigForTest(t, root)
 	provider, _ := findProviderForTest(cfg, "mimo")
-	if provider.Models[0].MaxContextTokens != 131072 || provider.Models[0].ReasoningLevel != "high" {
+	if provider.Models[0].MaxContextTokens != 1_000_000 || provider.Models[0].ReasoningLevel != "high" {
 		t.Fatalf("model = %+v, want written capabilities", provider.Models[0])
 	}
 }
@@ -843,8 +843,8 @@ func TestNekoCommandExists(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("neko --help code = %d", code)
 	}
-	if !strings.Contains(stdout.String(), "NekoForge") {
-		t.Fatalf("stdout = %q, want NekoForge", stdout.String())
+	if !strings.Contains(stdout.String(), "MimoNeko") {
+		t.Fatalf("stdout = %q, want MimoNeko", stdout.String())
 	}
 }
 
@@ -859,15 +859,102 @@ func TestNekoHelp(t *testing.T) {
 	}
 }
 
-func TestReasonForgeNekoAlias(t *testing.T) {
+func TestMimoNekoNekoAlias(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	var stdout bytes.Buffer
 	code := Run([]string{"neko", "--dir", root, "--no-color"}, Env{Stdout: &stdout, Stdin: strings.NewReader("/exit\n")})
 	if code != 0 {
-		t.Fatalf("reasonforge neko code = %d, output = %q", code, stdout.String())
+		t.Fatalf("MimoNeko neko code = %d, output = %q", code, stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "NekoForge") || !strings.Contains(stdout.String(), "Goodbye from NekoForge.") {
+	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
 		t.Fatalf("stdout = %q, want console branding and exit", stdout.String())
+	}
+}
+
+func TestNekoFindsProjectRootFromSubdirectory(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	nested := filepath.Join(root, "nested", "deeper")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--no-color"}, Env{
+		Stdout: &stdout,
+		Stdin:  strings.NewReader("/exit\n"),
+		Getwd:  func() (string, error) { return nested, nil },
+	})
+	if code != 0 {
+		t.Fatalf("neko code = %d, stdout = %q", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
+		t.Fatalf("stdout = %q, want console from discovered project root", stdout.String())
+	}
+}
+
+func TestNekoUsesDefaultProjectRootOutsideProject(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	defaultFile := filepath.Join(t.TempDir(), "default-root.txt")
+	if err := os.WriteFile(defaultFile, []byte(root), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", defaultFile)
+	home := t.TempDir()
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--no-color"}, Env{
+		Stdout: &stdout,
+		Stdin:  strings.NewReader("/exit\n"),
+		Getwd:  func() (string, error) { return home, nil },
+	})
+	if code != 0 {
+		t.Fatalf("neko code = %d, stdout = %q", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
+		t.Fatalf("stdout = %q, want console from default project root", stdout.String())
+	}
+}
+
+func TestNekoDefaultProjectRootFileAllowsUTF8BOM(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	defaultFile := filepath.Join(t.TempDir(), "default-root.txt")
+	if err := os.WriteFile(defaultFile, []byte("\ufeff"+root), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", defaultFile)
+	home := t.TempDir()
+	var stdout bytes.Buffer
+	code := Run([]string{"neko", "--no-color"}, Env{
+		Stdout: &stdout,
+		Stdin:  strings.NewReader("/exit\n"),
+		Getwd:  func() (string, error) { return home, nil },
+	})
+	if code != 0 {
+		t.Fatalf("neko code = %d, stdout = %q", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "MIMO") {
+		t.Fatalf("stdout = %q, want console from BOM default root file", stdout.String())
+	}
+}
+
+func TestNekoMissingProjectShowsFriendlyHint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", filepath.Join(t.TempDir(), "missing-default-root.txt"))
+	var stderr bytes.Buffer
+	code := Run([]string{"neko", "--no-color"}, Env{
+		Stderr: &stderr,
+		Stdin:  strings.NewReader("/exit\n"),
+		Getwd:  func() (string, error) { return home, nil },
+	})
+	if code != 1 {
+		t.Fatalf("neko code = %d, want 1", code)
+	}
+	output := stderr.String()
+	for _, want := range []string{fmt.Sprintf("could not find %s/models.yaml", config.DirName()), "neko --dir <project_root>", "mimoneko init"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stderr = %q, want %q", output, want)
+		}
+	}
+	if strings.Contains(output, "read models.yaml: open") {
+		t.Fatalf("stderr = %q, should not expose raw models.yaml read error", output)
 	}
 }
 
@@ -922,11 +1009,11 @@ func TestModelTestAcceptsPrompt(t *testing.T) {
 	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
 
 	var stdout bytes.Buffer
-	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model", "--prompt", "只回复 OK"}, Env{Stdout: &stdout})
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model", "--prompt", "只回复OK"}, Env{Stdout: &stdout})
 	if code != 0 {
 		t.Fatalf("model test code = %d", code)
 	}
-	if !strings.Contains(gotBody, "只回复 OK") {
+	if !strings.Contains(gotBody, "只回复OK") {
 		t.Fatalf("request body = %q, want custom prompt", gotBody)
 	}
 }
@@ -1124,7 +1211,7 @@ func loadConfigForTest(t *testing.T, root string) *config.Root {
 
 func readModelsYAMLForTest(t *testing.T, root string) string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join(root, ".reasonforge", "models.yaml"))
+	content, err := os.ReadFile(filepath.Join(root, ".mimoneko", "models.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1179,8 +1266,8 @@ func TestToolsCommand(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "ReasonForge Tools") {
-		t.Fatalf("tools output = %q, want ReasonForge Tools header", output)
+	if !strings.Contains(output, "MimoNeko Tools") {
+		t.Fatalf("tools output = %q, want MimoNeko Tools header", output)
 	}
 	if !strings.Contains(output, "file_read") {
 		t.Fatalf("tools output = %q, want file_read", output)
@@ -1331,7 +1418,7 @@ func TestToolRunFileWriteDryRun(t *testing.T) {
 	}
 
 	// Verify audit log was written with dry_run=true
-	auditPath := filepath.Join(root, ".reasonforge", "logs", "tools.jsonl")
+	auditPath := filepath.Join(root, ".mimoneko", "logs", "tools.jsonl")
 	auditData, err := os.ReadFile(auditPath)
 	if err != nil {
 		t.Fatalf("audit log should exist at %q: %v", auditPath, err)
@@ -1538,7 +1625,7 @@ func TestBuildAgentDependenciesNoAPIKeyLeak(t *testing.T) {
 	}
 
 	// Set a fake API key to ensure it doesn't leak through dependencies
-	t.Setenv("REASONFORGE_API_KEY", "sk-test-secret-key-do-not-leak")
+	t.Setenv("MimoNeko_API_KEY", "sk-test-secret-key-do-not-leak")
 
 	cfg, err := config.Load(root)
 	if err != nil {
@@ -1664,13 +1751,13 @@ func TestInitCreatesWorktreeAndPatchConfig(t *testing.T) {
 	}
 
 	// Verify worktree.yaml was created
-	worktreeYAML := filepath.Join(root, ".reasonforge", "worktree.yaml")
+	worktreeYAML := filepath.Join(root, ".mimoneko", "worktree.yaml")
 	if _, err := os.Stat(worktreeYAML); os.IsNotExist(err) {
 		t.Fatal("worktree.yaml should be created by init")
 	}
 
 	// Verify patch.yaml was created
-	patchYAML := filepath.Join(root, ".reasonforge", "patch.yaml")
+	patchYAML := filepath.Join(root, ".mimoneko", "patch.yaml")
 	if _, err := os.Stat(patchYAML); os.IsNotExist(err) {
 		t.Fatal("patch.yaml should be created by init")
 	}
@@ -1775,7 +1862,7 @@ func TestPatchApplyDirtyMainRejects(t *testing.T) {
 	root := t.TempDir()
 	// Init git repo
 	runGitCmd(t, root, "init")
-	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGitCmd(t, root, "config", "user.name", "Test")
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1783,7 +1870,7 @@ func TestPatchApplyDirtyMainRejects(t *testing.T) {
 	runGitCmd(t, root, "add", ".")
 	runGitCmd(t, root, "commit", "-m", "initial")
 
-	// Init reasonforge
+	// Init MimoNeko
 	code := Run([]string{"init", "--dir", root}, Env{})
 	if code != 0 {
 		t.Fatalf("Run(init) code = %d", code)
@@ -1800,7 +1887,7 @@ func TestPatchApplyDirtyMainRejects(t *testing.T) {
 func TestPatchDiscardNonexistentWorktree(t *testing.T) {
 	root := t.TempDir()
 	runGitCmd(t, root, "init")
-	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGitCmd(t, root, "config", "user.name", "Test")
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1884,7 +1971,7 @@ func TestRunWorktreeNoMissingManagerError(t *testing.T) {
 }
 
 func TestCLIDoesNotLeakAPIKey(t *testing.T) {
-	t.Setenv("REASONFORGE_API_KEY", "sk-super-secret-key-12345")
+	t.Setenv("MimoNeko_API_KEY", "sk-super-secret-key-12345")
 
 	root := t.TempDir()
 	code := Run([]string{"init", "--dir", root}, Env{})
@@ -1917,7 +2004,7 @@ func setupGitRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	runGitCmd(t, root, "init")
-	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGitCmd(t, root, "config", "user.name", "Test")
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1984,7 +2071,7 @@ func setupPatchCLIEventWorktree(t *testing.T, taskID string, files map[string]st
 
 func loadPatchCLIEvents(t *testing.T, root string) []events.RunEvent {
 	t.Helper()
-	path := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	path := filepath.Join(root, ".mimoneko", "events", "run_events.jsonl")
 	evts, corrupted, err := events.LoadEventsFromFile(path)
 	if err != nil {
 		t.Fatalf("LoadEventsFromFile() error = %v", err)
@@ -2166,7 +2253,7 @@ func TestPatchReviewDoesNotLeakSensitiveDiffInEvents(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	_ = Run([]string{"patch", "review", "--dir", root, info.ID, "--no-tests"}, Env{Stdout: &stdout, Stderr: &stderr})
 
-	eventStorePath := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	eventStorePath := filepath.Join(root, ".mimoneko", "events", "run_events.jsonl")
 	raw, err := os.ReadFile(eventStorePath)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -2184,7 +2271,7 @@ func TestPatchCLIEventsDisabledUsesNoop(t *testing.T) {
 		"disabled.txt": "events disabled\n",
 	})
 
-	eventsYAML := filepath.Join(root, ".reasonforge", "events.yaml")
+	eventsYAML := filepath.Join(root, ".mimoneko", "events.yaml")
 	if err := os.WriteFile(eventsYAML, []byte("enabled: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2195,7 +2282,7 @@ func TestPatchCLIEventsDisabledUsesNoop(t *testing.T) {
 		t.Fatalf("Run(patch preview) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	eventStorePath := filepath.Join(root, ".reasonforge", "events", "run_events.jsonl")
+	eventStorePath := filepath.Join(root, ".mimoneko", "events", "run_events.jsonl")
 	if _, err := os.Stat(eventStorePath); !os.IsNotExist(err) {
 		t.Fatalf("event store path exists with events disabled: err=%v", err)
 	}
@@ -2210,7 +2297,7 @@ func TestPatchCLIEventsEnabledStoreFailureReturnsError(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	eventsYAML := filepath.Join(root, ".reasonforge", "events.yaml")
+	eventsYAML := filepath.Join(root, ".mimoneko", "events.yaml")
 	if err := os.WriteFile(eventsYAML, []byte("enabled: true\nstore_path: event-store-blocker/events.jsonl\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2228,7 +2315,7 @@ func TestPatchCLIEventsEnabledStoreFailureReturnsError(t *testing.T) {
 func TestCLIPatchPreviewDoesNotLeakSensitiveDiff(t *testing.T) {
 	root := t.TempDir()
 	runGitCmd(t, root, "init")
-	runGitCmd(t, root, "config", "user.email", "test@reasonforge.dev")
+	runGitCmd(t, root, "config", "user.email", "test@MimoNeko.dev")
 	runGitCmd(t, root, "config", "user.name", "Test")
 
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
@@ -2237,14 +2324,14 @@ func TestCLIPatchPreviewDoesNotLeakSensitiveDiff(t *testing.T) {
 	runGitCmd(t, root, "add", ".")
 	runGitCmd(t, root, "commit", "-m", "initial")
 
-	// Init reasonforge project
+	// Init MimoNeko project
 	code := Run([]string{"init", "--dir", root}, Env{})
 	if code != 0 {
 		t.Fatalf("Run(init) code = %d", code)
 	}
 
 	// Create a worktree directly via worktree manager
-	registryPath := filepath.Join(root, ".reasonforge", "worktrees", "registry.jsonl")
+	registryPath := filepath.Join(root, ".mimoneko", "worktrees", "registry.jsonl")
 	registry, err := worktree.NewRegistry(registryPath)
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
@@ -2704,7 +2791,7 @@ func TestInitCreatesMultiAgentConfig(t *testing.T) {
 	}
 
 	// Verify multiagent.yaml was created
-	multiagentPath := filepath.Join(root, config.DirName, "multiagent.yaml")
+	multiagentPath := filepath.Join(root, config.DirName(), "multiagent.yaml")
 	if _, err := os.Stat(multiagentPath); os.IsNotExist(err) {
 		t.Error("init did not create multiagent.yaml")
 	}
@@ -2890,7 +2977,7 @@ func TestMultiRunNoAutoApply(t *testing.T) {
 }
 
 func TestMultiRunDoesNotLeakAPIKey(t *testing.T) {
-	t.Setenv("REASONFORGE_API_KEY", "sk-super-secret-key-12345")
+	t.Setenv("MimoNeko_API_KEY", "sk-super-secret-key-12345")
 
 	root := t.TempDir()
 	Run([]string{"init", "--dir", root}, Env{})
@@ -2962,8 +3049,8 @@ func TestDashboardRequiresEventsEnabled(t *testing.T) {
 	Run([]string{"init", "--dir", root}, Env{})
 
 	// Disable events in config
-	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
-	os.WriteFile(eventsPath, []byte("enabled: false\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+	eventsPath := filepath.Join(root, ".mimoneko", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: false\nstore_path: .mimoneko/events/run_events.jsonl\n"), 0o600)
 
 	var stderr bytes.Buffer
 	code := Run([]string{"dashboard", "--dir", root}, Env{Stderr: &stderr})
@@ -2980,13 +3067,13 @@ func TestDashboardHandlesEmptyEventStore(t *testing.T) {
 	Run([]string{"init", "--dir", root}, Env{})
 
 	// Create events config (enabled) and an empty event store
-	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	eventsDir := filepath.Join(root, ".mimoneko", "events")
 	os.MkdirAll(eventsDir, 0o700)
 	storePath := filepath.Join(eventsDir, "run_events.jsonl")
 	os.WriteFile(storePath, []byte(""), 0o600)
 
-	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
-	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+	eventsPath := filepath.Join(root, ".mimoneko", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .mimoneko/events/run_events.jsonl\n"), 0o600)
 
 	var stdout bytes.Buffer
 	code := Run([]string{"dashboard", "--dir", root}, Env{Stdout: &stdout})
@@ -3003,7 +3090,7 @@ func TestDashboardShowsRuns(t *testing.T) {
 	Run([]string{"init", "--dir", root}, Env{})
 
 	// Create events config and store with sample data
-	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	eventsDir := filepath.Join(root, ".mimoneko", "events")
 	os.MkdirAll(eventsDir, 0o700)
 	storePath := filepath.Join(eventsDir, "run_events.jsonl")
 
@@ -3018,8 +3105,8 @@ func TestDashboardShowsRuns(t *testing.T) {
 	store.Append(ctx, events.RunEvent{ID: "evt2", RunID: "run_test1", Type: events.EventRunSucceeded, Status: "succeeded", FinishedAt: now.Add(time.Second)})
 	store.Close()
 
-	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
-	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+	eventsPath := filepath.Join(root, ".mimoneko", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .mimoneko/events/run_events.jsonl\n"), 0o600)
 
 	var stdout bytes.Buffer
 	code := Run([]string{"dashboard", "--dir", root}, Env{Stdout: &stdout})
@@ -3038,13 +3125,13 @@ func TestDashboardRunDetailNotFound(t *testing.T) {
 	root := t.TempDir()
 	Run([]string{"init", "--dir", root}, Env{})
 
-	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	eventsDir := filepath.Join(root, ".mimoneko", "events")
 	os.MkdirAll(eventsDir, 0o700)
 	storePath := filepath.Join(eventsDir, "run_events.jsonl")
 	os.WriteFile(storePath, []byte(""), 0o600)
 
-	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
-	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+	eventsPath := filepath.Join(root, ".mimoneko", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .mimoneko/events/run_events.jsonl\n"), 0o600)
 
 	var stderr bytes.Buffer
 	code := Run([]string{"dashboard", "--dir", root, "--run", "nonexistent"}, Env{Stderr: &stderr})
@@ -3071,7 +3158,7 @@ func TestDashboardDoesNotLeakSensitiveData(t *testing.T) {
 	root := t.TempDir()
 	Run([]string{"init", "--dir", root}, Env{})
 
-	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	eventsDir := filepath.Join(root, ".mimoneko", "events")
 	os.MkdirAll(eventsDir, 0o700)
 	storePath := filepath.Join(eventsDir, "run_events.jsonl")
 
@@ -3089,8 +3176,8 @@ func TestDashboardDoesNotLeakSensitiveData(t *testing.T) {
 	store.Append(ctx, sanitized)
 	store.Close()
 
-	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
-	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+	eventsPath := filepath.Join(root, ".mimoneko", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .mimoneko/events/run_events.jsonl\n"), 0o600)
 
 	var stdout bytes.Buffer
 	Run([]string{"dashboard", "--dir", root}, Env{Stdout: &stdout})
@@ -3107,7 +3194,7 @@ func TestDashboardLimitRuns(t *testing.T) {
 	root := t.TempDir()
 	Run([]string{"init", "--dir", root}, Env{})
 
-	eventsDir := filepath.Join(root, ".reasonforge", "events")
+	eventsDir := filepath.Join(root, ".mimoneko", "events")
 	os.MkdirAll(eventsDir, 0o700)
 	storePath := filepath.Join(eventsDir, "run_events.jsonl")
 
@@ -3123,8 +3210,8 @@ func TestDashboardLimitRuns(t *testing.T) {
 	}
 	store.Close()
 
-	eventsPath := filepath.Join(root, ".reasonforge", "events.yaml")
-	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .reasonforge/events/run_events.jsonl\n"), 0o600)
+	eventsPath := filepath.Join(root, ".mimoneko", "events.yaml")
+	os.WriteFile(eventsPath, []byte("enabled: true\nstore_path: .mimoneko/events/run_events.jsonl\n"), 0o600)
 
 	var stdout bytes.Buffer
 	Run([]string{"dashboard", "--dir", root, "--limit", "3"}, Env{Stdout: &stdout})

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reasonforge/reasonforge/internal/patch"
-	"github.com/reasonforge/reasonforge/internal/review"
+	"github.com/mimoneko/mimoneko/internal/patch"
+	"github.com/mimoneko/mimoneko/internal/review"
 )
 
 func TestMultiAgentStateIsTerminal(t *testing.T) {
@@ -453,7 +453,7 @@ func TestCheckpointSaveFailurePropagates(t *testing.T) {
 
 func TestDefaultMultiAgentCheckpointPath(t *testing.T) {
 	path := DefaultMultiAgentCheckpointPath("/my/repo")
-	expected := filepath.Join("/my/repo", ".reasonforge", "checkpoints", "multi_agent_runs.jsonl")
+	expected := filepath.Join("/my/repo", ".mimoneko", "checkpoints", "multi_agent_runs.jsonl")
 	if path != expected {
 		t.Errorf("expected %q, got %q", expected, path)
 	}

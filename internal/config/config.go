@@ -11,7 +11,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DirName = ".reasonforge"
+const DefaultDirName = ".mimoneko"
+
+// DirName returns the configuration directory name.
+// It checks for MimoNeko_CONFIG_DIR environment variable first,
+// then falls back to the default ".mimoneko".
+func DirName() string {
+	if envDir := os.Getenv("MimoNeko_CONFIG_DIR"); envDir != "" {
+		return envDir
+	}
+	return DefaultDirName
+}
 
 type Root struct {
 	Dir        string
@@ -282,7 +292,7 @@ type scaffoldFile struct {
 }
 
 func ConfigDir(root string) string {
-	return filepath.Join(root, DirName)
+	return filepath.Join(root, DirName())
 }
 
 func Init(root string) ([]string, error) {
@@ -299,11 +309,12 @@ func InitDetailed(root string) (InitResult, error) {
 		return InitResult{}, fmt.Errorf("create config dir: %w", err)
 	}
 
+	defaultFiles := getDefaultConfigFiles()
 	result := InitResult{
-		Created: make([]string, 0, len(defaultConfigFiles)+len(defaultScaffoldFiles)),
-		Skipped: make([]string, 0, len(defaultConfigFiles)+len(defaultScaffoldFiles)),
+		Created: make([]string, 0, len(defaultFiles)+len(defaultScaffoldFiles)),
+		Skipped: make([]string, 0, len(defaultFiles)+len(defaultScaffoldFiles)),
 	}
-	for _, file := range defaultConfigFiles {
+	for _, file := range defaultFiles {
 		path := filepath.Join(dir, file.Name)
 		if _, err := os.Stat(path); err == nil {
 			result.Skipped = append(result.Skipped, path)
@@ -454,8 +465,8 @@ func (cfg *Root) Validate() error {
 		if strings.TrimSpace(provider.Name) == "" {
 			issues = append(issues, "models.yaml provider name is required")
 		}
-		if provider.Type != "openai-compatible" {
-			issues = append(issues, fmt.Sprintf("models.yaml provider %q must be openai-compatible", provider.Name))
+		if provider.Type != "openai-compatible" && provider.Type != "mimo" {
+			issues = append(issues, fmt.Sprintf("models.yaml provider %q type must be 'openai-compatible' or 'mimo', got %q", provider.Name, provider.Type))
 		}
 		if strings.TrimSpace(provider.BaseURL) == "" {
 			issues = append(issues, fmt.Sprintf("models.yaml provider %q base_url is required", provider.Name))
@@ -582,10 +593,10 @@ func (cfg *Root) applyWorktreeDefaults() {
 		cfg.Worktree.Enabled = true
 	}
 	if cfg.Worktree.Root == "" {
-		cfg.Worktree.Root = ".reasonforge/worktrees"
+		cfg.Worktree.Root = filepath.Join(DirName(), "worktrees")
 	}
 	if cfg.Worktree.BranchPrefix == "" {
-		cfg.Worktree.BranchPrefix = "reasonforge"
+		cfg.Worktree.BranchPrefix = "MimoNeko"
 	}
 	if cfg.Worktree.MaxActive == 0 {
 		cfg.Worktree.MaxActive = 10
@@ -659,7 +670,7 @@ func (cfg *Root) applyMultiAgentDefaults() {
 // applyEventsDefaults fills in safe defaults for EventsConfig.
 func (cfg *Root) applyEventsDefaults() {
 	if cfg.Events.StorePath == "" {
-		cfg.Events.StorePath = ".reasonforge/events/run_events.jsonl"
+		cfg.Events.StorePath = filepath.Join(DirName(), "events", "run_events.jsonl")
 	}
 	if cfg.Events.MaxMessageBytes == 0 {
 		cfg.Events.MaxMessageBytes = 2048
@@ -672,7 +683,7 @@ func (cfg *Root) applyEventsDefaults() {
 func defaultEventsConfig() EventsConfig {
 	return EventsConfig{
 		Enabled:               true,
-		StorePath:             ".reasonforge/events/run_events.jsonl",
+		StorePath:             filepath.Join(DirName(), "events", "run_events.jsonl"),
 		MaxMessageBytes:       2048,
 		MaxMetadataValueBytes: 512,
 		EmitToolEvents:        true,
@@ -699,7 +710,7 @@ type defaultConfigFile struct {
 var defaultScaffoldFiles = []scaffoldFile{
 	{
 		Path: "prompts/system.md",
-		Body: `You are ReasonForge, a safe local coding agent.
+		Body: `You are MimoNeko, a safe local coding agent.
 Follow the user goal, keep changes minimal, and never expose secrets.
 Do not automatically commit, push, or apply patches.
 `,
@@ -724,14 +735,151 @@ Do not automatically commit, push, or apply patches.
 	},
 }
 
-var defaultConfigFiles = []defaultConfigFile{
+// DoctorReport contains the results of a configuration diagnostic check.
+type DoctorReport struct {
+	ConfigExists         bool
+	SystemPromptExists   bool
+	CodingRulesExists    bool
+	ToolsSchemaExists    bool
+	ModelsConfigured     bool
+	WorktreeConfigExists bool
+	PatchConfigExists    bool
+	EventsConfigExists   bool
+	ReviewConfigExists   bool
+	ValidationConfigExists bool
+	DefaultAPIKeyEnv     string
+
+	WorktreeIsolation         bool `yaml:"worktree_isolation"`
+	PatchRequireCleanMain     bool `yaml:"patch_require_clean_main"`
+	PatchMaxDiffBytes         int  `yaml:"patch_max_diff_bytes"`
+	ReviewMaxDiffBytes        int  `yaml:"review_max_diff_bytes"`
+	ValidationMaxOutputBytes  int  `yaml:"validation_max_output_bytes"`
+	ValidationTimeoutSeconds  int  `yaml:"validation_timeout_seconds"`
+	MultiAgentMaxIterations   int  `yaml:"multiagent_max_iterations"`
+	MultiAgentDefaultWorktree bool `yaml:"multiagent_default_worktree"`
+	MultiAgentDefaultDryRun   bool `yaml:"multiagent_default_dry_run"`
+
+	Errors               []string
+	Hints                []string
+}
+
+// Doctor checks that the MimoNeko configuration is complete and returns a report.
+func Doctor(root string) (*DoctorReport, error) {
+	dir := ConfigDir(root)
+
+	cfgDirExists := false
+	if info, err := os.Stat(dir); err == nil {
+		cfgDirExists = info.IsDir()
+	}
+
+	report := &DoctorReport{
+		ConfigExists: cfgDirExists,
+	}
+
+	if !cfgDirExists {
+		report.Errors = append(report.Errors, "config directory does not exist; run 'mimoneko init'")
+		report.Hints = append(report.Hints, "Run `mimoneko init` to create the config directory.")
+		return report, nil
+	}
+
+	report.SystemPromptExists = fileExists(filepath.Join(dir, "..", "prompts", "system.md"))
+	report.CodingRulesExists = fileExists(filepath.Join(dir, "..", "prompts", "coding_rules.md"))
+	report.ToolsSchemaExists = fileExists(filepath.Join(dir, "..", "schemas", "tools.json"))
+
+	report.ModelsConfigured = fileExists(filepath.Join(dir, "models.yaml"))
+	report.WorktreeConfigExists = fileExists(filepath.Join(dir, "worktree.yaml"))
+	report.PatchConfigExists = fileExists(filepath.Join(dir, "patch.yaml"))
+	report.EventsConfigExists = fileExists(filepath.Join(dir, "events.yaml"))
+	report.ReviewConfigExists = fileExists(filepath.Join(dir, "review.yaml"))
+	report.ValidationConfigExists = fileExists(filepath.Join(dir, "validation.yaml"))
+
+	if report.ModelsConfigured {
+		var mc ModelsConfig
+		if err := loadYAML(filepath.Join(dir, "models.yaml"), &mc); err == nil {
+			for _, p := range mc.Providers {
+				if p.APIKeyEnv != "" {
+					report.DefaultAPIKeyEnv = p.APIKeyEnv
+					break
+				}
+			}
+		}
+	}
+
+	if report.WorktreeConfigExists {
+		var wc WorktreeConfig
+		if err := loadYAML(filepath.Join(dir, "worktree.yaml"), &wc); err == nil {
+			report.WorktreeIsolation = wc.Enabled
+		}
+	}
+
+	if report.PatchConfigExists {
+		var pc PatchConfig
+		if err := loadYAML(filepath.Join(dir, "patch.yaml"), &pc); err == nil {
+			report.PatchRequireCleanMain = pc.RequireCleanMain
+			report.PatchMaxDiffBytes = pc.MaxDiffBytes
+		}
+	}
+
+	if report.ReviewConfigExists {
+		var rc ReviewConfig
+		if err := loadYAML(filepath.Join(dir, "review.yaml"), &rc); err == nil {
+			report.ReviewMaxDiffBytes = rc.MaxDiffBytes
+		}
+	}
+
+	if report.ValidationConfigExists {
+		var vc ValidationConfig
+		if err := loadYAML(filepath.Join(dir, "validation.yaml"), &vc); err == nil {
+			report.ValidationMaxOutputBytes = vc.MaxOutputBytes
+			report.ValidationTimeoutSeconds = vc.TimeoutSeconds
+		}
+	}
+
+	{
+		var mc MultiAgentConfig
+		if err := loadYAML(filepath.Join(dir, "multiagent.yaml"), &mc); err == nil {
+			report.MultiAgentMaxIterations = mc.MaxIterations
+			report.MultiAgentDefaultWorktree = mc.DefaultWorktree
+			report.MultiAgentDefaultDryRun = mc.DefaultDryRun
+		}
+	}
+
+	if !report.SystemPromptExists {
+		report.Errors = append(report.Errors, "system prompt (prompts/system.md) missing")
+	}
+	if !report.CodingRulesExists {
+		report.Errors = append(report.Errors, "coding rules (prompts/coding_rules.md) missing")
+	}
+	if !report.ToolsSchemaExists {
+		report.Errors = append(report.Errors, "tools schema (schemas/tools.json) missing")
+	}
+	if !report.ModelsConfigured {
+		report.Errors = append(report.Errors, "models.yaml missing or invalid")
+	}
+
+	if len(report.Errors) > 0 {
+		report.Hints = append(report.Hints, "Run `mimoneko init --repair` to create missing configuration files.")
+	}
+
+	return report, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// getDefaultConfigFiles returns the default configuration files with dynamic paths.
+func getDefaultConfigFiles() []defaultConfigFile {
+	dirName := DirName()
+	return []defaultConfigFile{
 	{
 		Name: "models.yaml",
 		Body: `providers:
   - name: local-openai-compatible
     type: openai-compatible
     base_url: http://127.0.0.1:11434/v1
-    api_key_env: REASONFORGE_API_KEY
+    api_key_env: MimoNeko_API_KEY
     models:
       - name: local-coder
         purpose: coding
@@ -743,7 +891,7 @@ routing:
 	},
 	{
 		Name: "tools.yaml",
-		Body: `tools:
+		Body: fmt.Sprintf(`tools:
   - name: file_read
     kind: builtin
     enabled: true
@@ -773,7 +921,7 @@ policy:
   default_timeout_seconds: 30
   deny_write_paths:
     - ".git"
-    - ".reasonforge"
+    - "%s"
     - ".env"
     - "*.pem"
     - "*.key"
@@ -781,13 +929,13 @@ policy:
     - "id_ed25519"
   deny_read_paths:
     - ".git"
-    - ".reasonforge"
+    - "%s"
     - ".env"
     - "*.pem"
     - "*.key"
     - "id_rsa"
     - "id_ed25519"
-`,
+`, dirName, dirName),
 	},
 	{
 		Name: "security.yaml",
@@ -797,12 +945,12 @@ network:
   enabled_by_default: false
 secrets:
   allow_env_prefixes:
-    - REASONFORGE_
+    - MimoNeko_
 `,
 	},
 	{
 		Name: "prefix.yaml",
-		Body: `version: 1
+		Body: fmt.Sprintf(`version: 1
 immutable_sources:
   - name: system_prompt
     kind: static_file
@@ -821,24 +969,24 @@ byte_stable:
   sort_tool_schemas: true
   disallow_dynamic_content: true
 cache:
-  registry_path: .reasonforge/cache/prefixes.jsonl
+  registry_path: %s/cache/prefixes.jsonl
   estimated_ttl: 1h
 budget:
   warn_ratio: 0.8
   block_ratio: 1.0
-`,
+`, dirName),
 	},
 	{
 		Name: "worktree.yaml",
-		Body: `# Worktree isolation configuration
+		Body: fmt.Sprintf(`# Worktree isolation configuration
 # Git worktrees provide isolated working directories for agent tasks.
 enabled: true
-root: .reasonforge/worktrees
-branch_prefix: reasonforge
+root: %s/worktrees
+branch_prefix: MimoNeko
 keep_failed: true
 keep_cancelled: true
 max_active: 10
-`,
+`, dirName),
 	},
 	{
 		Name: "patch.yaml",
@@ -888,16 +1036,17 @@ reviewer_use_model_review: false
 	},
 	{
 		Name: "events.yaml",
-		Body: `# Event system configuration (Phase 8)
+		Body: fmt.Sprintf(`# Event system configuration (Phase 8)
 # Controls structured event recording for run progress tracking.
 enabled: true
-store_path: .reasonforge/events/run_events.jsonl
+store_path: %s/events/run_events.jsonl
 max_message_bytes: 2048
 max_metadata_value_bytes: 512
 emit_tool_events: true
 emit_model_events: true
 emit_patch_events: true
 emit_validation_events: true
-`,
+`, dirName),
 	},
+}
 }
