@@ -407,6 +407,92 @@ The system rejects:
 - Content like "test passed", "tests passed", "executed"
 - Command execution wording
 
+## End-to-End Dry Run (Phase 7.1)
+
+Phase 7.1 adds end-to-end dry-run workflow.
+
+### CLI Commands
+
+```bash
+# Skeleton mode (default, no LLM call)
+mimoneko agents run --goal "优化 README" --dry-run
+
+# LLM mode (calls all agents, dry-run only)
+mimoneko agents run --goal "优化 README" --llm --dry-run
+
+# LLM mode with JSON output
+mimoneko agents run --goal "优化 README" --llm --dry-run --json
+```
+
+### Important Constraints
+
+- `--dry-run` is **required** and must be explicitly enabled
+- Without `--dry-run`, the command will be rejected
+- All four stages are executed: Planner → Coder → Reviewer → Validator
+- No files are written
+- No patches are generated
+- No tools are executed
+- No tests are executed
+
+### Workflow
+
+1. **Planner** generates AgentPlan (implementation_status = plan_only)
+2. **Coder** generates CoderPatchIntent (implementation_status = intent_only)
+3. **Reviewer** generates ReviewerIntentReview (implementation_status = review_only)
+4. **Validator** generates ValidatorSuggestions (implementation_status = suggestions_only)
+
+### Failure Handling
+
+- Planner failure → stops at Planner, no Coder
+- Coder failure → stops before Reviewer
+- Reviewer failure → stops before Validator
+- Validator failure → workflow failed
+- All failures emit events
+
+### DryRun Report Output
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║              MioNeko Agent Dry Run Report                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+Goal: 优化 README
+Workflow ID: wf_xxx
+Run ID: run_xxx
+Provider: mimo
+Model: mimo-v2.5-pro
+Status: completed
+
+━━━ Planner ━━━
+  Status: plan_only
+  Summary: Add project description
+  Steps: 3
+
+━━━ Coder ━━━
+  Status: intent_only
+  Files: 1
+  Changes: 2
+
+━━━ Reviewer ━━━
+  Status: review_only
+  Review: approved
+  Approved: true
+  Issues: 0
+
+━━━ Validator ━━━
+  Status: suggestions_only
+  Checks: 2
+  Commands: 3
+
+━━━ Safety ━━━
+  No files were modified: true
+  No patch was generated: true
+  No tools were executed: true
+  No tests were executed: true
+
+This was an end-to-end dry run.
+```
+
 ## Planned Commands
 
 The following write-capable commands are intentionally left for a later phase:

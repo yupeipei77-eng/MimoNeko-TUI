@@ -169,6 +169,9 @@ mimoneko agents review --intent-file intent.json --llm --json  # Output as JSON
 mimoneko agents validate --review-file review.json --intent-file intent.json  # Validation suggestions skeleton
 mimoneko agents validate --review-file review.json --intent-file intent.json --llm  # Validation with LLM
 mimoneko agents validate --review-file review.json --intent-file intent.json --llm --json  # Output as JSON
+mimoneko agents run --goal "优化 README" --dry-run  # End-to-end dry run (skeleton)
+mimoneko agents run --goal "优化 README" --llm --dry-run  # End-to-end dry run (LLM)
+mimoneko agents run --goal "优化 README" --llm --dry-run --json  # Output as JSON
 mimoneko neko events agents                 # View agent workflow events
 ```
 
@@ -180,6 +183,7 @@ The workflow skeleton includes four roles: Planner, Coder, Reviewer, and Validat
 - **Validator**: Produces skeleton validation suggestions (no real tests) or LLM-generated suggestions with `--llm`
 
 **Important**: 
+- `--dry-run` is **required** for `agents run` and must be explicitly enabled
 - `--llm` only generates plans/intents/reviews/suggestions. No files are written, no patches are generated, no tests are executed, no tools are executed.
 - `--plan-file` is required for `code` command and must contain a valid AgentPlan JSON.
 - `--intent-file` is required for `review` command and must contain a valid CoderPatchIntent JSON.

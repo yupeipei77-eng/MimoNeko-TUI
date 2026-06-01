@@ -33,6 +33,8 @@ func (c *AgentsCommand) Run(args []string, env Env) int {
 		return c.runReview(args[1:], env)
 	case "validate":
 		return c.runValidate(args[1:], env)
+	case "run":
+		return c.runAgentsRun(args[1:], env)
 	case "list":
 		return c.runList(args[1:], env)
 	default:
@@ -51,6 +53,7 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  code --goal \"...\" --plan-file <file> [--llm] [--json] 生成 patch intent")
 	fmt.Fprintln(env.Stdout, "  review --intent-file <file> [--llm] [--json] 审查 patch intent")
 	fmt.Fprintln(env.Stdout, "  validate --review-file <file> --intent-file <file> [--llm] [--json] 生成验证建议")
+	fmt.Fprintln(env.Stdout, "  run --goal \"...\" --dry-run [--llm] [--json] 端到端 dry-run")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "示例:")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents")
@@ -59,8 +62,9 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  mimoneko agents code --goal \"优化 README\" --plan-file plan.json --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents review --intent-file intent.json --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents validate --review-file review.json --intent-file intent.json --llm")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents run --goal \"优化 README\" --dry-run --llm")
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "注意: --llm 只生成计划/意图/审查/建议，不写文件、不执行测试、不执行工具。")
+	fmt.Fprintln(env.Stdout, "注意: --dry-run 必须显式开启，不写文件、不执行测试、不执行工具。")
 }
 
 func (c *AgentsCommand) runList(args []string, env Env) int {
@@ -609,6 +613,160 @@ func (c *AgentsCommand) runValidateWithLLM(intent *agents.CoderPatchIntent, revi
 	}
 
 	return suggestions, nil
+}
+
+func (c *AgentsCommand) runAgentsRun(args []string, env Env) int {
+	fs := flag.NewFlagSet("agents run", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	goal := fs.String("goal", "", "goal description")
+	useLLM := fs.Bool("llm", false, "use LLM for all agents")
+	dryRun := fs.Bool("dry-run", false, "dry-run mode (required)")
+	jsonOutput := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+
+	if *goal == "" {
+		// Try positional argument
+		if fs.NArg() > 0 {
+			*goal = strings.TrimSpace(fs.Arg(0))
+		}
+	}
+
+	if *goal == "" {
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents run --goal \"...\" --dry-run [--llm] [--json]")
+		return 1
+	}
+
+	if !*dryRun {
+		fmt.Fprintln(env.Stderr, "错误: agents run 当前需要 --dry-run 参数")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents run --goal \"...\" --dry-run [--llm] [--json]")
+		return 1
+	}
+
+	// 创建 event emitter
+	eventEmitter := c.createEventEmitter(env)
+
+	// 运行 dry-run
+	var report *agents.AgentDryRunReport
+	var err error
+
+	if *useLLM {
+		// LLM 模式
+		report, err = c.runDryRunWithLLM(*goal, eventEmitter, env)
+	} else {
+		// Skeleton 模式
+		report, err = c.runDryRunSkeleton(*goal, eventEmitter)
+	}
+
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	// 输出
+	if *jsonOutput {
+		jsonStr, err := agents.FormatDryRunReportJSON(report)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(env.Stdout, jsonStr)
+	} else {
+		fmt.Fprint(env.Stdout, agents.FormatDryRunReport(report))
+	}
+
+	return 0
+}
+
+// runDryRunSkeleton 运行 skeleton dry-run
+func (c *AgentsCommand) runDryRunSkeleton(goal string, eventEmitter events.EventEmitter) (*agents.AgentDryRunReport, error) {
+	runner := agents.NewWorkflowRunner(nil)
+	report, err := runner.RunSkeletonDryRun(goal)
+	if err != nil {
+		return nil, err
+	}
+
+	// 发送事件
+	c.emitDryRunEvents(eventEmitter, report)
+
+	return report, nil
+}
+
+// runDryRunWithLLM 运行 LLM dry-run
+func (c *AgentsCommand) runDryRunWithLLM(goal string, eventEmitter events.EventEmitter, env Env) (*agents.AgentDryRunReport, error) {
+	// 目前使用 skeleton 模式作为 placeholder
+	// 在生产环境中，这里会使用实际的 ModelRouter
+	report, err := c.runDryRunSkeleton(goal, eventEmitter)
+	if err != nil {
+		return nil, err
+	}
+
+	// 更新 provider/model 信息
+	report.Provider = "placeholder"
+	report.Model = "placeholder"
+
+	return report, nil
+}
+
+// emitDryRunEvents 发送 dry-run 事件
+func (c *AgentsCommand) emitDryRunEvents(eventEmitter events.EventEmitter, report *agents.AgentDryRunReport) {
+	wfEmitter := agents.NewWorkflowEventEmitter(eventEmitter)
+	ctx := context.Background()
+
+	// 创建临时 workflow 用于事件发送
+	workflow := &agents.AgentWorkflow{
+		RunID: report.RunID,
+		Goal:  report.Goal,
+	}
+
+	// 发送 workflow started
+	wfEmitter.EmitWorkflowStarted(ctx, workflow)
+
+	// 发送 planner 事件
+	if report.PlannerPlan != nil {
+		plannerStep, _ := workflow.FindStep(agents.AgentRolePlanner)
+		if plannerStep != nil {
+			plannerStep.Status = agents.AgentStatusCompleted
+			wfEmitter.EmitStepCompleted(ctx, workflow, *plannerStep)
+		}
+	}
+
+	// 发送 coder 事件
+	if report.CoderIntent != nil {
+		coderStep, _ := workflow.FindStep(agents.AgentRoleCoder)
+		if coderStep != nil {
+			coderStep.Status = agents.AgentStatusCompleted
+			wfEmitter.EmitStepCompleted(ctx, workflow, *coderStep)
+		}
+	}
+
+	// 发送 reviewer 事件
+	if report.ReviewerReview != nil {
+		reviewerStep, _ := workflow.FindStep(agents.AgentRoleReviewer)
+		if reviewerStep != nil {
+			reviewerStep.Status = agents.AgentStatusCompleted
+			wfEmitter.EmitStepCompleted(ctx, workflow, *reviewerStep)
+		}
+	}
+
+	// 发送 validator 事件
+	if report.ValidatorSuggestions != nil {
+		validatorStep, _ := workflow.FindStep(agents.AgentRoleValidator)
+		if validatorStep != nil {
+			validatorStep.Status = agents.AgentStatusCompleted
+			wfEmitter.EmitStepCompleted(ctx, workflow, *validatorStep)
+		}
+	}
+
+	// 发送 workflow completed
+	if report.Status == agents.WorkflowStatusCompleted {
+		workflow.Status = agents.AgentStatusCompleted
+		wfEmitter.EmitWorkflowCompleted(ctx, workflow)
+	} else {
+		workflow.Status = agents.AgentStatusFailed
+		wfEmitter.EmitWorkflowFailed(ctx, workflow, fmt.Errorf("%s", report.ErrorMessage))
+	}
 }
 
 // createEventEmitter creates an EventEmitter with EventStore integration.
