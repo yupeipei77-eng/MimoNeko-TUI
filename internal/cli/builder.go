@@ -388,3 +388,60 @@ func openEventStoreForRead(root string, cfg *config.Root) (*events.JSONLRunEvent
 	cleanup := func() { store.Close() }
 	return store, cleanup, nil
 }
+
+// BuildModelRouterFromConfig builds a ModelRouter from config.
+// Returns nil if config is incomplete (no providers, no default model).
+func BuildModelRouterFromConfig(cfg *config.Root) modelrouter.ModelRouter {
+	if len(cfg.Models.Providers) == 0 {
+		return nil
+	}
+	if cfg.Models.Routing.DefaultModel == "" {
+		return nil
+	}
+
+	providers := make(map[string]modelrouter.Provider, len(cfg.Models.Providers))
+	for _, providerCfg := range cfg.Models.Providers {
+		models := make([]string, 0, len(providerCfg.Models))
+		for _, modelCfg := range providerCfg.Models {
+			models = append(models, modelCfg.Name)
+		}
+		switch providerCfg.Type {
+		case "mimo":
+			providers[providerCfg.Name] = modelrouter.NewMimoProvider(
+				providerCfg.Name,
+				providerCfg.BaseURL,
+				providerCfg.APIKeyEnv,
+				models,
+				nil,
+			)
+		default:
+			providers[providerCfg.Name] = modelrouter.NewOpenAICompatibleProvider(
+				providerCfg.Name,
+				providerCfg.BaseURL,
+				providerCfg.APIKeyEnv,
+				models,
+				nil,
+			)
+		}
+	}
+
+	fallbackChain, err := modelrouter.BuildFallbackChainFromConfig(cfg)
+	if err != nil {
+		return nil
+	}
+
+	return modelrouter.NewDefaultModelRouter(providers, fallbackChain, cfg.Models.Routing.DefaultModel, nil)
+}
+
+// BuildProviderModelInfo returns provider and model info from config.
+func BuildProviderModelInfo(cfg *config.Root) (provider string, model string) {
+	model = cfg.Models.Routing.DefaultModel
+	for _, p := range cfg.Models.Providers {
+		for _, m := range p.Models {
+			if m.Name == model {
+				return p.Name, model
+			}
+		}
+	}
+	return "", model
+}

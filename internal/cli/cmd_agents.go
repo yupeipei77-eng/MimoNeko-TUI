@@ -11,6 +11,7 @@ import (
 
 	"github.com/mimoneko/mimoneko/internal/agents"
 	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
 	"github.com/mimoneko/mimoneko/internal/events"
 	"github.com/mimoneko/mimoneko/internal/security"
 )
@@ -695,16 +696,59 @@ func (c *AgentsCommand) runDryRunSkeleton(goal string, eventEmitter events.Event
 
 // runDryRunWithLLM 运行 LLM dry-run
 func (c *AgentsCommand) runDryRunWithLLM(goal string, eventEmitter events.EventEmitter, env Env) (*agents.AgentDryRunReport, error) {
-	// 目前使用 skeleton 模式作为 placeholder
-	// 在生产环境中，这里会使用实际的 ModelRouter
-	report, err := c.runDryRunSkeleton(goal, eventEmitter)
+	// 加载配置
+	root, err := resolveRoot("", env)
+	if err != nil {
+		return nil, fmt.Errorf("无法解析项目根目录: %w", err)
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("无法加载配置: %w", err)
+	}
+
+	// 构建 ModelRouter
+	modelRouter := BuildModelRouterFromConfig(cfg)
+	if modelRouter == nil {
+		return nil, fmt.Errorf("模型未配置: 请运行 'mimoneko auth login' 或检查 .mimoneko/models.yaml")
+	}
+
+	// 获取 provider/model 信息
+	provider, model := BuildProviderModelInfo(cfg)
+	if provider == "" || model == "" {
+		return nil, fmt.Errorf("模型配置不完整: provider=%q model=%q", provider, model)
+	}
+
+	// 检查 API key 是否配置
+	apiKeyEnv := ""
+	for _, p := range cfg.Models.Providers {
+		if p.Name == provider {
+			apiKeyEnv = p.APIKeyEnv
+			break
+		}
+	}
+	if apiKeyEnv != "" {
+		apiKey := security.GetEnvOrDefault(apiKeyEnv, "")
+		if apiKey == "" {
+			return nil, fmt.Errorf("API key 未配置: 请设置环境变量 %s", apiKeyEnv)
+		}
+	}
+
+	// 创建 WorkflowRunner
+	runner := agents.NewWorkflowRunner(modelRouter)
+
+	// 构建 context bundle
+	// 对于 dry-run，我们使用最小化的 bundle
+	bundle := contextengine.Bundle{}
+
+	// 运行 dry-run
+	report, err := runner.RunDryRun(context.Background(), goal, bundle, provider, model)
 	if err != nil {
 		return nil, err
 	}
 
-	// 更新 provider/model 信息
-	report.Provider = "placeholder"
-	report.Model = "placeholder"
+	// 发送事件
+	c.emitDryRunEvents(eventEmitter, report)
 
 	return report, nil
 }

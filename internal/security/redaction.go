@@ -10,6 +10,7 @@
 package security
 
 import (
+	"os"
 	"regexp"
 	"strings"
 )
@@ -241,4 +242,13 @@ func containsSecret(secrets []string, secret string) bool {
 		}
 	}
 	return false
+}
+
+// GetEnvOrDefault returns the value of an environment variable or a default value.
+func GetEnvOrDefault(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }

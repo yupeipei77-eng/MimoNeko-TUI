@@ -427,12 +427,35 @@ mimoneko agents run --goal "优化 README" --llm --dry-run --json
 ### Important Constraints
 
 - `--dry-run` is **required** and must be explicitly enabled
-- Without `--dry-run`, the command will be rejected
+- Without `--dry run`, the command will be rejected
 - All four stages are executed: Planner → Coder → Reviewer → Validator
 - No files are written
 - No patches are generated
 - No tools are executed
 - No tests are executed
+
+### Real ModelRouter Integration (Phase 7.2)
+
+When using `--llm`, the workflow uses the project's existing ModelRouter:
+
+```bash
+# Uses real ModelRouter (requires API key)
+mimoneko agents run --goal "优化 README" --llm --dry-run
+
+# Uses skeleton (no API key needed)
+mimoneko agents run --goal "优化 README" --dry-run
+```
+
+**Requirements**:
+- Model configuration in `.mimoneko/models.yaml`
+- API key set via environment variable or `mimoneko auth login`
+- Provider and model must be configured
+
+**Configuration errors**:
+- `provider not configured`: No providers in models.yaml
+- `model not configured`: No default model set
+- `api key missing`: Environment variable not set
+- `base url invalid`: URL format error
 
 ### Workflow
 
