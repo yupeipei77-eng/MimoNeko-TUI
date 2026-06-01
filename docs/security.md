@@ -521,6 +521,51 @@ mimoneko approvals reject <id>
 
 ---
 
+### 10. Approval Resume Snapshot (Phase 5.5)
+
+**状态**: ✅ 已实现
+
+**功能**: 为 approval_required 的工具调用保存可恢复快照。
+
+**重要说明**:
+- ⚠️ 当前只是 **snapshot**，不是 **resume**
+- ⚠️ approve 后 **仍不会自动执行**
+- 自动 resume 留给后续阶段
+
+**存储路径**:
+```
+.mimoneko/approval_snapshots.json
+```
+
+**ResumeSnapshot 字段**:
+| 字段 | 说明 |
+|------|------|
+| approval_id | 关联 approval 请求 |
+| run_id | 运行 ID |
+| tool_name | 工具名 |
+| tool_args | 原始工具参数（不显示） |
+| risk_level | 风险级别 |
+| reason | 原因 |
+| path | 路径 |
+| command | 命令 |
+| created_at | 创建时间 |
+| sanitized_preview | 脱敏预览 |
+
+**CLI 命令**:
+```bash
+# 显示恢复快照（脱敏）
+mimoneko approvals snapshot <id>
+```
+
+**行为**:
+- approval_required 时自动创建 snapshot
+- 重复 approval 复用同一 snapshot
+- CLI 只显示 sanitized_preview
+- 不显示真实 tool_args
+- 不执行工具
+
+---
+
 ## 最佳实践
 
 ### 对于用户

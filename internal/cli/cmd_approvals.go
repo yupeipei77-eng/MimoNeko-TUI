@@ -13,12 +13,27 @@ func approvalsStorePath(root string) string {
 	return filepath.Join(root, ".mimoneko", "approvals.json")
 }
 
+// snapshotStorePath returns the path to the snapshots JSON file.
+func snapshotStorePath(root string) string {
+	return filepath.Join(root, ".mimoneko", "approval_snapshots.json")
+}
+
 // loadApprovalsStore loads the approvals file store from the project root.
 func loadApprovalsStore(root string) (*approval.FileStore, error) {
 	path := approvalsStorePath(root)
 	store := approval.NewFileStore(path)
 	if err := store.Load(); err != nil {
 		return nil, fmt.Errorf("加载审批记录失败: %w", err)
+	}
+	return store, nil
+}
+
+// loadSnapshotStore loads the snapshot file store from the project root.
+func loadSnapshotStore(root string) (*approval.SnapshotStore, error) {
+	path := snapshotStorePath(root)
+	store := approval.NewSnapshotStore(path)
+	if err := store.Load(); err != nil {
+		return nil, fmt.Errorf("加载快照失败: %w", err)
 	}
 	return store, nil
 }
@@ -42,6 +57,8 @@ func (c *ApprovalsCommand) Run(args []string, env Env) int {
 		return c.runApprove(args[1:], env)
 	case "reject":
 		return c.runReject(args[1:], env)
+	case "snapshot":
+		return c.runSnapshot(args[1:], env)
 	default:
 		fmt.Fprintf(env.Stderr, "未知命令 '%s'\n\n", args[0])
 		printApprovalsHelp(env)
@@ -57,14 +74,17 @@ func printApprovalsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  show <id>         显示审批请求详情")
 	fmt.Fprintln(env.Stdout, "  approve <id>      批准请求")
 	fmt.Fprintln(env.Stdout, "  reject <id>       拒绝请求")
+	fmt.Fprintln(env.Stdout, "  snapshot <id>     显示恢复快照（脱敏）")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "示例:")
 	fmt.Fprintln(env.Stdout, "  mimoneko approvals list")
 	fmt.Fprintln(env.Stdout, "  mimoneko approvals show apr_xxx")
 	fmt.Fprintln(env.Stdout, "  mimoneko approvals approve apr_xxx")
 	fmt.Fprintln(env.Stdout, "  mimoneko approvals reject apr_xxx")
+	fmt.Fprintln(env.Stdout, "  mimoneko approvals snapshot apr_xxx")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "存储路径: .mimoneko/approvals.json")
+	fmt.Fprintln(env.Stdout, "快照路径: .mimoneko/approval_snapshots.json")
 }
 
 func (c *ApprovalsCommand) runList(args []string, env Env) int {
@@ -232,6 +252,50 @@ func (c *ApprovalsCommand) runReject(args []string, env Env) int {
 	}
 
 	fmt.Fprintf(env.Stdout, "✓ 已拒绝 %s\n", id)
+	return 0
+}
+
+func (c *ApprovalsCommand) runSnapshot(args []string, env Env) int {
+	if len(args) == 0 {
+		fmt.Fprintln(env.Stderr, "用法: mimoneko approvals snapshot <id>")
+		return 1
+	}
+
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store, err := loadSnapshotStore(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	id := args[0]
+	snap, err := store.Get(id)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(env.Stdout, "Approval ID: %s\n", snap.ApprovalID)
+	fmt.Fprintf(env.Stdout, "Run ID: %s\n", snap.RunID)
+	fmt.Fprintf(env.Stdout, "Tool: %s\n", snap.ToolName)
+	fmt.Fprintf(env.Stdout, "Risk Level: %s\n", snap.RiskLevel)
+	fmt.Fprintf(env.Stdout, "Reason: %s\n", security.SanitizeText(snap.Reason))
+	if snap.Path != "" {
+		fmt.Fprintf(env.Stdout, "Path: %s\n", security.SanitizeText(snap.Path))
+	}
+	if snap.Command != "" {
+		fmt.Fprintf(env.Stdout, "Command: %s\n", security.SanitizeText(snap.Command))
+	}
+	fmt.Fprintf(env.Stdout, "Created: %s\n", snap.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintln(env.Stdout, "")
+	fmt.Fprintln(env.Stdout, "Preview (sanitized):")
+	fmt.Fprintln(env.Stdout, snap.SanitizedPreview)
+
 	return 0
 }
 

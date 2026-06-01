@@ -27,6 +27,7 @@ type DefaultToolRuntime struct {
 	eventEmitter  events.EventEmitter
 	enforcement   *security.EnforcementConfig
 	approvalStore *approval.FileStore
+	snapshotStore *approval.SnapshotStore
 }
 
 // NewDefaultToolRuntime creates a ToolRuntime with the given dependencies.
@@ -54,6 +55,11 @@ func (rt *DefaultToolRuntime) SetEventEmitter(emitter events.EventEmitter) {
 // SetApprovalStore sets the approval store for creating approval requests.
 func (rt *DefaultToolRuntime) SetApprovalStore(store *approval.FileStore) {
 	rt.approvalStore = store
+}
+
+// SetSnapshotStore sets the snapshot store for saving resume snapshots.
+func (rt *DefaultToolRuntime) SetSnapshotStore(store *approval.SnapshotStore) {
+	rt.snapshotStore = store
 }
 
 // RegisterMetadata registers review metadata for a tool. It does not change
@@ -481,6 +487,26 @@ func (rt *DefaultToolRuntime) createApprovalRequest(
 		return "", err
 	}
 
+	// Create resume snapshot
+	if rt.snapshotStore != nil {
+		snapshot := &approval.ResumeSnapshot{
+			ApprovalID:       approvalReq.ID,
+			RunID:            runID,
+			ToolName:         req.ToolName,
+			ToolArgs:         req.Args,
+			RiskLevel:        string(metadata.RiskLevel),
+			Reason:           result.Reason,
+			Path:             pathValue,
+			Command:          commandValue,
+			CreatedAt:        time.Now().UTC(),
+			SanitizedPreview: buildSanitizedPreview(req.ToolName, pathValue, commandValue, string(metadata.RiskLevel)),
+		}
+
+		if err := rt.snapshotStore.Upsert(snapshot); err != nil {
+			return "", fmt.Errorf("snapshot: save failed: %w", err)
+		}
+	}
+
 	return approvalReq.ID, nil
 }
 
@@ -581,4 +607,20 @@ func truncateResponse(resp ToolResponse, maxBytes int) ToolResponse {
 	}
 
 	return resp
+}
+
+// buildSanitizedPreview creates a human-readable, sanitized preview of the operation.
+func buildSanitizedPreview(toolName, path, command, riskLevel string) string {
+	preview := "Tool: " + toolName
+
+	if path != "" {
+		preview += "\nPath: " + security.SanitizeText(path)
+	}
+	if command != "" {
+		preview += "\nCommand: " + security.SanitizeText(command)
+	}
+
+	preview += "\nRisk: " + riskLevel
+
+	return preview
 }
