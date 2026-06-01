@@ -379,6 +379,48 @@ req.IsExpired(time.Now())  // true if expired
 
 ---
 
+### 7. Approval CLI Stub (Phase 5.2)
+
+**状态**: ✅ 已实现（Stub）
+
+**功能**: Approval CLI 入口和只读/模拟操作。
+
+**重要说明**:
+- ⚠️ 当前是 **stub 实现**，不接 Runtime，不持久化
+- 使用 in-memory demo store
+- 不影响真实 ToolRuntime
+- 不影响 Security Enforcement
+
+**CLI 命令**:
+```bash
+# 列出待审批请求
+mimoneko approvals list
+
+# 显示审批请求详情
+mimoneko approvals show <id>
+
+# 批准请求
+mimoneko approvals approve <id>
+
+# 拒绝请求
+mimoneko approvals reject <id>
+```
+
+**当前行为**:
+| 命令 | 行为 |
+|------|------|
+| `list` | 输出 `no pending approvals`（无数据时） |
+| `show` | 显示请求详情（脱敏） |
+| `approve` | 验证状态转换逻辑 |
+| `reject` | 验证状态转换逻辑 |
+
+**使用场景**:
+- 验证 CLI 入口
+- 验证状态转换逻辑
+- 为后续持久化做准备
+
+---
+
 ## 最佳实践
 
 ### 对于用户
