@@ -32,40 +32,49 @@ func (c *ConfigCommand) Run(args []string, env Env) int {
 	case "path":
 		return cmdConfigPath(env)
 	default:
-		fmt.Fprintf(env.Stderr, "未知命令 '%s'\n\n", args[0])
+		PrintError(env.Stderr, "Unknown config command", fmt.Sprintf("未知命令 %q。", args[0]), "运行: mimoneko config")
 		printConfigHelp(env)
 		return 1
 	}
 }
 
 func (c *ConfigCommand) runShow(args []string, env Env) int {
-	config, err := auth.LoadUserConfig()
+	userConfig, err := auth.LoadUserConfig()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Config show failed", "加载用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
-	fmt.Fprintln(env.Stdout, "当前配置:")
-	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "认证:")
-	fmt.Fprintln(env.Stdout, "  Providers:")
-
-	if len(config.Auth.Providers) == 0 {
-		fmt.Fprintln(env.Stdout, "    (未配置)")
-	} else {
-		for name, provider := range config.Auth.Providers {
-			fmt.Fprintf(env.Stdout, "    %s:\n", name)
-			fmt.Fprintf(env.Stdout, "      API Key: %s\n", auth.SanitizeAPIKey(provider.APIKey))
-			fmt.Fprintf(env.Stdout, "      Base URL: %s\n", provider.BaseURL)
+	PrintHeader(env.Stdout, "Config Show")
+	userRows := []KV{
+		{Key: "Path", Value: auth.GetUserConfigPath()},
+		{Key: "Default", Value: displayProvider(userConfig.Auth.DefaultProvider)},
+		{Key: "Model", Value: userConfig.Preferences.DefaultModel},
+		{Key: "Dry Run", Value: fmt.Sprintf("%v", userConfig.Preferences.DryRun)},
+		{Key: "Worktree", Value: fmt.Sprintf("%v", userConfig.Preferences.Worktree)},
+	}
+	if userConfig.Auth.DefaultProvider != "" {
+		if provider, ok := userConfig.Auth.Providers[userConfig.Auth.DefaultProvider]; ok {
+			userRows = append(userRows,
+				KV{Key: "Key", Value: MaskSecret(provider.APIKey)},
+				KV{Key: "Base URL", Value: provider.BaseURL},
+			)
 		}
 	}
+	PrintKV(env.Stdout, "User Config:", userRows)
+	fmt.Fprintln(env.Stdout)
 
-	fmt.Fprintf(env.Stdout, "  默认 Provider: %s\n", config.Auth.DefaultProvider)
-	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "偏好:")
-	fmt.Fprintf(env.Stdout, "  默认模型: %s\n", config.Preferences.DefaultModel)
-	fmt.Fprintf(env.Stdout, "  试运行: %v\n", config.Preferences.DryRun)
-	fmt.Fprintf(env.Stdout, "  工作树: %v\n", config.Preferences.Worktree)
+	printProjectAuthSummary(env)
+	fmt.Fprintln(env.Stdout)
+
+	envVar := auth.APIKeyEnv(userConfig.Auth.DefaultProvider)
+	if envVar == "" {
+		envVar = "MIMO_API_KEY"
+	}
+	PrintKV(env.Stdout, "Environment:", []KV{
+		{Key: "API Key Env", Value: envVar},
+		{Key: "Value", Value: envKeyDisplay(envVar)},
+	})
 
 	return 0
 }
@@ -102,7 +111,7 @@ func cmdConfigSetKey(args []string, env Env) int {
 	// Load user config
 	userConfig, err := auth.LoadUserConfig()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Config failed", "加载用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
@@ -129,12 +138,12 @@ func cmdConfigSetKey(args []string, env Env) int {
 
 	// Save config
 	if err := auth.SaveUserConfig(userConfig); err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 保存配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Config failed", "保存用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
-	fmt.Fprintf(env.Stdout, "✓ API Key 已保存到 %s\n", auth.GetUserConfigPath())
-	fmt.Fprintf(env.Stdout, "  API Key: %s\n", auth.SanitizeAPIKey(apiKey))
+	PrintSuccess(env.Stdout, fmt.Sprintf("API Key 已保存到 %s", auth.GetUserConfigPath()))
+	fmt.Fprintf(env.Stdout, "API Key  %s\n", MaskSecret(apiKey))
 	return 0
 }
 
@@ -157,7 +166,7 @@ func cmdConfigGetKey(args []string, env Env) int {
 	// 2. Check user config
 	userConfig, err := auth.LoadUserConfig()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Config failed", "加载用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
@@ -174,7 +183,7 @@ func cmdConfigGetKey(args []string, env Env) int {
 func cmdConfigList(env Env) int {
 	root, err := config.Load(".")
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Config failed", "加载项目配置失败。", "检查当前目录是否已初始化。", err.Error())
 		return 1
 	}
 
@@ -216,7 +225,7 @@ func cmdConfigList(env Env) int {
 func cmdConfigPath(env Env) int {
 	root, err := config.Load(".")
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Config failed", "加载项目配置失败。", "检查当前目录是否已初始化。", err.Error())
 		return 1
 	}
 	fmt.Fprintln(env.Stdout, root.Dir)

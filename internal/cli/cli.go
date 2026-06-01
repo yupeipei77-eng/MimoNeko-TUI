@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -38,7 +37,7 @@ func Run(args []string, env Env) int {
 
 	if args[0] == "run" || args[0] == "multi-run" || args[0] == "neko" || args[0] == "model" {
 		if err := auth.ApplyUserConfigToEnv(); err != nil {
-			fmt.Fprintf(env.Stderr, "加载用户配置失败: %v\n", err)
+			PrintErrorDetails(env.Stderr, "Configuration failed", "加载用户配置失败。", "运行: mimoneko auth login", err.Error())
 			return 1
 		}
 	}
@@ -49,7 +48,7 @@ func Run(args []string, env Env) int {
 			return result
 		}
 		if err := auth.ApplyUserConfigToEnv(); err != nil {
-			fmt.Fprintf(env.Stderr, "加载用户配置失败: %v\n", err)
+			PrintErrorDetails(env.Stderr, "Configuration failed", "加载用户配置失败。", "运行: mimoneko auth login", err.Error())
 			return 1
 		}
 	}

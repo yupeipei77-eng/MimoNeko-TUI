@@ -1,8 +1,0 @@
-# Worktree isolation configuration
-# Git worktrees provide isolated working directories for agent tasks.
-enabled: true
-root: .nekonomimo/worktrees
-branch_prefix: reasonforge
-keep_failed: true
-keep_cancelled: true
-max_active: 10

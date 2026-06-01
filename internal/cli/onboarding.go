@@ -13,42 +13,59 @@ import (
 
 func runFirstTimeSetup(env Env) int {
 	reader := bufio.NewReader(env.Stdin)
+	ui := newCLIUI()
 
-	fmt.Fprintln(env.Stdout, "欢迎使用 MioNeko")
-	fmt.Fprintln(env.Stdout, "检测到你还没有配置模型")
+	ui.PrintHeader(env.Stdout, "Welcome to MioNeko")
+	fmt.Fprintln(env.Stdout, "MiMo-first AI Coding Agent")
+	fmt.Fprintln(env.Stdout, "Fast. Safe. Cache-aware.")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "请选择：")
-	fmt.Fprintln(env.Stdout, "1. MiMo")
+	fmt.Fprintln(env.Stdout, "检测到你还没有配置模型。")
+	fmt.Fprintln(env.Stdout, "我会引导你完成 3 步配置：")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "1. 选择模型服务")
+	fmt.Fprintln(env.Stdout, "2. 输入 API Key")
+	fmt.Fprintln(env.Stdout, "3. 测试连接")
+	fmt.Fprintln(env.Stdout)
+	PrintKV(env.Stdout, "默认推荐：", []KV{
+		{Key: "Provider", Value: "MiMo"},
+		{Key: "Model", Value: auth.DefaultModel("mimo")},
+		{Key: "Base URL", Value: auth.GetBaseURL("mimo")},
+	})
+	fmt.Fprintln(env.Stdout)
+
+	PrintStep(env.Stdout, 1, 3, "选择 Provider")
+	fmt.Fprintln(env.Stdout, "1. MiMo (recommended)")
 	fmt.Fprintln(env.Stdout, "2. OpenAI-compatible")
 	fmt.Fprintln(env.Stdout, "3. Local")
-	fmt.Fprintln(env.Stdout)
-
 	providerChoice := promptOnboardingLine(reader, env, "请选择 [1]", "1")
 	provider := normalizeOnboardingProvider(providerChoice)
 	if provider == "" {
-		fmt.Fprintln(env.Stderr, "不支持的 Provider 选择")
+		PrintError(env.Stderr, "Setup failed", "不支持的 Provider 选择。", "请选择 1、2 或 3。")
 		return 1
 	}
+	fmt.Fprintln(env.Stdout)
 
-	apiKey := strings.TrimSpace(promptOnboardingLine(reader, env, "API Key", ""))
+	PrintStep(env.Stdout, 2, 3, "配置 API Key")
+	apiKey := strings.TrimSpace(promptSecretLine(reader, env, "API Key"))
 	if apiKey == "" && provider == "local" {
 		apiKey = "local"
 	}
 	if apiKey == "" {
-		fmt.Fprintln(env.Stderr, "API Key 不能为空")
+		PrintError(env.Stderr, "Setup failed", "API Key 不能为空。", "重新运行: mimoneko auth login")
 		return 1
 	}
 	if pathutil.APIKeyLooksPlaceholder(apiKey) {
-		fmt.Fprintln(env.Stderr, "API Key 看起来是示例占位值，请输入真实 API Key")
+		PrintError(env.Stderr, "Setup failed", "API Key 看起来是示例占位值。", "请输入真实 API Key。")
 		return 1
 	}
 
 	baseURL := promptOnboardingLine(reader, env, "Base URL", auth.GetBaseURL(provider))
 	model := promptOnboardingLine(reader, env, "Model", auth.DefaultModel(provider))
+	fmt.Fprintf(env.Stdout, "Saved key: %s\n\n", MaskSecret(apiKey))
 
 	userConfig, err := auth.LoadUserConfig()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Setup failed", "加载配置失败。", "检查用户目录权限后重试。", modelprofile.SanitizeText(err.Error(), apiKey))
 		return 1
 	}
 	if userConfig.Auth.Providers == nil {
@@ -62,16 +79,17 @@ func runFirstTimeSetup(env Env) int {
 	userConfig.Preferences.DefaultModel = model
 
 	if err := auth.SaveUserConfig(userConfig); err != nil {
-		fmt.Fprintf(env.Stderr, "保存配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Setup failed", "保存配置失败。", "检查用户目录权限后重试。", modelprofile.SanitizeText(err.Error(), apiKey))
 		return 1
 	}
 	if err := auth.ApplyUserConfigToEnv(); err != nil {
-		fmt.Fprintf(env.Stderr, "加载用户配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Setup failed", "加载用户配置失败。", "检查用户配置后重试。", modelprofile.SanitizeText(err.Error(), apiKey))
 		return 1
 	}
 
-	fmt.Fprintf(env.Stdout, "\n配置已保存到 %s\n", auth.GetUserConfigPath())
-	fmt.Fprintln(env.Stdout, "正在执行: mimoneko model test")
+	PrintSuccess(env.Stdout, fmt.Sprintf("配置已保存到 %s", auth.GetUserConfigPath()))
+	fmt.Fprintln(env.Stdout)
+	PrintStep(env.Stdout, 3, 3, "测试连接")
 
 	result, err := modelprofile.Test(context.Background(), ".", modelprofile.TestOptions{
 		Provider:  provider,
@@ -81,16 +99,18 @@ func runFirstTimeSetup(env Env) int {
 		Prompt:    "Reply with OK only.",
 	})
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "model test failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		reason, suggestion, details := friendlyModelError(modelprofile.SanitizeText(err.Error(), apiKey))
+		PrintErrorDetails(env.Stderr, "Connection failed", reason, suggestion, details)
 		return 1
 	}
 	if result.Status != "ok" {
-		fmt.Fprintf(env.Stderr, "model test failed: %s\n", modelprofile.SanitizeText(result.Error))
+		reason, suggestion, details := friendlyModelError(modelprofile.SanitizeText(result.Error, apiKey))
+		PrintErrorDetails(env.Stderr, "Connection failed", reason, suggestion, details)
 		return 1
 	}
 
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "配置成功")
+	PrintSuccess(env.Stdout, "配置成功")
 	fmt.Fprintln(env.Stdout, "你现在可以运行：")
 	fmt.Fprintln(env.Stdout, "mimoneko \"修改 README\"")
 	fmt.Fprintln(env.Stdout, "或：")

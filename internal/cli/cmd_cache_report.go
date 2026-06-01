@@ -3,8 +3,9 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"path/filepath"
+	"sort"
 
+	"github.com/mimoneko/mimoneko/internal/cache"
 	"github.com/mimoneko/mimoneko/internal/config"
 )
 
@@ -31,42 +32,78 @@ func (c *CacheReportCommand) Run(args []string, env Env) int {
 
 	cfg, err := config.Load(root)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Cache report failed", "加载项目配置失败。", "运行: mimoneko init", err.Error())
 		return 1
 	}
 
-	registryPath := cfg.Prefix.Cache.RegistryPath
-	if !filepath.IsAbs(registryPath) {
-		registryPath = filepath.Join(root, registryPath)
-	}
-
+	registryPath := cacheRegistryPath(root, cfg)
 	registry, err := NewCacheRegistryForCLI(registryPath, cfg.Prefix.Cache)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Cache report failed", "无法打开缓存 registry。", "确认当前目录已初始化。", err.Error())
 		return 1
 	}
 
 	report, err := registry.Report()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "cache-report failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Cache report failed", "读取缓存统计失败。", "检查 cache registry 文件是否损坏。", err.Error())
 		return 1
 	}
 
-	fmt.Fprintf(env.Stdout, "total_observations=%d\n", report.GlobalSummary.TotalObservations)
-	fmt.Fprintf(env.Stdout, "total_tokens=%d\n", report.GlobalSummary.TotalTokens)
-	fmt.Fprintf(env.Stdout, "cached_tokens=%d\n", report.GlobalSummary.TotalCachedTokens)
-	fmt.Fprintf(env.Stdout, "hit_rate=%.4f\n", report.GlobalSummary.OverallHitRate)
-	fmt.Fprintf(env.Stdout, "estimated_saving_percent=%.2f\n", report.GlobalSummary.EstimatedSavingPercent)
-	fmt.Fprintf(env.Stdout, "fingerprint_count=%d\n", len(report.ByFingerprint))
-
-	for _, fp := range report.ByFingerprint {
-		fmt.Fprintf(env.Stdout, "  fingerprint=%s hit_rate=%.4f reuse_count=%d uncached_tokens=%d\n",
-			fp.PrefixHash, fp.HitRate, fp.ReuseCount, fp.UncachedTokens)
+	PrintHeader(env.Stdout, "Cache Report")
+	PrintKV(env.Stdout, "", []KV{
+		{Key: "Total Requests", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalObservations)},
+		{Key: "Input Tokens", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalTokens)},
+		{Key: "Cached Tokens", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalCachedTokens)},
+		{Key: "Hit Rate", Value: percent(report.GlobalSummary.OverallHitRate)},
+		{Key: "Fingerprints", Value: fmt.Sprintf("%d", len(report.ByFingerprint))},
+	})
+	observations := readCacheObservations(registryPath)
+	if len(observations) > 0 {
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Trend:")
+		for _, row := range cacheTrendRows(observations) {
+			fmt.Fprintf(env.Stdout, "%-4s %s\n", row.Key, row.Value)
+		}
 	}
+	fmt.Fprintln(env.Stdout)
+	PrintInfo(env.Stdout, "单次请求 CachedTokens=0 不代表缓存失败。")
+	PrintInfo(env.Stdout, "缓存通常需要多轮相似前缀才会命中。")
 
 	return 0
 }
 
 func init() {
 	commands.Register(&CacheReportCommand{})
+}
+
+func cacheTrendRows(observations []cache.Observation) []KV {
+	if len(observations) == 0 {
+		return nil
+	}
+	sort.SliceStable(observations, func(i, j int) bool {
+		return observations[i].ObservedAt.Before(observations[j].ObservedAt)
+	})
+	targets := []int{1, 10, 30, 50}
+	seen := make(map[int]bool)
+	var rows []KV
+	for _, target := range targets {
+		if target <= len(observations) {
+			inputTokens, cachedTokens := sumCacheObservations(observations[:target])
+			rate := 0.0
+			if inputTokens > 0 {
+				rate = float64(cachedTokens) / float64(inputTokens)
+			}
+			rows = append(rows, KV{Key: fmt.Sprintf("%d", target), Value: percent(rate)})
+			seen[target] = true
+		}
+	}
+	if !seen[len(observations)] {
+		inputTokens, cachedTokens := sumCacheObservations(observations)
+		rate := 0.0
+		if inputTokens > 0 {
+			rate = float64(cachedTokens) / float64(inputTokens)
+		}
+		rows = append(rows, KV{Key: fmt.Sprintf("%d", len(observations)), Value: percent(rate)})
+	}
+	return rows
 }

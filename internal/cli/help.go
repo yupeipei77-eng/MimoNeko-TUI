@@ -8,7 +8,10 @@ import (
 )
 
 func printUsage(w io.Writer) {
+	ui := newCLIUI()
+	ui.PrintHeader(w, "MioNeko CLI")
 	fmt.Fprintln(w, "Usage: mimoneko <command>")
+	fmt.Fprintln(w, "       mimoneko \"your goal\"")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
 	for _, name := range commands.Names() {
@@ -49,6 +52,14 @@ func printUsage(w io.Writer) {
 			fmt.Fprintln(w, "  neko         Start MimoNeko terminal console")
 		}
 	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "%s Run a task:\n", ui.Icon("cat"))
+	fmt.Fprintln(w, "  mimoneko \"修改 README\"")
+	fmt.Fprintln(w, "  mimoneko run \"Reply OK\"")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "%s Setup:\n", ui.Icon("secret"))
+	fmt.Fprintln(w, "  mimoneko auth login")
+	fmt.Fprintln(w, "  mimoneko model test")
 }
 
 func printNekoUsage(w io.Writer) {

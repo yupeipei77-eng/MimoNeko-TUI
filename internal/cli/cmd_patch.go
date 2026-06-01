@@ -65,26 +65,32 @@ func (c *PatchCommand) runList(args []string, env Env) int {
 
 	mgr, cleanup, err := buildWorktreeManager(root)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "patch list failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Patch list failed", "无法加载 worktree 管理器。", "运行: mimoneko doctor", err.Error())
 		return 1
 	}
 	defer cleanup()
 
 	worktrees, err := mgr.List(context.Background())
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "patch list failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Patch list failed", "无法读取 patch/worktree 列表。", "检查 .mimoneko/worktrees 状态。", err.Error())
 		return 1
 	}
 
+	PrintHeader(env.Stdout, "Patch List")
 	if len(worktrees) == 0 {
-		fmt.Fprintln(env.Stdout, "No worktrees found.")
+		PrintInfo(env.Stdout, "No worktrees found.")
 		return 0
 	}
 
-	fmt.Fprintln(env.Stdout, "MimoNeko Worktrees")
 	for _, wt := range worktrees {
-		fmt.Fprintf(env.Stdout, "id=%s task_id=%s state=%s path=%s created_at=%s\n",
-			wt.ID, wt.TaskID, wt.State, filepath.ToSlash(wt.Path), wt.CreatedAt.Format(time.RFC3339))
+		PrintKV(env.Stdout, "", []KV{
+			{Key: "ID", Value: wt.ID},
+			{Key: "Task", Value: wt.TaskID},
+			{Key: "State", Value: string(wt.State)},
+			{Key: "Path", Value: filepath.ToSlash(wt.Path)},
+			{Key: "Created", Value: wt.CreatedAt.Format(time.RFC3339)},
+		})
+		fmt.Fprintln(env.Stdout)
 	}
 	return 0
 }

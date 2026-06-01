@@ -517,7 +517,7 @@ func Test(ctx context.Context, root string, opt TestOptions) (TestResult, error)
 	providerType := resolveProviderType(models, providerName)
 	body, err := marshalChatRequest(providerType, modelName, []map[string]string{
 		{"role": "user", "content": prompt},
-	}, 16, 0, false)
+	}, 128, 0, false)
 	if err != nil {
 		return TestResult{}, fmt.Errorf("marshal request: %w", err)
 	}

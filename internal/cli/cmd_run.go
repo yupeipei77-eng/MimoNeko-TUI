@@ -55,15 +55,17 @@ func (c *RunCommand) Run(args []string, env Env) int {
 	}
 
 	if err := ensureProjectConfigForRun(root); err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Run failed", "项目配置初始化失败。", "检查当前目录权限后重试。", err.Error())
 		return 1
 	}
 
 	cfg, err := config.Load(root)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Run failed", "加载项目配置失败。", "运行: mimoneko init", err.Error())
 		return 1
 	}
+	cachePath := cacheRegistryPath(root, cfg)
+	cacheLineCount := countCacheObservationLines(cachePath)
 
 	contract := task.DefaultContract(root, *goal)
 	contract.DryRun = *dryRun
@@ -78,7 +80,7 @@ func (c *RunCommand) Run(args []string, env Env) int {
 
 	deps, cleanup, err := buildAgentDependencies(root, cfg)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Run failed", "无法构建运行依赖。", "运行: mimoneko doctor", err.Error())
 		return 1
 	}
 	defer cleanup()
@@ -100,35 +102,56 @@ func (c *RunCommand) Run(args []string, env Env) int {
 		UseWorktree: *useWorktree,
 	}
 
-	fmt.Fprintf(env.Stdout, "MimoNeko Agent\n")
-	fmt.Fprintf(env.Stdout, "run_id=pending goal=%q max_steps=%d dry_run=%v worktree=%v\n", *goal, contract.MaxSteps, contract.DryRun, *useWorktree)
+	ui := newCLIUI()
+	ui.PrintHeader(env.Stdout, "MioNeko Run")
+	fmt.Fprintln(env.Stdout, "Goal:")
+	fmt.Fprintln(env.Stdout, *goal)
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, ui.Icon("model")+" Model:")
+	fmt.Fprintln(env.Stdout, cfg.Models.Routing.DefaultModel)
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintf(env.Stdout, "%s Running...\n", ui.Icon("gear"))
 
 	result, err := rt.Run(context.Background(), req)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "run failed: %v\n", err)
+		reason, suggestion, details := friendlyModelError(err.Error())
+		PrintErrorDetails(env.Stderr, "Run failed", reason, suggestion, details)
 		return 1
 	}
 
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintf(env.Stdout, "run_id=%s state=%s steps=%d\n", result.RunID, result.State, len(result.Steps))
-	if result.WorktreeID != "" {
-		fmt.Fprintf(env.Stdout, "worktree_id=%s\n", result.WorktreeID)
-	}
+	fmt.Fprintln(env.Stdout, statusValue(result.State == agent.AgentStateSucceeded, "Completed", "Failed"))
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Result:")
 	if result.FinalMessage != "" {
-		fmt.Fprintf(env.Stdout, "message=%s\n", result.FinalMessage)
+		fmt.Fprintln(env.Stdout, result.FinalMessage)
+	} else if result.Error != "" {
+		fmt.Fprintln(env.Stdout, result.Error)
+	} else {
+		fmt.Fprintln(env.Stdout, "(no final message)")
 	}
-	if result.Error != "" {
-		fmt.Fprintf(env.Stdout, "error=%s\n", result.Error)
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Run ID:")
+	fmt.Fprintln(env.Stdout, result.RunID)
+	if result.WorktreeID != "" {
+		fmt.Fprintln(env.Stdout)
+		PrintKV(env.Stdout, "Worktree:", []KV{{Key: "ID", Value: result.WorktreeID}})
 	}
+	printRunTokens(env, cachePath, cacheLineCount)
 	if result.PatchPreview != nil {
-		fmt.Fprintf(env.Stdout, "patch_preview:\n")
-		fmt.Fprintf(env.Stdout, "  files_changed=%d\n", result.PatchPreview.Summary.FilesChanged)
-		fmt.Fprintf(env.Stdout, "  additions=%d deletions=%d\n", result.PatchPreview.Summary.Additions, result.PatchPreview.Summary.Deletions)
-		fmt.Fprintf(env.Stdout, "  risk_level=%s\n", result.PatchPreview.RiskLevel)
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintf(env.Stdout, "%s Patch generated\n", ui.Icon("patch"))
+		PrintKV(env.Stdout, "", []KV{
+			{Key: "Files", Value: fmt.Sprintf("%d", result.PatchPreview.Summary.FilesChanged)},
+			{Key: "Changes", Value: fmt.Sprintf("+%d / -%d", result.PatchPreview.Summary.Additions, result.PatchPreview.Summary.Deletions)},
+			{Key: "Risk", Value: result.PatchPreview.RiskLevel},
+		})
 		if len(result.PatchPreview.Violations) > 0 {
-			fmt.Fprintf(env.Stdout, "  violations=%d\n", len(result.PatchPreview.Violations))
+			PrintWarning(env.Stdout, fmt.Sprintf("%d validation violation(s)", len(result.PatchPreview.Violations)))
 		}
-		fmt.Fprintf(env.Stdout, "  review with: mimoneko patch preview %s\n", result.WorktreeID)
+		fmt.Fprintln(env.Stdout, "Run:")
+		fmt.Fprintf(env.Stdout, "mimoneko patch preview %s\n", result.WorktreeID)
+		fmt.Fprintf(env.Stdout, "mimoneko patch apply %s\n", result.WorktreeID)
 	}
 
 	switch result.State {
@@ -147,4 +170,27 @@ func (c *RunCommand) Run(args []string, env Env) int {
 
 func init() {
 	commands.Register(&RunCommand{})
+}
+
+func printRunTokens(env Env, cachePath string, beforeLines int) {
+	observations := readCacheObservationsAfter(cachePath, beforeLines)
+	inputTokens, cachedTokens := sumCacheObservations(observations)
+	value := "unavailable"
+	if inputTokens > 0 {
+		value = percent(float64(cachedTokens) / float64(inputTokens))
+	}
+	rows := []KV{
+		{Key: "Input", Value: tokenValue(inputTokens)},
+		{Key: "Cached", Value: tokenValue(cachedTokens)},
+		{Key: "Hit Rate", Value: value},
+	}
+	fmt.Fprintln(env.Stdout)
+	PrintKV(env.Stdout, "Tokens:", rows)
+}
+
+func tokenValue(value int) string {
+	if value <= 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%d", value)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mimoneko/mimoneko/internal/modelprofile"
@@ -257,21 +258,17 @@ func (c *ModelCommand) runTest(args []string, env Env) int {
 		Prompt:    *prompt,
 	})
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "model test failed: %s\n", modelprofile.SanitizeText(err.Error()))
+		reason, suggestion, details := friendlyModelError(modelprofile.SanitizeText(err.Error()))
+		PrintErrorDetails(env.Stderr, "Connection failed", reason, suggestion, details)
 		return 1
 	}
-	fmt.Fprintf(env.Stdout, "model=%s\n", result.Model)
-	fmt.Fprintf(env.Stdout, "provider=%s\n", result.Provider)
-	fmt.Fprintf(env.Stdout, "base_url=%s\n", result.BaseURL)
-	fmt.Fprintf(env.Stdout, "api_key_env=%s\n", result.APIKeyEnv)
-	fmt.Fprintf(env.Stdout, "api_key_status=%s\n", modelprofile.APIKeyStatus(result.APIKeyEnv))
-	fmt.Fprintf(env.Stdout, "status=%s\n", result.Status)
-	fmt.Fprintf(env.Stdout, "latency_ms=%d\n", result.LatencyMs)
+	printModelTestResult(env, result)
 	if result.Status != "ok" {
-		fmt.Fprintf(env.Stdout, "error=%s\n", modelprofile.SanitizeText(result.Error))
+		reason, suggestion, details := friendlyModelError(result.Error)
+		fmt.Fprintln(env.Stdout)
+		PrintErrorDetails(env.Stdout, "Connection failed", reason, suggestion, details)
 		return 1
 	}
-	fmt.Fprintf(env.Stdout, "response=%s\n", result.Response)
 	return 0
 }
 
@@ -334,4 +331,38 @@ func (c *ModelCommand) runRemove(args []string, env Env) int {
 
 func init() {
 	commands.Register(&ModelCommand{})
+}
+
+func printModelTestResult(env Env, result modelprofile.TestResult) {
+	ui := newCLIUI()
+	ui.PrintHeader(env.Stdout, "Model Test")
+	apiKey := strings.TrimSpace(os.Getenv(result.APIKeyEnv))
+	apiKeyDisplay := modelprofile.APIKeyStatus(result.APIKeyEnv)
+	if apiKey != "" {
+		apiKeyDisplay = MaskSecret(apiKey)
+	}
+	status := ui.Icon("error") + " Failed"
+	if result.Status == "ok" {
+		status = ui.Icon("success") + " OK"
+	}
+	PrintKV(env.Stdout, "", []KV{
+		{Key: "Provider", Value: displayProvider(result.Provider)},
+		{Key: "Model", Value: result.Model},
+		{Key: "Base URL", Value: result.BaseURL},
+		{Key: "API Key", Value: apiKeyDisplay},
+		{Key: "Status", Value: status},
+		{Key: "Latency", Value: fmt.Sprintf("%d ms", result.LatencyMs)},
+		{Key: "Response", Value: result.Response},
+	})
+}
+
+func displayProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "mimo":
+		return "MiMo"
+	case "":
+		return "(unknown)"
+	default:
+		return provider
+	}
 }

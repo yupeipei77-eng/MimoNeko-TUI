@@ -1,9 +1,0 @@
-# Patch review configuration (Phase 6)
-# Controls risk scoring and rule-based review thresholds.
-max_diff_bytes: 131072
-high_risk_file_count: 20
-medium_risk_file_count: 5
-high_risk_line_count: 500
-medium_risk_line_count: 100
-require_tests_for_code_changes: false
-strict_model_review: false

@@ -54,7 +54,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(version) code = %d", code)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.1-beta" {
+	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.2-beta" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -373,6 +373,7 @@ func assertTreeDoesNotContain(t *testing.T, root, needle string) {
 
 func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
 	home := setUserConfigHome(t)
+	t.Setenv("MIMO_API_KEY", "")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("api-key") != "sk-first-run" {
 			t.Fatalf("api-key header = %q, want saved key", r.Header.Get("api-key"))
@@ -389,8 +390,11 @@ func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
 		t.Fatalf("Run(nil) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "欢迎使用 MioNeko") || !strings.Contains(output, "配置成功") {
+	if !strings.Contains(output, "Welcome to MioNeko") || !strings.Contains(output, "Step 1/3") || !strings.Contains(output, "配置成功") {
 		t.Fatalf("stdout = %q, want first-run wizard success", output)
+	}
+	if strings.Contains(output, "sk-first-run") {
+		t.Fatalf("stdout leaked API key: %q", output)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".mimoneko", "config.yaml")); err != nil {
 		t.Fatalf("user config was not saved: %v", err)
@@ -408,6 +412,38 @@ func TestNoArgsReturnsUsageWhenConfigured(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Usage: mimoneko <command>") {
 		t.Fatalf("stdout = %q, want usage", stdout.String())
+	}
+}
+
+func TestConfigShowDoesNotLeakAPIKey(t *testing.T) {
+	home := setUserConfigHome(t)
+	root := setupModelCommandRoot(t)
+	userSecret := "tp-config-show-secret-12345"
+	envSecret := "tp-config-show-env-secret-67890"
+	saveUserConfigForTest(t, "mimo", userSecret, "https://token-plan-cn.xiaomimimo.com/v1", "mimo-v2.5-pro")
+	t.Setenv("MIMO_API_KEY", envSecret)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"config", "show"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Getwd:  func() (string, error) { return root, nil },
+	})
+	if code != 0 {
+		t.Fatalf("config show code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"Config Show", "User Config:", "Project Config:", "Environment:"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
+	}
+	if strings.Contains(output, userSecret) || strings.Contains(output, envSecret) {
+		t.Fatalf("config show leaked API key: %q", output)
+	}
+	if !strings.Contains(output, filepath.Join(home, ".mimoneko", "config.yaml")) {
+		t.Fatalf("stdout = %q, want user config path", output)
 	}
 }
 
@@ -547,11 +583,11 @@ func TestCacheReportCommand(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(cache-report) code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "total_observations=") {
-		t.Fatalf("cache-report output = %q, want total_observations", stdout.String())
+	if !strings.Contains(stdout.String(), "Cache Report") {
+		t.Fatalf("cache-report output = %q, want header", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "hit_rate=") {
-		t.Fatalf("cache-report output = %q, want hit_rate", stdout.String())
+	if !strings.Contains(stdout.String(), "Total Requests") || !strings.Contains(stdout.String(), "Hit Rate") {
+		t.Fatalf("cache-report output = %q, want summary rows", stdout.String())
 	}
 }
 
@@ -562,7 +598,7 @@ func TestCacheReportReportsMissingConfig(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("Run(cache-report) code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "cache-report failed") {
+	if !strings.Contains(stderr.String(), "Cache report failed") {
 		t.Fatalf("stderr = %q, want cache-report failure", stderr.String())
 	}
 }
@@ -736,6 +772,7 @@ func TestModelSetupDoesNotWriteAPIKey(t *testing.T) {
 }
 
 func TestModelSetupMissingEnvPrintsSafeHint(t *testing.T) {
+	setUserConfigHome(t)
 	root := setupModelCommandRoot(t)
 	t.Setenv("MIMO_API_KEY", "")
 	var stdout bytes.Buffer
@@ -903,8 +940,11 @@ func TestModelTestSuccess(t *testing.T) {
 		t.Fatalf("model test code = %d", code)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "status=ok") || !strings.Contains(output, "response=OK") {
+	if !strings.Contains(output, "Model Test") || !strings.Contains(output, "Status") || !strings.Contains(output, "OK") || !strings.Contains(output, "Response") {
 		t.Fatalf("stdout = %q, want ok response", output)
+	}
+	if strings.Contains(output, "sk-model-test") {
+		t.Fatalf("stdout leaked API key: %q", output)
 	}
 }
 
@@ -1043,8 +1083,30 @@ func TestModelTestFailureStatusCode(t *testing.T) {
 		t.Fatalf("model test code = %d, want 1", code)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "status=failed") || !strings.Contains(output, "API returned status 400") {
+	if !strings.Contains(output, "Model Test") || !strings.Contains(output, "Failed") || !strings.Contains(output, "API returned status 400") {
 		t.Fatalf("stdout = %q, want failed status code", output)
+	}
+	if strings.Contains(output, secret) {
+		t.Fatalf("model test stdout leaked API key: %q", output)
+	}
+}
+
+func TestModelTest401ShowsFriendlyHint(t *testing.T) {
+	root := setupModelCommandRoot(t)
+	t.Setenv("TEST_MODEL_API_KEY", "sk-model-test-401")
+	server := newChatCompletionServer(t, http.StatusUnauthorized, `{"error":"invalid api key"}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model")
+	var stdout bytes.Buffer
+	code := Run([]string{"model", "test", "--dir", root, "--provider", "test", "--model", "test-model"}, Env{Stdout: &stdout})
+	if code != 1 {
+		t.Fatalf("model test code = %d, want 1", code)
+	}
+	output := stdout.String()
+	for _, want := range []string{"Connection failed", "API Key may be invalid", "mimoneko auth login", "HTTP 401"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
 	}
 }
 
@@ -1524,6 +1586,35 @@ func TestRunDefaultDryRun(t *testing.T) {
 
 	// The command should not crash (may return 1 due to model call failure, but should not panic)
 	_ = code
+}
+
+func TestRunSuccessOutputIsHumanReadable(t *testing.T) {
+	setUserConfigHome(t)
+	saveUserConfigForTest(t, "test", "sk-run-user-config", "http://127.0.0.1", "test-model")
+	t.Setenv("TEST_MODEL_API_KEY", "sk-run-test")
+	root := setupModelCommandRoot(t)
+	server := newChatCompletionServer(t, http.StatusOK, `{"model":"test-model","choices":[{"message":{"content":"OK"}}],"usage":{"prompt_tokens":70,"completion_tokens":1,"total_tokens":71,"prompt_tokens_details":{"cached_tokens":40}}}`)
+	defer server.Close()
+	runModelSetupForTest(t, root, "--provider", "test", "--base-url", server.URL, "--api-key-env", "TEST_MODEL_API_KEY", "--model", "test-model", "--set-default")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"run", "--dir", root, "--goal", "Reply OK", "--max-steps", "1"}, Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if code != 0 {
+		t.Fatalf("run code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"MioNeko Run", "Goal:", "Reply OK", "Running", "Completed", "Result:", "OK", "Run ID:", "Tokens:", "Input", "Cached", "Hit Rate"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
+	}
+	if strings.Contains(output, "sk-run-test") || strings.Contains(output, "sk-run-user-config") {
+		t.Fatalf("run output leaked API key: %q", output)
+	}
 }
 
 func TestRunNoPanic(t *testing.T) {

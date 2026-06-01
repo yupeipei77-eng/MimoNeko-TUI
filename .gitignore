@@ -6,6 +6,7 @@
 *.dylib
 /bin/
 /dist/
+dist/
 
 # Test
 *.test
@@ -23,6 +24,7 @@ id_ed25519
 
 # MioNeko local state
 .mimoneko/
+.nekonomimo/
 .neko/
 logs/
 cache/

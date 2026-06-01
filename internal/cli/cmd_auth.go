@@ -4,9 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/mimoneko/mimoneko/internal/auth"
+	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/modelprofile"
+	"github.com/mimoneko/mimoneko/internal/pathutil"
 )
 
 type AuthCommand struct{}
@@ -27,7 +32,7 @@ func (c *AuthCommand) Run(args []string, env Env) int {
 	case "logout":
 		return c.runLogout(args[1:], env)
 	default:
-		fmt.Fprintf(env.Stderr, "未知命令 '%s'\n\n", args[0])
+		PrintError(env.Stderr, "Unknown auth command", fmt.Sprintf("未知命令 %q。", args[0]), "运行: mimoneko auth")
 		printAuthHelp(env)
 		return 1
 	}
@@ -53,36 +58,39 @@ func (c *AuthCommand) runLogin(args []string, env Env) int {
 func (c *AuthCommand) runStatus(args []string, env Env) int {
 	config, err := auth.LoadUserConfig()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Auth status failed", "加载用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
 	if config.Auth.DefaultProvider == "" {
-		fmt.Fprintln(env.Stdout, "未配置")
-		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "运行 'mimoneko auth login' 进行配置")
+		PrintHeader(env.Stdout, "Auth Status")
+		PrintWarning(env.Stdout, "未配置")
+		fmt.Fprintln(env.Stdout, "运行: mimoneko auth login")
 		return 0
 	}
 
 	provider := config.Auth.DefaultProvider
 	providerConfig, ok := config.Auth.Providers[provider]
 	if !ok {
-		fmt.Fprintf(env.Stdout, "✗ Provider %q 未配置\n", provider)
+		PrintError(env.Stdout, "Auth status failed", fmt.Sprintf("Provider %q 未配置。", provider), "运行: mimoneko auth login")
 		return 1
 	}
 
-	fmt.Fprintln(env.Stdout, "当前配置:")
-	fmt.Fprintf(env.Stdout, "  Provider: %s\n", provider)
-	fmt.Fprintf(env.Stdout, "  Base URL: %s\n", providerConfig.BaseURL)
-	fmt.Fprintf(env.Stdout, "  API Key: %s\n", auth.SanitizeAPIKey(providerConfig.APIKey))
-	fmt.Fprintf(env.Stdout, "  Model: %s\n", config.Preferences.DefaultModel)
-
-	// Test connection
-	fmt.Fprint(env.Stdout, "  Status: ")
+	ui := newCLIUI()
+	ui.PrintHeader(env.Stdout, "Auth Status")
+	PrintKV(env.Stdout, "User Config:", []KV{
+		{Key: "Path", Value: auth.GetUserConfigPath()},
+		{Key: "Provider", Value: displayProvider(provider)},
+		{Key: "Base URL", Value: providerConfig.BaseURL},
+		{Key: "Key", Value: MaskSecret(providerConfig.APIKey)},
+		{Key: "Model", Value: config.Preferences.DefaultModel},
+	})
+	fmt.Fprintln(env.Stdout)
+	printProjectAuthSummary(env)
+	fmt.Fprintln(env.Stdout)
 
 	if err := auth.ApplyUserConfigToEnv(); err != nil {
-		fmt.Fprintln(env.Stdout, "✗ 连接失败")
-		fmt.Fprintf(env.Stderr, "  %v\n", err)
+		PrintErrorDetails(env.Stderr, "Connection failed", "无法加载用户配置到环境变量。", "运行: mimoneko auth login", err.Error())
 		return 1
 	}
 	result, err := modelprofile.Test(context.Background(), ".", modelprofile.TestOptions{
@@ -93,13 +101,15 @@ func (c *AuthCommand) runStatus(args []string, env Env) int {
 		Prompt:    "Reply with OK only.",
 	})
 	if err == nil && result.Status == "ok" {
-		fmt.Fprintln(env.Stdout, "✓ 已连接")
+		fmt.Fprintf(env.Stdout, "Status  %s Ready\n", ui.Icon("success"))
 	} else {
-		fmt.Fprintln(env.Stdout, "✗ 连接失败")
+		fmt.Fprintf(env.Stdout, "Status  %s Connection failed\n", ui.Icon("error"))
 		if err != nil {
-			fmt.Fprintf(env.Stderr, "  %s\n", modelprofile.SanitizeText(err.Error()))
+			reason, suggestion, details := friendlyModelError(modelprofile.SanitizeText(err.Error()))
+			PrintErrorDetails(env.Stderr, "Connection failed", reason, suggestion, details)
 		} else {
-			fmt.Fprintf(env.Stderr, "  %s\n", modelprofile.SanitizeText(result.Error))
+			reason, suggestion, details := friendlyModelError(result.Error)
+			PrintErrorDetails(env.Stderr, "Connection failed", reason, suggestion, details)
 		}
 		return 1
 	}
@@ -110,12 +120,12 @@ func (c *AuthCommand) runStatus(args []string, env Env) int {
 func (c *AuthCommand) runLogout(args []string, env Env) int {
 	config, err := auth.LoadUserConfig()
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 加载配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Logout failed", "加载用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
 	if config.Auth.DefaultProvider == "" {
-		fmt.Fprintln(env.Stdout, "未配置")
+		PrintWarning(env.Stdout, "未配置")
 		return 0
 	}
 
@@ -123,11 +133,11 @@ func (c *AuthCommand) runLogout(args []string, env Env) int {
 	config.Auth.DefaultProvider = ""
 
 	if err := auth.SaveUserConfig(config); err != nil {
-		fmt.Fprintf(env.Stderr, "✗ 保存配置失败: %v\n", err)
+		PrintErrorDetails(env.Stderr, "Logout failed", "保存用户配置失败。", "检查用户配置文件权限。", err.Error())
 		return 1
 	}
 
-	fmt.Fprintln(env.Stdout, "✓ 已登出")
+	PrintSuccess(env.Stdout, "已登出")
 	return 0
 }
 
@@ -149,6 +159,61 @@ func printHTTPError(w io.Writer, statusCode int) {
 	default:
 		fmt.Fprintf(w, "✗ 连接失败 (状态码: %d)\n", statusCode)
 	}
+}
+
+func printProjectAuthSummary(env Env) {
+	root, err := resolveRoot("", env)
+	if err != nil {
+		PrintKV(env.Stdout, "Project Config:", []KV{
+			{Key: "Path", Value: "(unknown)"},
+			{Key: "Secret", Value: "Not stored"},
+		})
+		return
+	}
+	modelsPath := filepath.Join(config.ConfigDir(root), "models.yaml")
+	rows := []KV{
+		{Key: "Path", Value: modelsPath},
+		{Key: "Secret", Value: "Not stored"},
+	}
+	cfg, err := config.Load(root)
+	if err == nil {
+		provider := findProjectDefaultProvider(cfg)
+		if provider.Name != "" {
+			rows = append(rows,
+				KV{Key: "Provider", Value: displayProvider(provider.Name)},
+				KV{Key: "Key", Value: provider.APIKeyEnv},
+			)
+		}
+	} else {
+		rows = append(rows, KV{Key: "Status", Value: "Missing"})
+	}
+	PrintKV(env.Stdout, "Project Config:", rows)
+}
+
+func findProjectDefaultProvider(cfg *config.Root) config.ProviderConfig {
+	defaultModel := strings.TrimSpace(cfg.Models.Routing.DefaultModel)
+	if defaultModel == "" && len(cfg.Models.Providers) > 0 {
+		return cfg.Models.Providers[0]
+	}
+	for _, provider := range cfg.Models.Providers {
+		for _, model := range provider.Models {
+			if model.Name == defaultModel {
+				return provider
+			}
+		}
+	}
+	return config.ProviderConfig{}
+}
+
+func envKeyDisplay(envVar string) string {
+	key := strings.TrimSpace(os.Getenv(envVar))
+	if key == "" {
+		return "missing"
+	}
+	if pathutil.APIKeyLooksPlaceholder(key) {
+		return "missing"
+	}
+	return MaskSecret(key)
 }
 
 func init() {
