@@ -66,6 +66,12 @@ const (
 
 	// Sandbox detection events (detection only, no enforcement)
 	EventPathViolationCandidate EventType = "path.violation_candidate"
+
+	// Security enforcement events
+	EventSecurityWarning      EventType = "security.warning"
+	EventPathBlocked          EventType = "path.blocked"
+	EventToolDenied           EventType = "tool.denied"
+	EventToolApprovalRequired EventType = "tool.approval_required"
 )
 
 // IsTerminal returns true if the event type represents a terminal state

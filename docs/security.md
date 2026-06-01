@@ -194,21 +194,66 @@ neko events tools
 
 ---
 
-## 未来计划
+### 5. Security Enforcement (Phase 4.5)
 
-### Phase 4.5: Security Enforcement
+**状态**: ✅ 已实现
 
-**目标**: 将检测转换为执行策略。
-
-**功能**:
-- 路径阻断（可配置）
-- 工具拒绝（可配置）
-- 审批流程（可配置）
+**功能**: 可配置的安全拦截策略。
 
 **重要说明**:
-- 当前阶段不实现
-- 需要用户明确启用
-- 不会改变现有行为
+- 默认模式是 `warn` - 检测并警告，不阻断
+- 需要显式设置 `MIMONEKO_SECURITY_MODE=enforce` 才会阻断
+- 不会让 MioNeko 自己被误伤锁死
+
+**三种模式**:
+
+| 模式 | 说明 | 行为 |
+|------|------|------|
+| `off` | 关闭 | 不拦截，只记录 audit candidate |
+| `warn` | 警告（默认） | 不拦截，输出 warning，emit security.warning |
+| `enforce` | 强制 | 阻断 critical path，high risk tool 需要 approval |
+
+**配置方式**:
+```bash
+# 环境变量
+export MIMONEKO_SECURITY_MODE=warn  # 默认
+export MIMONEKO_SECURITY_MODE=off   # 关闭
+export MIMONEKO_SECURITY_MODE=enforce  # 强制
+```
+
+**执行策略**:
+
+| 风险级别 | off | warn | enforce |
+|----------|-----|------|---------|
+| low | 允许 | 允许 | 允许 |
+| medium | 允许 | 允许 | 允许（需 approval 则拒绝） |
+| high | 允许 | 允许 | 需要 approval |
+| critical | 允许 | 允许 | 拒绝 |
+
+**路径策略**:
+
+| 违规级别 | off | warn | enforce |
+|----------|-----|------|---------|
+| critical | 允许，记录 candidate | 允许，警告 | 阻断 |
+| warning | 允许，记录 candidate | 允许，警告 | 允许，警告 |
+
+**CLI 命令**:
+```bash
+# 查看安全状态
+mimoneko security status
+
+# 检查路径安全
+mimoneko security check .git/config
+```
+
+**事件类型**:
+- `security.warning` - 安全警告
+- `path.blocked` - 路径被阻断
+- `tool.denied` - 工具被拒绝
+- `tool.approval_required` - 工具需要审批
+
+**Approval 说明**:
+当前阶段不实现交互式 approval 流程，只返回 `approval_required` 错误状态。后续版本将实现 `approve` 命令。
 
 ---
 

@@ -24,6 +24,7 @@ type DefaultToolRuntime struct {
 	audit        *AuditLog
 	enabled      map[string]bool // tool name -> enabled
 	eventEmitter events.EventEmitter
+	enforcement  *security.EnforcementConfig
 }
 
 // NewDefaultToolRuntime creates a ToolRuntime with the given dependencies.
@@ -35,6 +36,7 @@ func NewDefaultToolRuntime(registry ToolRegistry, guard *SafetyGuard, audit *Aud
 		audit:        audit,
 		enabled:      enabled,
 		eventEmitter: &events.NoopEventEmitter{},
+		enforcement:  security.NewEnforcementConfig(),
 	}
 }
 
@@ -132,8 +134,14 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 	}
 	toolStartedMetadata := toolEventMetadata(req, metadata)
 
-	// 6.5. Path sandbox detection (detection only, no blocking)
+	// 6.5. Path sandbox detection and enforcement check
 	rt.detectPathViolations(ctx, req, rc, taskID)
+
+	// 6.6. Security enforcement check
+	if err := rt.checkEnforcement(ctx, req, metadata, rc, taskID); err != nil {
+		return ToolResponse{}, err
+	}
+
 	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
 		ID:               mustGenerateToolEventID(),
 		RunID:            rc.RunID,
@@ -355,6 +363,92 @@ func (rt *DefaultToolRuntime) detectPathViolations(ctx context.Context, req Tool
 			})
 		}
 	}
+}
+
+// checkEnforcement checks if the tool execution should be allowed based on
+// the enforcement mode. Returns an error if the tool should be denied.
+func (rt *DefaultToolRuntime) checkEnforcement(
+	ctx context.Context,
+	req ToolRequest,
+	metadata ToolMetadata,
+	rc events.RunContext,
+	taskID string,
+) error {
+	if rt.enforcement == nil {
+		return nil
+	}
+
+	// Collect path argument keys
+	var pathKeys []string
+	for _, key := range pathArgKeys {
+		if _, ok := req.Args[key]; ok {
+			pathKeys = append(pathKeys, key)
+		}
+	}
+
+	// Run enforcement check
+	result := rt.enforcement.CheckToolExecution(
+		req.ToolName,
+		string(metadata.RiskLevel),
+		metadata.RequiresApproval,
+		pathKeys,
+		req.Args,
+	)
+
+	// Emit enforcement events if needed
+	if result.EventType != "" {
+		rt.emitEnforcementEvent(ctx, req, result, rc, taskID)
+	}
+
+	// Return error if not allowed
+	if !result.Allowed {
+		return fmt.Errorf("%s", result.Reason)
+	}
+
+	return nil
+}
+
+// emitEnforcementEvent emits an event based on the enforcement result.
+func (rt *DefaultToolRuntime) emitEnforcementEvent(
+	ctx context.Context,
+	req ToolRequest,
+	result security.EnforcementResult,
+	rc events.RunContext,
+	taskID string,
+) {
+	if rt.eventEmitter == nil {
+		return
+	}
+
+	metadata := map[string]string{
+		"tool_name": req.ToolName,
+		"mode":      string(result.Mode),
+		"reason":    security.SanitizeText(result.Reason),
+	}
+
+	if len(result.Violations) > 0 {
+		v := result.Violations[0]
+		metadata["path"] = security.SanitizeText(v.Path)
+		metadata["rule"] = v.Rule
+		metadata["severity"] = string(v.Severity)
+	}
+
+	// Sanitize all metadata
+	sanitizedMetadata := security.SanitizeMap(metadata)
+
+	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
+		ID:         mustGenerateToolEventID(),
+		RunID:      rc.RunID,
+		TaskID:     taskID,
+		WorktreeID: rc.WorktreeID,
+		Timestamp:  time.Now().UTC(),
+		ToolName:   req.ToolName,
+		Type:       events.EventType(result.EventType),
+		Source:     "security",
+		Status:     "enforced",
+		Message:    security.SanitizeText(result.Reason),
+		Metadata:   sanitizedMetadata,
+	})
 }
 
 // truncateResponse truncates Stdout and Stderr to fit within maxBytes.

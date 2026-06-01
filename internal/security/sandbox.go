@@ -245,6 +245,11 @@ func hasPathTraversal(path string) bool {
 	return false
 }
 
+// GetSensitiveRules returns the list of sensitive rules for inspection.
+func GetSensitiveRules() []sensitivePattern {
+	return sensitiveRules
+}
+
 // GetViolationSummary returns a human-readable summary of violations.
 func GetViolationSummary(violations []PathViolation) string {
 	if len(violations) == 0 {
