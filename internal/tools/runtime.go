@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mimoneko/mimoneko/internal/approval"
 	"github.com/mimoneko/mimoneko/internal/events"
 	"github.com/mimoneko/mimoneko/internal/security"
 )
@@ -19,12 +20,13 @@ type ToolRuntime interface {
 // DefaultToolRuntime implements ToolRuntime with safety checks, timeout,
 // output truncation, audit logging, and optional event emission.
 type DefaultToolRuntime struct {
-	registry     ToolRegistry
-	guard        *SafetyGuard
-	audit        *AuditLog
-	enabled      map[string]bool // tool name -> enabled
-	eventEmitter events.EventEmitter
-	enforcement  *security.EnforcementConfig
+	registry      ToolRegistry
+	guard         *SafetyGuard
+	audit         *AuditLog
+	enabled       map[string]bool // tool name -> enabled
+	eventEmitter  events.EventEmitter
+	enforcement   *security.EnforcementConfig
+	approvalStore *approval.FileStore
 }
 
 // NewDefaultToolRuntime creates a ToolRuntime with the given dependencies.
@@ -47,6 +49,11 @@ func (rt *DefaultToolRuntime) SetEventEmitter(emitter events.EventEmitter) {
 	if emitter != nil {
 		rt.eventEmitter = emitter
 	}
+}
+
+// SetApprovalStore sets the approval store for creating approval requests.
+func (rt *DefaultToolRuntime) SetApprovalStore(store *approval.FileStore) {
+	rt.approvalStore = store
 }
 
 // RegisterMetadata registers review metadata for a tool. It does not change
@@ -400,12 +407,100 @@ func (rt *DefaultToolRuntime) checkEnforcement(
 		rt.emitEnforcementEvent(ctx, req, result, rc, taskID)
 	}
 
+	// If approval is required, create an approval request
+	if result.RequiresApproval && rt.approvalStore != nil {
+		approvalID, err := rt.createApprovalRequest(req, metadata, result, rc)
+		if err != nil {
+			return fmt.Errorf("approval: create request failed: %w", err)
+		}
+		return fmt.Errorf("approval required: %s", approvalID)
+	}
+
 	// Return error if not allowed
 	if !result.Allowed {
 		return fmt.Errorf("%s", result.Reason)
 	}
 
 	return nil
+}
+
+// createApprovalRequest creates an approval request and persists it.
+func (rt *DefaultToolRuntime) createApprovalRequest(
+	req ToolRequest,
+	metadata ToolMetadata,
+	result security.EnforcementResult,
+	rc events.RunContext,
+) (string, error) {
+	// Get run ID
+	runID := rc.RunID
+	if runID == "" {
+		runID = "manual"
+	}
+
+	// Extract path from args
+	var pathValue string
+	for _, key := range pathArgKeys {
+		if v, ok := req.Args[key]; ok && v != "" {
+			pathValue = v
+			break
+		}
+	}
+
+	// Extract command from args
+	var commandValue string
+	for _, key := range []string{"command", "cmd", "shell"} {
+		if v, ok := req.Args[key]; ok && v != "" {
+			commandValue = v
+			break
+		}
+	}
+
+	// Check for duplicate pending request
+	existingID := rt.findDuplicatePendingRequest(runID, req.ToolName, result.Reason, pathValue)
+	if existingID != "" {
+		return existingID, nil
+	}
+
+	// Create approval request
+	approvalReq, err := approval.NewRequest(
+		runID,
+		req.ToolName,
+		approval.ScopeTool,
+		result.Reason,
+		string(metadata.RiskLevel),
+		pathValue,
+		commandValue,
+		"",
+	)
+	if err != nil {
+		return "", err
+	}
+
+	// Add to store
+	if err := rt.approvalStore.Add(approvalReq); err != nil {
+		return "", err
+	}
+
+	return approvalReq.ID, nil
+}
+
+// findDuplicatePendingRequest checks if a similar pending request already exists.
+func (rt *DefaultToolRuntime) findDuplicatePendingRequest(
+	runID, toolName, reason, path string,
+) string {
+	if rt.approvalStore == nil {
+		return ""
+	}
+
+	for _, req := range rt.approvalStore.Pending() {
+		if req.RunID == runID &&
+			req.ToolName == toolName &&
+			req.Reason == reason &&
+			req.Path == path {
+			return req.ID
+		}
+	}
+	return ""
 }
 
 // emitEnforcementEvent emits an event based on the enforcement result.

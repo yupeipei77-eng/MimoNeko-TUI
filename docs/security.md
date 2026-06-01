@@ -476,6 +476,51 @@ store.Delete(id)  // 删除并持久化
 
 ---
 
+### 9. Approval Runtime Integration (Phase 5.4)
+
+**状态**: ✅ 已实现（Dry Run）
+
+**功能**: 将 Approval Request 生成接入 ToolRuntime / Security Enforcement。
+
+**重要说明**:
+- ⚠️ 当前阶段只是 **生成 pending approval**
+- ⚠️ approve 后 **不会自动 resume**
+- resume 留到后续阶段
+
+**触发条件**:
+当 `MIMONEKO_SECURITY_MODE=enforce` 时：
+- high risk tool 需要 approval
+- medium risk 且 requires_approval=true 需要 approval
+- critical risk tool 仍然直接 deny，不创建 approval
+- critical path 仍然直接 block，不创建 approval
+- warning path 只 warning，不创建 approval
+
+**行为**:
+1. 创建 ApprovalRequest
+2. 写入 `.mimoneko/approvals.json`
+3. 返回错误：`approval required: <approval_id>`
+4. emit `tool.approval_required`
+5. 不执行工具
+6. 不自动恢复执行
+
+**去重**:
+如果相同 run_id + tool_name + reason + path 已存在 pending request，不重复创建，直接返回已有 approval_id。
+
+**CLI 查看**:
+```bash
+mimoneko approvals list
+mimoneko approvals show <id>
+mimoneko approvals approve <id>
+mimoneko approvals reject <id>
+```
+
+**使用场景**:
+- enforce 模式下自动创建 approval 请求
+- CLI 可查看和处理 approval 请求
+- 为后续 resume 执行做准备
+
+---
+
 ## 最佳实践
 
 ### 对于用户

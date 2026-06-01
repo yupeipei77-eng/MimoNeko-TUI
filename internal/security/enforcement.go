@@ -44,6 +44,9 @@ type EnforcementResult struct {
 	// RequiresApproval indicates if the operation needs approval.
 	RequiresApproval bool
 
+	// ApprovalID is the ID of the created approval request (if any).
+	ApprovalID string
+
 	// Violations contains any path violations detected.
 	Violations []PathViolation
 
