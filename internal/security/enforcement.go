@@ -287,3 +287,41 @@ func GetSecurityStatus(toolCount int, highRisk, criticalRisk, approvalRequired [
 		EnforcementEnabled: mode == ModeEnforce,
 	}
 }
+
+// SecuritySummary provides a comprehensive summary of the security configuration.
+type SecuritySummary struct {
+	TotalRegisteredTools int             `json:"total_registered_tools"`
+	HighRiskTools        []string        `json:"high_risk_tools"`
+	CriticalRiskTools    []string        `json:"critical_risk_tools"`
+	ApprovalRequired     []string        `json:"approval_required_tools"`
+	BlockedRules         []string        `json:"blocked_rules"`
+	EnforcementMode      EnforcementMode `json:"enforcement_mode"`
+	SandboxRulesCount    int             `json:"sandbox_rules_count"`
+	EnforcementEnabled   bool            `json:"enforcement_enabled"`
+}
+
+// GetSecuritySummary returns a comprehensive security summary.
+func GetSecuritySummary(toolCount int, highRisk, criticalRisk, approvalRequired []string) SecuritySummary {
+	mode := GetEnforcementMode()
+
+	// Collect all rule names
+	ruleSet := make(map[string]bool)
+	for _, rule := range sensitiveRules {
+		ruleSet[rule.rule] = true
+	}
+	var rules []string
+	for rule := range ruleSet {
+		rules = append(rules, rule)
+	}
+
+	return SecuritySummary{
+		TotalRegisteredTools: toolCount,
+		HighRiskTools:        highRisk,
+		CriticalRiskTools:    criticalRisk,
+		ApprovalRequired:     approvalRequired,
+		BlockedRules:         rules,
+		EnforcementMode:      mode,
+		SandboxRulesCount:    len(sensitiveRules),
+		EnforcementEnabled:   mode == ModeEnforce,
+	}
+}

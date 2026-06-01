@@ -257,6 +257,56 @@ mimoneko security check .git/config
 
 ---
 
+### Security Matrix
+
+#### Tool Risk Level Matrix
+
+| Risk Level | off | warn | enforce |
+|------------|-----|------|---------|
+| **low** | ✅ Allow | ✅ Allow | ✅ Allow |
+| **medium** | ✅ Allow | ✅ Allow | ✅ Allow (❌ Deny if requires_approval) |
+| **high** | ✅ Allow | ✅ Allow | ⚠️ Approval Required |
+| **critical** | ✅ Allow | ✅ Allow | ❌ Deny |
+
+#### Path Severity Matrix
+
+| Path Severity | off | warn | enforce |
+|---------------|-----|------|---------|
+| **critical** (.git, .env, id_rsa) | ✅ Allow (audit only) | ✅ Allow + ⚠️ Warning | ❌ Block |
+| **warning** (credentials, token, secrets) | ✅ Allow (audit only) | ✅ Allow + ⚠️ Warning | ✅ Allow + ⚠️ Warning |
+| **info** (.npmrc, .pypirc) | ✅ Allow | ✅ Allow | ✅ Allow |
+
+#### Event Types Matrix
+
+| Event Type | off | warn | enforce |
+|------------|-----|------|---------|
+| `tool.called` | ✅ | ✅ | ✅ |
+| `tool.completed` | ✅ | ✅ | ✅ |
+| `tool.failed` | ✅ | ✅ | ✅ |
+| `path.violation_candidate` | ✅ | ✅ | ✅ |
+| `security.warning` | ❌ | ✅ | ✅ |
+| `path.blocked` | ❌ | ❌ | ✅ |
+| `tool.denied` | ❌ | ❌ | ✅ |
+| `tool.approval_required` | ❌ | ❌ | ✅ |
+
+#### Security Summary API
+
+```go
+summary := security.GetSecuritySummary(toolCount, highRisk, criticalRisk, approvalRequired)
+
+// Returns:
+// - TotalRegisteredTools: 10
+// - HighRiskTools: ["file_write", "file_patch"]
+// - CriticalRiskTools: ["dangerous_tool"]
+// - ApprovalRequired: ["file_patch"]
+// - BlockedRules: ["git-directory", "env-file", ...]
+// - EnforcementMode: "warn"
+// - SandboxRulesCount: 15
+// - EnforcementEnabled: false
+```
+
+---
+
 ## 最佳实践
 
 ### 对于用户
