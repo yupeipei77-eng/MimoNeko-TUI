@@ -210,6 +210,73 @@ The following capabilities will be added in later phases:
 - Real diff review for Reviewer
 - Real test execution for Validator
 
+## Coder Patch Intent (Phase 6.4)
+
+Phase 6.4 adds Coder integration for generating patch intents.
+
+### CLI Commands
+
+```bash
+# Skeleton mode (default, no LLM call)
+mimoneko agents code --goal "优化 README" --plan-file plan.json
+
+# LLM mode (calls Coder LLM, intent only)
+mimoneko agents code --goal "优化 README" --plan-file plan.json --llm
+
+# LLM mode with JSON output
+mimoneko agents code --goal "优化 README" --plan-file plan.json --llm --json
+```
+
+### Important Constraints
+
+- `--llm` must be explicitly enabled
+- `--plan-file` is required and must contain a valid AgentPlan JSON
+- Plan implementation_status must be `plan_only`
+- Coder ONLY generates patch intents (no real patches)
+- ImplementationStatus is ALWAYS `intent_only`
+- NoFileWrites is ALWAYS `true`
+- No files are written
+- No real diffs are generated
+- No tools are executed
+
+### CoderPatchIntent Output
+
+```json
+{
+  "goal": "优化 README",
+  "plan_summary": "Add project description and usage examples",
+  "implementation_status": "intent_only",
+  "files_to_change": [
+    {
+      "path": "README.md",
+      "change_type": "edit",
+      "reason": "update usage docs",
+      "risk_level": "low"
+    }
+  ],
+  "changes": [
+    {
+      "id": "change_1",
+      "file_path": "README.md",
+      "description": "Add agents plan --llm example",
+      "expected_effect": "Improve documentation",
+      "safety_notes": "no breaking changes"
+    }
+  ],
+  "risks": ["minor formatting change"],
+  "validation_suggestions": ["run tests"],
+  "no_file_writes": true
+}
+```
+
+### Safety Validation
+
+The system rejects:
+- `implementation_status` other than `intent_only`
+- `no_file_writes` set to `false`
+- Real diff content (`diff --git`, unified diff)
+- Command execution wording (`command executed`, `test executed`)
+
 ## Planned Commands
 
 The following write-capable commands are intentionally left for a later phase:
