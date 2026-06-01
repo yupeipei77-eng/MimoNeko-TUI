@@ -126,6 +126,27 @@ mimoneko model list              # 查看项目模型配置
 mimoneko init                    # 初始化当前项目配置
 ```
 
+## Agent Workflow Commands
+
+These commands are designed for a Claude Code / OpenCode style review loop. They are safe read-only entry points in this phase.
+
+```bash
+neko status                 # Show git branch, clean state, change counts, and latest run status
+neko diff                   # Show working tree diff for review
+neko diff --staged          # Show staged diff for review
+neko plan --goal "..."      # Print a structured plan skeleton without writing files
+```
+
+Equivalent `mimoneko` form:
+
+```bash
+mimoneko neko status
+mimoneko neko diff --staged
+mimoneko neko plan --goal "Update README"
+```
+
+`neko approve <patch_id>` and `neko rollback <run_id>` are reserved for a later phase. They are not implemented in this release slice.
+
 ## FAQ
 
 **Windows 输入 `mimoneko` 后提示 command not found / 无法识别命令**

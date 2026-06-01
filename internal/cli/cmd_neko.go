@@ -22,6 +22,16 @@ type NekoCommand struct{}
 func (c *NekoCommand) Name() string { return "neko" }
 
 func (c *NekoCommand) Run(args []string, env Env) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "status":
+			return runNekoWorkflowStatus(args[1:], env)
+		case "diff":
+			return runNekoWorkflowDiff(args[1:], env)
+		case "plan":
+			return runNekoWorkflowPlan(args[1:], env)
+		}
+	}
 	if hasHelpFlag(args) {
 		printNekoUsage(env.Stdout)
 		return 0

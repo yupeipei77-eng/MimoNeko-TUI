@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -369,6 +370,29 @@ func assertTreeDoesNotContain(t *testing.T, root, needle string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func snapshotRelativeFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
 }
 
 func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
@@ -1031,6 +1055,103 @@ func TestMimoNekoNekoAlias(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
 		t.Fatalf("stdout = %q, want console branding and exit", stdout.String())
+	}
+}
+
+func TestNekoStatusReportsGitState(t *testing.T) {
+	setUserConfigHome(t)
+	root := setupGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\nunstaged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "staged.txt"), []byte("staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "add", "staged.txt")
+	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("untracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "status", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko status code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"Neko Status", "Branch", "Clean", "false", "Staged", "1", "Unstaged", "1", "Untracked", "1", "Latest Run", "unavailable"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
+	}
+}
+
+func TestNekoDiffShowsWorkingTreeDiff(t *testing.T) {
+	setUserConfigHome(t)
+	root := setupGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello\nworking tree change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "diff", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko diff code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "diff --git") || !strings.Contains(output, "+working tree change") {
+		t.Fatalf("stdout = %q, want working tree diff", output)
+	}
+}
+
+func TestNekoDiffStagedShowsCachedDiff(t *testing.T) {
+	setUserConfigHome(t)
+	root := setupGitRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "staged.txt"), []byte("staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "add", "staged.txt")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "diff", "--dir", root, "--staged"}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko diff --staged code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "staged.txt") || !strings.Contains(output, "+staged") {
+		t.Fatalf("stdout = %q, want staged diff", output)
+	}
+}
+
+func TestNekoPlanPrintsStubAndDoesNotWriteFiles(t *testing.T) {
+	setUserConfigHome(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotRelativeFiles(t, root)
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "plan", "--dir", root, "--goal", "Update docs"}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko plan code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var plan struct {
+		Goal                 string `json:"goal"`
+		ImplementationStatus string `json:"implementation_status"`
+		WritesFiles          bool   `json:"writes_files"`
+		CallsModel           bool   `json:"calls_model"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("plan JSON did not parse: %v\n%s", err, stdout.String())
+	}
+	if plan.Goal != "Update docs" || plan.ImplementationStatus != "stub" || plan.WritesFiles || plan.CallsModel {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+
+	after := snapshotRelativeFiles(t, root)
+	if strings.Join(before, "\n") != strings.Join(after, "\n") {
+		t.Fatalf("neko plan wrote files: before=%v after=%v", before, after)
 	}
 }
 

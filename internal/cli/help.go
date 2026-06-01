@@ -65,9 +65,13 @@ func printUsage(w io.Writer) {
 func printNekoUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: neko [--dir <project_root>] [--mode single|multi] [--model name] [--reasoning low|medium|high] [--dry-run] [--no-color] [--new-window]")
 	fmt.Fprintln(w, "       mimoneko neko [same flags]")
+	fmt.Fprintln(w, "       neko status [--dir <project_root>]")
+	fmt.Fprintln(w, "       neko diff [--dir <project_root>] [--staged]")
+	fmt.Fprintln(w, "       neko plan --goal \"...\" [--dir <project_root>]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "MimoNeko is a local terminal console powered by MimoNeko.")
 	fmt.Fprintln(w, "Defaults: mode=multi dry-run=true worktree=true for multi-agent runs.")
+	fmt.Fprintln(w, "Workflow commands are read-only in this phase: status, diff, and plan do not call the model or write files.")
 	fmt.Fprintln(w, "Inside MimoNeko: type / for commands, /reasoning to cycle levels, /new for a fresh session.")
 }
 
