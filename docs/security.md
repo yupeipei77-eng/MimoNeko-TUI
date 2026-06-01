@@ -421,6 +421,61 @@ mimoneko approvals reject <id>
 
 ---
 
+### 8. Approval Persistence (Phase 5.3)
+
+**状态**: ✅ 已实现
+
+**功能**: Approval Request 的本地磁盘持久化。
+
+**重要说明**:
+- ⚠️ 当前 **不接 ToolRuntime**
+- ⚠️ 当前 **不改变 Security Enforcement 行为**
+- 真实 approval enforcement 会在后续阶段完成
+
+**存储路径**:
+```
+.mimoneko/approvals.json
+```
+
+**持久化格式**:
+- JSON 格式
+- 人类可读（带缩进）
+- 确定性排序（按 created_at 然后 id）
+- 文件权限 0600（Unix）
+
+**CLI 命令**:
+```bash
+# 列出待审批请求
+mimoneko approvals list
+
+# 显示审批请求详情
+mimoneko approvals show <id>
+
+# 批准请求（持久化到磁盘）
+mimoneko approvals approve <id>
+
+# 拒绝请求（持久化到磁盘）
+mimoneko approvals reject <id>
+```
+
+**FileStore API**:
+```go
+store := approval.NewFileStore(".mimoneko/approvals.json")
+store.Load()  // 从文件加载
+store.Save()  // 保存到文件
+store.Add(req)  // 添加并持久化
+store.Update(req)  // 更新并持久化
+store.Delete(id)  // 删除并持久化
+```
+
+**行为**:
+- 文件不存在时自动视为空 store
+- approve/reject 后自动落盘
+- 不损坏已有 approval 文件
+- JSON 解析失败返回明确错误
+
+---
+
 ## 最佳实践
 
 ### 对于用户

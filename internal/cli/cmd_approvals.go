@@ -2,15 +2,26 @@ package cli
 
 import (
 	"fmt"
-	"sort"
+	"path/filepath"
 
 	"github.com/mimoneko/mimoneko/internal/approval"
 	"github.com/mimoneko/mimoneko/internal/security"
 )
 
-// demoStore is a global in-memory store for demo/testing purposes.
-// In production, this would be replaced with a persistent store.
-var demoStore = approval.NewMemoryStore()
+// approvalsStorePath returns the path to the approvals JSON file.
+func approvalsStorePath(root string) string {
+	return filepath.Join(root, ".mimoneko", "approvals.json")
+}
+
+// loadApprovalsStore loads the approvals file store from the project root.
+func loadApprovalsStore(root string) (*approval.FileStore, error) {
+	path := approvalsStorePath(root)
+	store := approval.NewFileStore(path)
+	if err := store.Load(); err != nil {
+		return nil, fmt.Errorf("加载审批记录失败: %w", err)
+	}
+	return store, nil
+}
 
 type ApprovalsCommand struct{}
 
@@ -53,21 +64,28 @@ func printApprovalsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  mimoneko approvals approve apr_xxx")
 	fmt.Fprintln(env.Stdout, "  mimoneko approvals reject apr_xxx")
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "注意: 当前是 stub 实现，不接 Runtime，不持久化。")
+	fmt.Fprintln(env.Stdout, "存储路径: .mimoneko/approvals.json")
 }
 
 func (c *ApprovalsCommand) runList(args []string, env Env) int {
-	requests := demoStore.List()
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store, err := loadApprovalsStore(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	requests := store.List()
 
 	if len(requests) == 0 {
 		fmt.Fprintln(env.Stdout, "no pending approvals")
 		return 0
 	}
-
-	// Sort by creation time
-	sort.Slice(requests, func(i, j int) bool {
-		return requests[i].CreatedAt.Before(requests[j].CreatedAt)
-	})
 
 	fmt.Fprintln(env.Stdout, "Approval Requests")
 	fmt.Fprintf(env.Stdout, "%-36s %-14s %-12s %-10s %-20s %s\n", "ID", "TOOL", "SCOPE", "STATUS", "CREATED", "REASON")
@@ -90,8 +108,20 @@ func (c *ApprovalsCommand) runShow(args []string, env Env) int {
 		return 1
 	}
 
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store, err := loadApprovalsStore(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
 	id := args[0]
-	req, err := demoStore.Get(id)
+	req, err := store.Get(id)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
 		return 1
@@ -133,8 +163,20 @@ func (c *ApprovalsCommand) runApprove(args []string, env Env) int {
 		return 1
 	}
 
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store, err := loadApprovalsStore(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
 	id := args[0]
-	req, err := demoStore.Get(id)
+	req, err := store.Get(id)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
 		return 1
@@ -145,7 +187,7 @@ func (c *ApprovalsCommand) runApprove(args []string, env Env) int {
 		return 1
 	}
 
-	if err := demoStore.Update(req); err != nil {
+	if err := store.Update(req); err != nil {
 		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
 		return 1
 	}
@@ -160,8 +202,20 @@ func (c *ApprovalsCommand) runReject(args []string, env Env) int {
 		return 1
 	}
 
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store, err := loadApprovalsStore(root)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
 	id := args[0]
-	req, err := demoStore.Get(id)
+	req, err := store.Get(id)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
 		return 1
@@ -172,7 +226,7 @@ func (c *ApprovalsCommand) runReject(args []string, env Env) int {
 		return 1
 	}
 
-	if err := demoStore.Update(req); err != nil {
+	if err := store.Update(req); err != nil {
 		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
 		return 1
 	}
