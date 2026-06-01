@@ -54,7 +54,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(version) code = %d", code)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.2-beta" {
+	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.3-beta" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -384,14 +384,17 @@ func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	input := strings.NewReader("1\nsk-first-run\n" + server.URL + "\nmimo-v2.5-pro\n")
+	input := strings.NewReader("1\nsk-first-run\n" + server.URL + "\nmimo-v2.5-pro\n\n")
 	code := Run(nil, Env{Stdout: &stdout, Stderr: &stderr, Stdin: input})
 	if code != 0 {
 		t.Fatalf("Run(nil) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Welcome to MioNeko") || !strings.Contains(output, "Step 1/3") || !strings.Contains(output, "配置成功") {
+	if !strings.Contains(output, "Welcome to MioNeko") || !strings.Contains(output, "Step 1/3") || !strings.Contains(output, "Configuration Complete") {
 		t.Fatalf("stdout = %q, want first-run wizard success", output)
+	}
+	if !strings.Contains(output, "Provider: MiMo") || !strings.Contains(output, "Model: mimo-v2.5-pro") || !strings.Contains(output, "Press Enter to continue") {
+		t.Fatalf("stdout = %q, want completion page", output)
 	}
 	if strings.Contains(output, "sk-first-run") {
 		t.Fatalf("stdout leaked API key: %q", output)
@@ -401,7 +404,25 @@ func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
 	}
 }
 
-func TestNoArgsReturnsUsageWhenConfigured(t *testing.T) {
+func TestOnboardingUsesLineFallbackForNonTTY(t *testing.T) {
+	var stdout bytes.Buffer
+	if _, ok := surveyAskOptions(Env{
+		Stdout: &stdout,
+		Stderr: io.Discard,
+		Stdin:  strings.NewReader(""),
+	}); ok {
+		t.Fatal("survey prompts should be disabled for non-TTY test IO")
+	}
+}
+
+func TestOnboardingModelOptionsIncludeDefaultAndCustom(t *testing.T) {
+	options := onboardingModelOptions("mimo")
+	if len(options) != 2 || options[0] != "mimo-v2.5-pro" || options[1] != customModelOption {
+		t.Fatalf("onboarding model options = %#v, want default and custom option", options)
+	}
+}
+
+func TestNoArgsShowsReadyLandingWhenConfigured(t *testing.T) {
 	setUserConfigHome(t)
 	saveUserConfigForTest(t, "mimo", "sk-configured", "https://token-plan-cn.xiaomimimo.com/v1", "mimo-v2.5-pro")
 
@@ -410,8 +431,14 @@ func TestNoArgsReturnsUsageWhenConfigured(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(nil) code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "Usage: mimoneko <command>") {
-		t.Fatalf("stdout = %q, want usage", stdout.String())
+	output := stdout.String()
+	if strings.Contains(output, "Usage: mimoneko <command>") {
+		t.Fatalf("stdout = %q, should not show usage for configured no-args launch", output)
+	}
+	for _, want := range []string{"MioNeko Ready", "mimoneko \"", "mimoneko run", "mimoneko neko"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
 	}
 }
 
@@ -447,11 +474,11 @@ func TestConfigShowDoesNotLeakAPIKey(t *testing.T) {
 	}
 }
 
-func TestUnknownCommandIsTreatedAsRunGoal(t *testing.T) {
+func TestQuotedPromptIsTreatedAsRunGoal(t *testing.T) {
 	setUserConfigHome(t)
 	t.Setenv("MIMO_API_KEY", "sk-routing-test")
 	var stderr bytes.Buffer
-	code := Run([]string{"frobnicate"}, Env{
+	code := Run([]string{"Reply OK"}, Env{
 		Stderr: &stderr,
 		Getwd:  func() (string, error) { return "", errors.New("boom") },
 	})
@@ -468,6 +495,20 @@ func TestUnknownCommandIsTreatedAsRunGoal(t *testing.T) {
 	}
 }
 
+func TestUnknownCommandShowsUsage(t *testing.T) {
+	setUserConfigHome(t)
+	t.Setenv("MIMO_API_KEY", "sk-routing-test")
+	var stderr bytes.Buffer
+	code := Run([]string{"unknown-command"}, Env{Stderr: &stderr})
+	if code != 2 {
+		t.Fatalf("Run(unknown-command) code = %d, want 2", code)
+	}
+	output := stderr.String()
+	if !strings.Contains(output, "unknown command") || !strings.Contains(output, "Usage: mimoneko <command>") {
+		t.Fatalf("stderr = %q, want unknown command and usage", output)
+	}
+}
+
 func TestHelpWritesUsageToStdout(t *testing.T) {
 	var stdout bytes.Buffer
 	code := Run([]string{"help"}, Env{Stdout: &stdout})
@@ -476,6 +517,17 @@ func TestHelpWritesUsageToStdout(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Commands:") {
 		t.Fatalf("stdout = %q, want commands", stdout.String())
+	}
+}
+
+func TestHelpFlagWritesUsageToStdout(t *testing.T) {
+	var stdout bytes.Buffer
+	code := Run([]string{"--help"}, Env{Stdout: &stdout})
+	if code != 0 {
+		t.Fatalf("Run(--help) code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "Usage: mimoneko <command>") {
+		t.Fatalf("stdout = %q, want usage", stdout.String())
 	}
 }
 

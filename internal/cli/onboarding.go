@@ -19,53 +19,67 @@ func runFirstTimeSetup(env Env) int {
 	fmt.Fprintln(env.Stdout, "MiMo-first AI Coding Agent")
 	fmt.Fprintln(env.Stdout, "Fast. Safe. Cache-aware.")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "检测到你还没有配置模型。")
-	fmt.Fprintln(env.Stdout, "我会引导你完成 3 步配置：")
+	fmt.Fprintln(env.Stdout, "No model configuration was found.")
+	fmt.Fprintln(env.Stdout, "I will guide you through 3 setup steps:")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "1. 选择模型服务")
-	fmt.Fprintln(env.Stdout, "2. 输入 API Key")
-	fmt.Fprintln(env.Stdout, "3. 测试连接")
+	fmt.Fprintln(env.Stdout, "1. Select a model provider")
+	fmt.Fprintln(env.Stdout, "2. Enter an API Key")
+	fmt.Fprintln(env.Stdout, "3. Test the connection")
 	fmt.Fprintln(env.Stdout)
-	PrintKV(env.Stdout, "默认推荐：", []KV{
+	PrintKV(env.Stdout, "Recommended defaults:", []KV{
 		{Key: "Provider", Value: "MiMo"},
 		{Key: "Model", Value: auth.DefaultModel("mimo")},
 		{Key: "Base URL", Value: auth.GetBaseURL("mimo")},
 	})
 	fmt.Fprintln(env.Stdout)
 
-	PrintStep(env.Stdout, 1, 3, "选择 Provider")
-	fmt.Fprintln(env.Stdout, "1. MiMo (recommended)")
-	fmt.Fprintln(env.Stdout, "2. OpenAI-compatible")
-	fmt.Fprintln(env.Stdout, "3. Local")
-	providerChoice := promptOnboardingLine(reader, env, "请选择 [1]", "1")
-	provider := normalizeOnboardingProvider(providerChoice)
-	if provider == "" {
-		PrintError(env.Stderr, "Setup failed", "不支持的 Provider 选择。", "请选择 1、2 或 3。")
-		return 1
+	PrintStep(env.Stdout, 1, 3, "Select Provider")
+	provider, err := promptOnboardingProvider(reader, env)
+	if err != nil {
+		return handleOnboardingPromptError(env, err)
 	}
 	fmt.Fprintln(env.Stdout)
 
-	PrintStep(env.Stdout, 2, 3, "配置 API Key")
-	apiKey := strings.TrimSpace(promptSecretLine(reader, env, "API Key"))
+	PrintStep(env.Stdout, 2, 3, "Configure API Key")
+	apiKey, err := promptOnboardingSecret(reader, env, "API Key")
+	if err != nil {
+		return handleOnboardingPromptError(env, err)
+	}
+	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" && provider == "local" {
 		apiKey = "local"
 	}
 	if apiKey == "" {
-		PrintError(env.Stderr, "Setup failed", "API Key 不能为空。", "重新运行: mimoneko auth login")
+		PrintError(env.Stderr, "Setup failed", "API Key is required.", "Run: mimoneko auth login")
 		return 1
 	}
 	if pathutil.APIKeyLooksPlaceholder(apiKey) {
-		PrintError(env.Stderr, "Setup failed", "API Key 看起来是示例占位值。", "请输入真实 API Key。")
+		PrintError(env.Stderr, "Setup failed", "API Key looks like a sample placeholder.", "Enter a real API Key.")
 		return 1
 	}
 
-	baseURL := promptOnboardingLine(reader, env, "Base URL", auth.GetBaseURL(provider))
-	model := promptOnboardingLine(reader, env, "Model", auth.DefaultModel(provider))
+	baseURL, err := promptOnboardingInput(reader, env, "Base URL", auth.GetBaseURL(provider))
+	if err != nil {
+		return handleOnboardingPromptError(env, err)
+	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = auth.GetBaseURL(provider)
+	}
+
+	model, err := promptOnboardingModel(reader, env, provider)
+	if err != nil {
+		return handleOnboardingPromptError(env, err)
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = auth.DefaultModel(provider)
+	}
 	fmt.Fprintf(env.Stdout, "Saved key: %s\n\n", MaskSecret(apiKey))
 
 	userConfig, err := auth.LoadUserConfig()
 	if err != nil {
-		PrintErrorDetails(env.Stderr, "Setup failed", "加载配置失败。", "检查用户目录权限后重试。", modelprofile.SanitizeText(err.Error(), apiKey))
+		PrintErrorDetails(env.Stderr, "Setup failed", "Could not load user config.", "Check user directory permissions and try again.", modelprofile.SanitizeText(err.Error(), apiKey))
 		return 1
 	}
 	if userConfig.Auth.Providers == nil {
@@ -73,23 +87,23 @@ func runFirstTimeSetup(env Env) int {
 	}
 	userConfig.Auth.Providers[provider] = auth.ProviderConfig{
 		APIKey:  apiKey,
-		BaseURL: strings.TrimRight(baseURL, "/"),
+		BaseURL: baseURL,
 	}
 	userConfig.Auth.DefaultProvider = provider
 	userConfig.Preferences.DefaultModel = model
 
 	if err := auth.SaveUserConfig(userConfig); err != nil {
-		PrintErrorDetails(env.Stderr, "Setup failed", "保存配置失败。", "检查用户目录权限后重试。", modelprofile.SanitizeText(err.Error(), apiKey))
+		PrintErrorDetails(env.Stderr, "Setup failed", "Could not save user config.", "Check user directory permissions and try again.", modelprofile.SanitizeText(err.Error(), apiKey))
 		return 1
 	}
 	if err := auth.ApplyUserConfigToEnv(); err != nil {
-		PrintErrorDetails(env.Stderr, "Setup failed", "加载用户配置失败。", "检查用户配置后重试。", modelprofile.SanitizeText(err.Error(), apiKey))
+		PrintErrorDetails(env.Stderr, "Setup failed", "Could not load user config.", "Check the saved user config and try again.", modelprofile.SanitizeText(err.Error(), apiKey))
 		return 1
 	}
 
-	PrintSuccess(env.Stdout, fmt.Sprintf("配置已保存到 %s", auth.GetUserConfigPath()))
+	PrintSuccess(env.Stdout, fmt.Sprintf("Configuration saved to %s", auth.GetUserConfigPath()))
 	fmt.Fprintln(env.Stdout)
-	PrintStep(env.Stdout, 3, 3, "测试连接")
+	PrintStep(env.Stdout, 3, 3, "Test Connection")
 
 	result, err := modelprofile.Test(context.Background(), ".", modelprofile.TestOptions{
 		Provider:  provider,
@@ -110,11 +124,13 @@ func runFirstTimeSetup(env Env) int {
 	}
 
 	fmt.Fprintln(env.Stdout)
-	PrintSuccess(env.Stdout, "配置成功")
-	fmt.Fprintln(env.Stdout, "你现在可以运行：")
-	fmt.Fprintln(env.Stdout, "mimoneko \"修改 README\"")
-	fmt.Fprintln(env.Stdout, "或：")
-	fmt.Fprintln(env.Stdout, "mimoneko run \"修改 README\"")
+	PrintSuccess(env.Stdout, "Configuration Complete")
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintf(env.Stdout, "Provider: %s\n", displayOnboardingProvider(provider))
+	fmt.Fprintf(env.Stdout, "Model: %s\n", model)
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, "Press Enter to continue")
+	waitForOnboardingEnter(reader)
 	return 0
 }
 
@@ -134,7 +150,7 @@ func promptOnboardingLine(reader *bufio.Reader, env Env, prompt string, defaultV
 
 func normalizeOnboardingProvider(choice string) string {
 	switch strings.ToLower(strings.TrimSpace(choice)) {
-	case "", "1", "mimo", "mimo (recommended)", "mimo (推荐)", "mimo 推荐":
+	case "", "1", "mimo", "mimo (recommended)", "mimo recommended":
 		return "mimo"
 	case "2", "openai", "openai-compatible", "openai compatible":
 		return "openai"

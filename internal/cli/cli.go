@@ -27,11 +27,11 @@ func Run(args []string, env Env) int {
 		if !hasSavedUserModelConfig() {
 			return runFirstTimeSetup(env)
 		}
-		printUsage(env.Stdout)
+		printReadyLanding(env.Stdout)
 		return 0
 	}
 
-	if shouldTreatAsGoal(args[0]) {
+	if shouldTreatAsGoal(args) {
 		args = []string{"run", "--goal", strings.Join(args, " ")}
 	}
 
@@ -56,7 +56,11 @@ func Run(args []string, env Env) int {
 	return commands.Dispatch(args, env)
 }
 
-func shouldTreatAsGoal(firstArg string) bool {
+func shouldTreatAsGoal(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	firstArg := args[0]
 	firstArg = strings.TrimSpace(firstArg)
 	if firstArg == "" {
 		return false
@@ -65,7 +69,23 @@ func shouldTreatAsGoal(firstArg string) bool {
 	case "help", "-h", "--help":
 		return false
 	}
-	return !commands.Has(firstArg)
+	if commands.Has(firstArg) {
+		return false
+	}
+	if len(args) > 1 {
+		return true
+	}
+	return strings.ContainsAny(firstArg, " \t\r\n")
+}
+
+func printReadyLanding(w io.Writer) {
+	ui := newCLIUI()
+	ui.PrintHeader(w, "MioNeko Ready")
+	_, _ = io.WriteString(w, "Your model configuration is ready.\n\n")
+	_, _ = io.WriteString(w, "Try:\n")
+	_, _ = io.WriteString(w, "  mimoneko \"修改 README\"\n")
+	_, _ = io.WriteString(w, "  mimoneko run \"修改 README\"\n")
+	_, _ = io.WriteString(w, "  mimoneko neko\n")
 }
 
 func hasSavedUserModelConfig() bool {
