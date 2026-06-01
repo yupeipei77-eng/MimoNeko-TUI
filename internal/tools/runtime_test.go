@@ -362,43 +362,109 @@ func TestToolRuntimeEmitsToolStartedFinished(t *testing.T) {
 		t.Fatalf("Run() resp.Success = false, want true")
 	}
 
-	// Should have emitted tool.started and tool.finished
-	if len(emitter.events) != 2 {
-		t.Fatalf("expected 2 events (started + finished), got %d", len(emitter.events))
+	// Should have emitted new audit events while preserving legacy started/finished.
+	if len(emitter.events) != 4 {
+		t.Fatalf("expected 4 events (called + started + completed + finished), got %d", len(emitter.events))
 	}
 
-	started := emitter.events[0]
+	called := emitter.events[0]
+	if called.Type != events.EventToolCalled {
+		t.Errorf("first event type = %s, want tool.called", called.Type)
+	}
+	if called.ToolName != "file_read" {
+		t.Errorf("called ToolName = %q, want file_read", called.ToolName)
+	}
+	if called.RiskLevel != string(RiskLevelLow) {
+		t.Errorf("called RiskLevel = %q, want low", called.RiskLevel)
+	}
+	if called.RequiresApproval == nil || *called.RequiresApproval {
+		t.Errorf("called RequiresApproval = %v, want false", called.RequiresApproval)
+	}
+	if called.Timestamp.IsZero() {
+		t.Error("called Timestamp should be set")
+	}
+
+	started := emitter.events[1]
 	if started.Type != events.EventToolStarted {
-		t.Errorf("first event type = %s, want tool.started", started.Type)
+		t.Errorf("second event type = %s, want tool.started", started.Type)
 	}
 	if started.Status != "started" {
-		t.Errorf("first event status = %s, want started", started.Status)
+		t.Errorf("second event status = %s, want started", started.Status)
 	}
 	if started.Source != "tool" {
-		t.Errorf("first event source = %s, want tool", started.Source)
+		t.Errorf("second event source = %s, want tool", started.Source)
 	}
 	if started.RunID != "run_tool_test" {
-		t.Errorf("first event RunID = %q, want run_tool_test", started.RunID)
+		t.Errorf("second event RunID = %q, want run_tool_test", started.RunID)
 	}
 	if started.TaskID != "task_001" {
-		t.Errorf("first event TaskID = %q, want task_001", started.TaskID)
+		t.Errorf("second event TaskID = %q, want task_001", started.TaskID)
 	}
 
-	finished := emitter.events[1]
+	completed := emitter.events[2]
+	if completed.Type != events.EventToolCompleted {
+		t.Errorf("third event type = %s, want tool.completed", completed.Type)
+	}
+	if completed.ResultStatus != "succeeded" {
+		t.Errorf("completed ResultStatus = %q, want succeeded", completed.ResultStatus)
+	}
+	if completed.DurationMs < 0 {
+		t.Errorf("completed DurationMs = %d, want >= 0", completed.DurationMs)
+	}
+
+	finished := emitter.events[3]
 	if finished.Type != events.EventToolFinished {
-		t.Errorf("second event type = %s, want tool.finished", finished.Type)
+		t.Errorf("fourth event type = %s, want tool.finished", finished.Type)
 	}
 	if finished.Status != "succeeded" {
-		t.Errorf("second event status = %s, want succeeded", finished.Status)
+		t.Errorf("fourth event status = %s, want succeeded", finished.Status)
 	}
 	if finished.DurationMs < 0 {
-		t.Errorf("second event DurationMs = %d, want >= 0", finished.DurationMs)
+		t.Errorf("fourth event DurationMs = %d, want >= 0", finished.DurationMs)
 	}
 	if finished.RunID != "run_tool_test" {
-		t.Errorf("second event RunID = %q, want run_tool_test", finished.RunID)
+		t.Errorf("fourth event RunID = %q, want run_tool_test", finished.RunID)
 	}
 	if finished.TaskID != "task_001" {
-		t.Errorf("second event TaskID = %q, want task_001", finished.TaskID)
+		t.Errorf("fourth event TaskID = %q, want task_001", finished.TaskID)
+	}
+}
+
+func TestToolRuntimeEmitsToolFailed(t *testing.T) {
+	emitter := &captureEmitter{}
+	rt := newTestToolRuntimeWithEmitter(t, emitter)
+
+	ctx := events.WithRunContext(context.Background(), events.RunContext{RunID: "run_tool_failed"})
+	resp, err := rt.Run(ctx, ToolRequest{
+		ToolName: "file_read",
+		RepoRoot: t.TempDir(),
+		Args:     map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if resp.Success {
+		t.Fatal("file_read without path should fail")
+	}
+
+	var failed events.RunEvent
+	for _, evt := range emitter.events {
+		if evt.Type == events.EventToolFailed {
+			failed = evt
+			break
+		}
+	}
+	if failed.Type != events.EventToolFailed {
+		t.Fatalf("missing tool.failed event: %+v", emitter.events)
+	}
+	if failed.ResultStatus != "failed" || failed.ErrorMessage == "" {
+		t.Fatalf("failed event = %+v, want failed result status and error message", failed)
+	}
+	if failed.DurationMs < 0 {
+		t.Fatalf("failed DurationMs = %d, want >= 0", failed.DurationMs)
+	}
+	if failed.ToolName != "file_read" || failed.RiskLevel != string(RiskLevelLow) {
+		t.Fatalf("failed metadata fields = %+v, want file_read low", failed)
 	}
 }
 
@@ -467,9 +533,9 @@ func TestToolRuntimeEmitFailureDoesNotFailTool(t *testing.T) {
 		t.Errorf("resp.Success = false, want true (emit failure should not affect tool)")
 	}
 
-	// The emitter should still have received the events
-	if len(emitter.captured) != 2 {
-		t.Errorf("expected 2 events captured despite emit error, got %d", len(emitter.captured))
+	// The emitter should still have received the events.
+	if len(emitter.captured) != 4 {
+		t.Errorf("expected 4 events captured despite emit error, got %d", len(emitter.captured))
 	}
 }
 
@@ -500,8 +566,8 @@ func TestToolRuntimeEventsIncludeRunContext(t *testing.T) {
 		t.Fatalf("Run() error: %v", err)
 	}
 
-	if len(emitter.events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(emitter.events))
+	if len(emitter.events) != 4 {
+		t.Fatalf("expected 4 events, got %d", len(emitter.events))
 	}
 
 	for i, evt := range emitter.events {
@@ -517,12 +583,12 @@ func TestToolRuntimeEventsIncludeRunContext(t *testing.T) {
 	}
 
 	// Verify tool_name metadata
-	started := emitter.events[0]
-	if started.Metadata["tool_name"] != "file_read" {
-		t.Errorf("started metadata tool_name = %q, want file_read", started.Metadata["tool_name"])
+	called := emitter.events[0]
+	if called.Metadata["tool_name"] != "file_read" {
+		t.Errorf("called metadata tool_name = %q, want file_read", called.Metadata["tool_name"])
 	}
 	// Verify command_name metadata from Args
-	if started.Metadata["command_name"] != "go-test" {
-		t.Errorf("started metadata command_name = %q, want go-test", started.Metadata["command_name"])
+	if called.Metadata["command_name"] != "go-test" {
+		t.Errorf("called metadata command_name = %q, want go-test", called.Metadata["command_name"])
 	}
 }

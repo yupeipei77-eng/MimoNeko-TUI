@@ -1209,6 +1209,66 @@ func TestNekoToolsListsMetadata(t *testing.T) {
 	}
 }
 
+func TestNekoEventsToolsSmoke(t *testing.T) {
+	setUserConfigHome(t)
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	eventStorePath := filepath.Join(root, ".mimoneko", "events", "run_events.jsonl")
+	store, err := events.NewJSONLRunEventStore(eventStorePath)
+	if err != nil {
+		t.Fatalf("NewJSONLRunEventStore() error = %v", err)
+	}
+	approval := false
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := store.Append(context.Background(), events.RunEvent{
+		ID:               "evt_tool_called",
+		RunID:            "run_tool_smoke",
+		Timestamp:        now,
+		ToolName:         "file_read",
+		RiskLevel:        "low",
+		RequiresApproval: &approval,
+		ResultStatus:     "called",
+		Type:             events.EventToolCalled,
+		Source:           "tool",
+		Status:           "called",
+		StartedAt:        now,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "events", "tools", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko events tools code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"MimoNeko Tool Events", "tool.called", "file_read", "low", "false", "called"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
+	}
+}
+
+func TestNekoEventsToolsUnavailable(t *testing.T) {
+	setUserConfigHome(t)
+	root := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "events", "tools", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko events tools unavailable code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "unavailable" {
+		t.Fatalf("stdout = %q, want unavailable", stdout.String())
+	}
+}
+
 func TestNekoFindsProjectRootFromSubdirectory(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	nested := filepath.Join(root, "nested", "deeper")

@@ -9,6 +9,9 @@ neko status
 neko diff
 neko diff --staged
 neko plan --goal "..."
+neko cache stats
+neko tools
+neko events tools
 ```
 
 The same commands are available through the main binary:
@@ -17,6 +20,7 @@ The same commands are available through the main binary:
 mimoneko neko status
 mimoneko neko diff
 mimoneko neko plan --goal "Update docs"
+mimoneko neko events tools
 ```
 
 ## `neko status`
@@ -53,6 +57,18 @@ neko diff --staged
 ```
 
 This lets users review intent without allowing file writes or tool execution.
+
+## `neko events tools`
+
+`neko events tools` shows recent local tool audit events from the event store. It is a read-only inspection command and does not call the model, run tools, apply patches, or write files.
+
+The current audit event types are:
+
+- `tool.called`
+- `tool.completed`
+- `tool.failed`
+
+These events include the tool metadata introduced in Phase 4.1, including risk level, approval flag, and duration information. They are observational only; approval, rollback, sandbox enforcement, and stronger redaction are reserved for later phases.
 
 ## Planned Commands
 

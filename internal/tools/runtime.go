@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/security"
 )
 
 // ToolRuntime is the central orchestrator for tool execution.
@@ -62,17 +63,24 @@ func (rt *DefaultToolRuntime) ListMetadata() []ToolMetadata {
 	return ListToolMetadata(rt.registry)
 }
 
+func (rt *DefaultToolRuntime) toolMetadata(tool Tool) ToolMetadata {
+	if metadata, ok := LookupToolMetadata(rt.registry, tool.Name()); ok {
+		return metadata
+	}
+	return metadataFromTool(tool)
+}
+
 // Run executes a tool request through the full safety + audit pipeline:
 //
 //  1. Look up tool in registry
 //  2. Check if tool is enabled
 //  3. Apply safety guard
 //  4. Create timeout context
-//  5. Emit tool.started event
+//  5. Emit tool.called and tool.started events
 //  6. Execute tool
 //  7. Truncate output if needed
 //  8. Record audit log
-//  9. Emit tool.finished event
+//  9. Emit tool.completed/tool.failed and tool.finished events
 func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
 	start := time.Now()
 
@@ -91,6 +99,7 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 	if req.RepoRoot == "" {
 		return ToolResponse{}, fmt.Errorf("tools: repo_root is required")
 	}
+	metadata := rt.toolMetadata(tool)
 
 	// 4. Generate audit ID
 	auditID, err := generateAuditID()
@@ -107,7 +116,7 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 		RepoRoot:     req.RepoRoot,
 		ArgsRedacted: redactArgs(req.Args),
 		DryRun:       req.DryRun,
-		RiskLevel:    tool.RiskLevel(),
+		RiskLevel:    string(metadata.RiskLevel),
 	}
 	if rt.audit != nil {
 		if err := rt.audit.Record(preEvent); err != nil {
@@ -115,27 +124,49 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 		}
 	}
 
-	// 6. Emit tool.started event
+	// 6. Emit tool.called and tool.started events
 	rc := events.RunContextFrom(ctx)
 	taskID := req.TaskID
 	if taskID == "" {
 		taskID = rc.TaskID
 	}
-	toolStartedMetadata := map[string]string{"tool_name": req.ToolName}
-	if cmdName, ok := req.Args["command_name"]; ok {
-		toolStartedMetadata["command_name"] = cmdName
-	}
+	toolStartedMetadata := toolEventMetadata(req, metadata)
+
+	// 6.5. Path sandbox detection (detection only, no blocking)
+	rt.detectPathViolations(ctx, req, rc, taskID)
 	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
-		ID:         mustGenerateToolEventID(),
-		RunID:      rc.RunID,
-		TaskID:     taskID,
-		WorktreeID: rc.WorktreeID,
-		Type:       events.EventToolStarted,
-		Source:     "tool",
-		Status:     "started",
-		Message:    fmt.Sprintf("Tool %s started", req.ToolName),
-		StartedAt:  start.UTC(),
-		Metadata:   toolStartedMetadata,
+		ID:               mustGenerateToolEventID(),
+		RunID:            rc.RunID,
+		TaskID:           taskID,
+		WorktreeID:       rc.WorktreeID,
+		Timestamp:        start.UTC(),
+		ToolName:         req.ToolName,
+		RiskLevel:        string(metadata.RiskLevel),
+		RequiresApproval: boolPtr(metadata.RequiresApproval),
+		ResultStatus:     "called",
+		Type:             events.EventToolCalled,
+		Source:           "tool",
+		Status:           "called",
+		Message:          fmt.Sprintf("Tool %s called", req.ToolName),
+		StartedAt:        start.UTC(),
+		Metadata:         toolStartedMetadata,
+	})
+	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
+		ID:               mustGenerateToolEventID(),
+		RunID:            rc.RunID,
+		TaskID:           taskID,
+		WorktreeID:       rc.WorktreeID,
+		Timestamp:        start.UTC(),
+		ToolName:         req.ToolName,
+		RiskLevel:        string(metadata.RiskLevel),
+		RequiresApproval: boolPtr(metadata.RequiresApproval),
+		ResultStatus:     "started",
+		Type:             events.EventToolStarted,
+		Source:           "tool",
+		Status:           "started",
+		Message:          fmt.Sprintf("Tool %s started", req.ToolName),
+		StartedAt:        start.UTC(),
+		Metadata:         toolStartedMetadata,
 	})
 
 	// 7. Create timeout context
@@ -166,7 +197,7 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 		OutputBytes:  resp.OutputBytes,
 		Error:        resp.Error,
 		DurationMs:   durationMs,
-		RiskLevel:    tool.RiskLevel(),
+		RiskLevel:    string(metadata.RiskLevel),
 		DryRun:       req.DryRun,
 	}
 	if rt.audit != nil {
@@ -175,7 +206,7 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 		}
 	}
 
-	// 11. Emit tool.finished event
+	// 11. Emit tool.completed/tool.failed and tool.finished events
 	toolFinishedStatus := "succeeded"
 	toolFinishedError := ""
 	if !resp.Success || toolErr != nil {
@@ -186,20 +217,52 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 			toolFinishedError = toolErr.Error()
 		}
 	}
+	finishedAt := time.Now().UTC()
+	auditEventType := events.EventToolCompleted
+	if toolFinishedStatus == "failed" {
+		auditEventType = events.EventToolFailed
+	}
 	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
-		ID:         mustGenerateToolEventID(),
-		RunID:      rc.RunID,
-		TaskID:     taskID,
-		WorktreeID: rc.WorktreeID,
-		Type:       events.EventToolFinished,
-		Source:     "tool",
-		Status:     toolFinishedStatus,
-		Message:    fmt.Sprintf("Tool %s finished", req.ToolName),
-		StartedAt:  start.UTC(),
-		FinishedAt: time.Now().UTC(),
-		DurationMs: durationMs,
-		Error:      toolFinishedError,
-		Metadata:   toolStartedMetadata,
+		ID:               mustGenerateToolEventID(),
+		RunID:            rc.RunID,
+		TaskID:           taskID,
+		WorktreeID:       rc.WorktreeID,
+		Timestamp:        finishedAt,
+		ToolName:         req.ToolName,
+		RiskLevel:        string(metadata.RiskLevel),
+		RequiresApproval: boolPtr(metadata.RequiresApproval),
+		ResultStatus:     toolFinishedStatus,
+		ErrorMessage:     toolFinishedError,
+		Type:             auditEventType,
+		Source:           "tool",
+		Status:           toolFinishedStatus,
+		Message:          fmt.Sprintf("Tool %s %s", req.ToolName, toolFinishedStatus),
+		StartedAt:        start.UTC(),
+		FinishedAt:       finishedAt,
+		DurationMs:       durationMs,
+		Error:            toolFinishedError,
+		Metadata:         toolStartedMetadata,
+	})
+	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
+		ID:               mustGenerateToolEventID(),
+		RunID:            rc.RunID,
+		TaskID:           taskID,
+		WorktreeID:       rc.WorktreeID,
+		Timestamp:        finishedAt,
+		ToolName:         req.ToolName,
+		RiskLevel:        string(metadata.RiskLevel),
+		RequiresApproval: boolPtr(metadata.RequiresApproval),
+		ResultStatus:     toolFinishedStatus,
+		ErrorMessage:     toolFinishedError,
+		Type:             events.EventToolFinished,
+		Source:           "tool",
+		Status:           toolFinishedStatus,
+		Message:          fmt.Sprintf("Tool %s finished", req.ToolName),
+		StartedAt:        start.UTC(),
+		FinishedAt:       finishedAt,
+		DurationMs:       durationMs,
+		Error:            toolFinishedError,
+		Metadata:         toolStartedMetadata,
 	})
 
 	if toolErr != nil {
@@ -215,6 +278,83 @@ func mustGenerateToolEventID() string {
 		return "evt_error"
 	}
 	return id
+}
+
+func toolEventMetadata(req ToolRequest, metadata ToolMetadata) map[string]string {
+	eventMetadata := map[string]string{
+		"tool_name":  req.ToolName,
+		"risk_level": string(metadata.RiskLevel),
+	}
+	if cmdName, ok := req.Args["command_name"]; ok {
+		eventMetadata["command_name"] = cmdName
+	}
+	return eventMetadata
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+// pathArgKeys are the argument keys that may contain file paths.
+var pathArgKeys = []string{
+	"path", "file", "filename", "filepath",
+	"dir", "directory", "cwd", "target",
+}
+
+// detectPathViolations checks tool arguments for sensitive paths and emits
+// path.violation_candidate events. This is DETECTION ONLY - it does NOT
+// block or modify tool execution in any way.
+func (rt *DefaultToolRuntime) detectPathViolations(ctx context.Context, req ToolRequest, rc events.RunContext, taskID string) {
+	// Skip if no event emitter
+	if rt.eventEmitter == nil {
+		return
+	}
+
+	// Check each path argument
+	for _, key := range pathArgKeys {
+		pathValue, ok := req.Args[key]
+		if !ok || pathValue == "" {
+			continue
+		}
+
+		// Sanitize the path value for the event
+		sanitizedPath := security.SanitizeText(pathValue)
+
+		// Validate path for sensitive patterns
+		violations := security.ValidatePath(pathValue)
+		if len(violations) == 0 {
+			continue
+		}
+
+		// Emit violation candidate events (detection only, no blocking)
+		for _, v := range violations {
+			metadata := map[string]string{
+				"tool_name": req.ToolName,
+				"path":      sanitizedPath,
+				"rule":      v.Rule,
+				"severity":  string(v.Severity),
+				"candidate": fmt.Sprintf("%v", v.Candidate),
+				"arg_key":   key,
+			}
+
+			// Sanitize metadata values
+			sanitizedMetadata := security.SanitizeMap(metadata)
+
+			events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
+				ID:         mustGenerateToolEventID(),
+				RunID:      rc.RunID,
+				TaskID:     taskID,
+				WorktreeID: rc.WorktreeID,
+				Timestamp:  time.Now().UTC(),
+				ToolName:   req.ToolName,
+				Type:       "path.violation_candidate",
+				Source:     "sandbox",
+				Status:     "detected",
+				Message:    fmt.Sprintf("Path violation candidate: %s (%s)", sanitizedPath, v.Rule),
+				Metadata:   sanitizedMetadata,
+			})
+		}
+	}
 }
 
 // truncateResponse truncates Stdout and Stderr to fit within maxBytes.

@@ -136,6 +136,8 @@ neko diff                   # Show working tree diff for review
 neko diff --staged          # Show staged diff for review
 neko plan --goal "..."      # Print a structured plan skeleton without writing files
 neko cache stats            # Show prefix fingerprint and cache observability stats
+neko tools                  # List tool metadata: risk, approval flag, timeout
+neko events tools           # Show recent tool audit events when available
 ```
 
 Equivalent `mimoneko` form:
@@ -145,9 +147,13 @@ mimoneko neko status
 mimoneko neko diff --staged
 mimoneko neko plan --goal "Update README"
 mimoneko neko cache stats
+mimoneko neko tools
+mimoneko neko events tools
 ```
 
 `neko approve <patch_id>` and `neko rollback <run_id>` are reserved for a later phase. They are not implemented in this release slice.
+
+Tool audit events are observational only in this phase. `tool.called`, `tool.completed`, and `tool.failed` help users review tool activity, but they do not enforce approval, sandboxing, or redaction policy by themselves.
 
 ## FAQ
 

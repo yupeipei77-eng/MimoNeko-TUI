@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,6 +85,9 @@ func TestEventTypeIsTerminal(t *testing.T) {
 		{EventPlannerFinished, false},
 		{EventToolStarted, false},
 		{EventToolFinished, false},
+		{EventToolCalled, false},
+		{EventToolCompleted, false},
+		{EventToolFailed, false},
 	}
 	for _, tt := range tests {
 		if got := tt.typ.IsTerminal(); got != tt.terminal {
@@ -101,6 +106,7 @@ func TestEventTypeIsStarted(t *testing.T) {
 		{EventCoderStarted, true},
 		{EventReviewerStarted, true},
 		{EventToolStarted, true},
+		{EventToolCalled, false},
 		{EventValidationStarted, true},
 		{EventPatchPreviewStarted, true},
 		{EventRunSucceeded, false},
@@ -125,6 +131,8 @@ func TestEventTypeIsFinished(t *testing.T) {
 		{EventPlannerFinished, true},
 		{EventCoderFinished, true},
 		{EventToolFinished, true},
+		{EventToolCompleted, false},
+		{EventToolFailed, false},
 	}
 	for _, tt := range tests {
 		if got := tt.typ.IsFinished(); got != tt.finished {
@@ -1083,6 +1091,47 @@ func TestSafeEmit(t *testing.T) {
 			t.Errorf("safe metadata was redacted: %q", events[0].Metadata["tool_name"])
 		}
 	})
+}
+
+func TestToolAuditEventSerializationStable(t *testing.T) {
+	approval := true
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	evt := RunEvent{
+		ID:               "evt_tool",
+		RunID:            "run_tool",
+		Timestamp:        ts,
+		ToolName:         "file_write",
+		RiskLevel:        "medium",
+		RequiresApproval: &approval,
+		ResultStatus:     "succeeded",
+		Type:             EventToolCompleted,
+		Source:           "tool",
+		Status:           "succeeded",
+		StartedAt:        ts,
+		FinishedAt:       ts.Add(10 * time.Millisecond),
+		DurationMs:       10,
+		Metadata: map[string]string{
+			"risk_level": "medium",
+			"tool_name":  "file_write",
+		},
+	}
+
+	first, err := json.Marshal(evt)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	second, err := json.Marshal(evt)
+	if err != nil {
+		t.Fatalf("Marshal() second error = %v", err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("tool audit event serialization changed:\nfirst=%s\nsecond=%s", first, second)
+	}
+	for _, want := range []string{`"type":"tool.completed"`, `"tool_name":"file_write"`, `"risk_level":"medium"`, `"requires_approval":true`, `"result_status":"succeeded"`} {
+		if !strings.Contains(string(first), want) {
+			t.Fatalf("serialized event = %s, want %s", first, want)
+		}
+	}
 }
 
 func TestNoopEventStore(t *testing.T) {

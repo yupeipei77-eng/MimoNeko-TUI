@@ -484,6 +484,7 @@ func SanitizeEvent(event RunEvent) RunEvent {
 
 	// Sanitize error
 	event.Error = sanitizeField(event.Error)
+	event.ErrorMessage = sanitizeField(event.ErrorMessage)
 
 	return event
 }

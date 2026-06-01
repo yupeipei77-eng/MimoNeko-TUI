@@ -46,8 +46,11 @@ const (
 	EventReviewerFinished EventType = "reviewer.finished"
 
 	// Tool events
-	EventToolStarted  EventType = "tool.started"
-	EventToolFinished EventType = "tool.finished"
+	EventToolStarted   EventType = "tool.started"
+	EventToolFinished  EventType = "tool.finished"
+	EventToolCalled    EventType = "tool.called"
+	EventToolCompleted EventType = "tool.completed"
+	EventToolFailed    EventType = "tool.failed"
 
 	// Validation events
 	EventValidationStarted  EventType = "validation.started"
@@ -60,6 +63,9 @@ const (
 	// Streaming events
 	EventStreamDelta EventType = "stream.delta"
 	EventStreamDone  EventType = "stream.done"
+
+	// Sandbox detection events (detection only, no enforcement)
+	EventPathViolationCandidate EventType = "path.violation_candidate"
 )
 
 // IsTerminal returns true if the event type represents a terminal state
@@ -110,6 +116,25 @@ type RunEvent struct {
 
 	// WorktreeID identifies the worktree (optional).
 	WorktreeID string `json:"worktree_id,omitempty"`
+
+	// Timestamp is the primary occurrence time for structured audit events.
+	Timestamp time.Time `json:"timestamp,omitempty"`
+
+	// ToolName identifies the tool for structured tool audit events.
+	ToolName string `json:"tool_name,omitempty"`
+
+	// RiskLevel records the tool metadata risk level for audit review.
+	RiskLevel string `json:"risk_level,omitempty"`
+
+	// RequiresApproval records the tool metadata approval flag. Pointer form
+	// allows false to be emitted for low-risk tools while non-tool events omit it.
+	RequiresApproval *bool `json:"requires_approval,omitempty"`
+
+	// ResultStatus mirrors Status for tool audit events in a stable field.
+	ResultStatus string `json:"result_status,omitempty"`
+
+	// ErrorMessage mirrors Error for tool audit events in a stable field.
+	ErrorMessage string `json:"error_message,omitempty"`
 
 	// StepID identifies the step within a run (optional).
 	StepID string `json:"step_id,omitempty"`

@@ -34,6 +34,8 @@ func (c *NekoCommand) Run(args []string, env Env) int {
 			return runNekoWorkflowCache(args[1:], env)
 		case "tools":
 			return runNekoWorkflowTools(args[1:], env)
+		case "events":
+			return runNekoWorkflowEvents(args[1:], env)
 		}
 	}
 	if hasHelpFlag(args) {
