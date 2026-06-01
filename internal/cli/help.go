@@ -68,6 +68,7 @@ func printNekoUsage(w io.Writer) {
 	fmt.Fprintln(w, "       neko status [--dir <project_root>]")
 	fmt.Fprintln(w, "       neko diff [--dir <project_root>] [--staged]")
 	fmt.Fprintln(w, "       neko plan --goal \"...\" [--dir <project_root>]")
+	fmt.Fprintln(w, "       neko cache stats [--dir <project_root>]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "MimoNeko is a local terminal console powered by MimoNeko.")
 	fmt.Fprintln(w, "Defaults: mode=multi dry-run=true worktree=true for multi-agent runs.")

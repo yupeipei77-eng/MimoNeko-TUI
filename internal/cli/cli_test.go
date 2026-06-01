@@ -1138,6 +1138,7 @@ func TestNekoPlanPrintsStubAndDoesNotWriteFiles(t *testing.T) {
 
 	var plan struct {
 		Goal                 string `json:"goal"`
+		PrefixFingerprint    string `json:"prefix_fingerprint"`
 		ImplementationStatus string `json:"implementation_status"`
 		WritesFiles          bool   `json:"writes_files"`
 		CallsModel           bool   `json:"calls_model"`
@@ -1145,13 +1146,45 @@ func TestNekoPlanPrintsStubAndDoesNotWriteFiles(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
 		t.Fatalf("plan JSON did not parse: %v\n%s", err, stdout.String())
 	}
-	if plan.Goal != "Update docs" || plan.ImplementationStatus != "stub" || plan.WritesFiles || plan.CallsModel {
+	if plan.Goal != "Update docs" || plan.PrefixFingerprint == "" || plan.ImplementationStatus != "stub" || plan.WritesFiles || plan.CallsModel {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 
 	after := snapshotRelativeFiles(t, root)
 	if strings.Join(before, "\n") != strings.Join(after, "\n") {
 		t.Fatalf("neko plan wrote files: before=%v after=%v", before, after)
+	}
+}
+
+func TestNekoCacheStatsSmoke(t *testing.T) {
+	setUserConfigHome(t)
+	root := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "cache", "stats", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko cache stats code = %d, stderr = %q", code, stderr.String())
+	}
+
+	var stats struct {
+		PrefixFingerprint     string  `json:"prefix_fingerprint"`
+		ImmutableBytes        int     `json:"immutable_bytes"`
+		SemiStableBytes       int     `json:"semi_stable_bytes"`
+		VolatileBytes         int     `json:"volatile_bytes"`
+		EstimatedCacheHitRate float64 `json:"estimated_cache_hit_ratio"`
+		ImplementationStatus  string  `json:"implementation_status"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &stats); err != nil {
+		t.Fatalf("cache stats JSON did not parse: %v\n%s", err, stdout.String())
+	}
+	if stats.PrefixFingerprint == "" || stats.ImmutableBytes == 0 || stats.SemiStableBytes == 0 || stats.VolatileBytes == 0 {
+		t.Fatalf("unexpected cache stats: %+v", stats)
+	}
+	if stats.EstimatedCacheHitRate <= 0 || stats.EstimatedCacheHitRate > 1 {
+		t.Fatalf("estimated cache hit ratio = %f, want within (0,1]", stats.EstimatedCacheHitRate)
+	}
+	if stats.ImplementationStatus != "stub" {
+		t.Fatalf("implementation_status = %q, want stub", stats.ImplementationStatus)
 	}
 }
 

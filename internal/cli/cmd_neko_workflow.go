@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/contextengine"
 	"github.com/mimoneko/mimoneko/internal/events"
 	"github.com/mimoneko/mimoneko/internal/pathutil"
 )
@@ -127,10 +128,12 @@ func runNekoWorkflowPlan(args []string, env Env) int {
 		fmt.Fprintf(env.Stderr, "neko plan failed: %v\n", err)
 		return 1
 	}
+	stats := contextengine.DefaultObservableSnapshot(*goal).Stats()
 	plan := nekoPlanSkeleton{
 		Command:              "neko plan",
 		Goal:                 strings.TrimSpace(*goal),
 		ProjectRoot:          root,
+		PrefixFingerprint:    stats.PrefixFingerprint,
 		ImplementationStatus: "stub",
 		WritesFiles:          false,
 		CallsModel:           false,
@@ -152,10 +155,54 @@ func runNekoWorkflowPlan(args []string, env Env) int {
 	return 0
 }
 
+func runNekoWorkflowCache(args []string, env Env) int {
+	if len(args) == 0 {
+		fmt.Fprintln(env.Stderr, "Usage: neko cache stats [--dir <project_root>]")
+		return 2
+	}
+	switch args[0] {
+	case "stats":
+		return runNekoWorkflowCacheStats(args[1:], env)
+	case "-h", "--help", "help":
+		fmt.Fprintln(env.Stdout, "Usage: neko cache stats [--dir <project_root>]")
+		return 0
+	default:
+		fmt.Fprintf(env.Stderr, "unknown neko cache command %q\n", args[0])
+		fmt.Fprintln(env.Stderr, "Usage: neko cache stats [--dir <project_root>]")
+		return 2
+	}
+}
+
+func runNekoWorkflowCacheStats(args []string, env Env) int {
+	fs := flag.NewFlagSet("neko cache stats", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+	if _, err := workflowStartDir(*dir, env); err != nil {
+		fmt.Fprintf(env.Stderr, "neko cache stats failed: %v\n", err)
+		return 1
+	}
+
+	stats := contextengine.DefaultObservableSnapshot("").Stats()
+	encoder := json.NewEncoder(env.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(stats); err != nil {
+		fmt.Fprintf(env.Stderr, "neko cache stats failed: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 type nekoPlanSkeleton struct {
 	Command              string         `json:"command"`
 	Goal                 string         `json:"goal"`
 	ProjectRoot          string         `json:"project_root"`
+	PrefixFingerprint    string         `json:"prefix_fingerprint"`
 	ImplementationStatus string         `json:"implementation_status"`
 	WritesFiles          bool           `json:"writes_files"`
 	CallsModel           bool           `json:"calls_model"`

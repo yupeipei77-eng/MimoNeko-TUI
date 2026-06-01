@@ -135,6 +135,7 @@ neko status                 # Show git branch, clean state, change counts, and l
 neko diff                   # Show working tree diff for review
 neko diff --staged          # Show staged diff for review
 neko plan --goal "..."      # Print a structured plan skeleton without writing files
+neko cache stats            # Show prefix fingerprint and cache observability stats
 ```
 
 Equivalent `mimoneko` form:
@@ -143,6 +144,7 @@ Equivalent `mimoneko` form:
 mimoneko neko status
 mimoneko neko diff --staged
 mimoneko neko plan --goal "Update README"
+mimoneko neko cache stats
 ```
 
 `neko approve <patch_id>` and `neko rollback <run_id>` are reserved for a later phase. They are not implemented in this release slice.
