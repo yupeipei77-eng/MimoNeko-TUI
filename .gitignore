@@ -1,12 +1,16 @@
 # Binaries
 *.exe
 *.exe~
+neko.exe~
 *.dll
 *.so
 *.dylib
 /bin/
+bin/
 /dist/
 dist/
+/build/
+build/
 
 # Test
 *.test
@@ -15,6 +19,8 @@ coverage.html
 
 # Environment and secrets
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 *.key
@@ -28,6 +34,7 @@ id_ed25519
 .neko/
 logs/
 cache/
+*.log
 
 # IDE
 .idea/
@@ -35,6 +42,12 @@ cache/
 *.swp
 *.swo
 *~
+*.tmp
+*.temp
+*.bak
+*.orig
+tmp/
+temp/
 
 # OS
 .DS_Store
@@ -43,6 +56,7 @@ Thumbs.db
 # Build artifacts
 /nul
 /0
+/reasonforge
 
 # Generated files (keep templates in prompts/ and schemas/)
 /prompts/
