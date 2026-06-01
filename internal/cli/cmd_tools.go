@@ -13,6 +13,10 @@ type ToolsCommand struct{}
 func (c *ToolsCommand) Name() string { return "tools" }
 
 func (c *ToolsCommand) Run(args []string, env Env) int {
+	return runToolsList(args, env)
+}
+
+func runToolsList(args []string, env Env) int {
 	fs := flag.NewFlagSet("tools", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	dir := fs.String("dir", "", "project root")
@@ -46,12 +50,20 @@ func (c *ToolsCommand) Run(args []string, env Env) int {
 	enabledMap := tools.EnabledToolsFromConfig(cfg)
 
 	fmt.Fprintln(env.Stdout, "MimoNeko Tools")
-	for _, info := range registry.List() {
+	for _, metadata := range tools.ListToolMetadata(registry) {
 		enabled := "true"
-		if e, ok := enabledMap[info.Name]; ok && !e {
+		if e, ok := enabledMap[metadata.Name]; ok && !e {
 			enabled = "false"
 		}
-		fmt.Fprintf(env.Stdout, "%-12s enabled=%-5s risk=%s\n", info.Name, enabled, info.RiskLevel)
+		fmt.Fprintf(
+			env.Stdout,
+			"%-12s risk=%-8s approval=%-5t timeout=%s enabled=%s\n",
+			metadata.Name,
+			metadata.RiskLevel,
+			metadata.RequiresApproval,
+			metadata.Timeout,
+			enabled,
+		)
 	}
 	return 0
 }

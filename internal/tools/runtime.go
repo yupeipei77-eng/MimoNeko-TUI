@@ -46,6 +46,22 @@ func (rt *DefaultToolRuntime) SetEventEmitter(emitter events.EventEmitter) {
 	}
 }
 
+// RegisterMetadata registers review metadata for a tool. It does not change
+// runtime safety decisions or execution behaviour.
+func (rt *DefaultToolRuntime) RegisterMetadata(metadata ToolMetadata) error {
+	return RegisterToolMetadata(rt.registry, metadata)
+}
+
+// Metadata returns review metadata for a registered tool when available.
+func (rt *DefaultToolRuntime) Metadata(name string) (ToolMetadata, bool) {
+	return LookupToolMetadata(rt.registry, name)
+}
+
+// ListMetadata returns all registered tool metadata sorted by tool name.
+func (rt *DefaultToolRuntime) ListMetadata() []ToolMetadata {
+	return ListToolMetadata(rt.registry)
+}
+
 // Run executes a tool request through the full safety + audit pipeline:
 //
 //  1. Look up tool in registry

@@ -1188,6 +1188,27 @@ func TestNekoCacheStatsSmoke(t *testing.T) {
 	}
 }
 
+func TestNekoToolsListsMetadata(t *testing.T) {
+	setUserConfigHome(t)
+	root := t.TempDir()
+	if code := Run([]string{"init", "--dir", root}, Env{}); code != 0 {
+		t.Fatalf("Run(init) code = %d", code)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"neko", "tools", "--dir", root}, Env{Stdout: &stdout, Stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("neko tools code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	for _, want := range []string{"MimoNeko Tools", "file_read", "risk=", "approval=", "timeout="} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want %q", output, want)
+		}
+	}
+}
+
 func TestNekoFindsProjectRootFromSubdirectory(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	nested := filepath.Join(root, "nested", "deeper")
@@ -1626,6 +1647,9 @@ func TestToolsCommand(t *testing.T) {
 	}
 	if !strings.Contains(output, "risk=") {
 		t.Fatalf("tools output = %q, want risk levels", output)
+	}
+	if !strings.Contains(output, "approval=") || !strings.Contains(output, "timeout=") {
+		t.Fatalf("tools output = %q, want approval and timeout metadata", output)
 	}
 }
 

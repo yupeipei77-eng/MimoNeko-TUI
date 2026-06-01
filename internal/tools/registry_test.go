@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestRegistryRegisterAndLookup(t *testing.T) {
@@ -33,6 +34,80 @@ func TestRegistryDuplicateRegistration(t *testing.T) {
 	err := r.Register(tool)
 	if err == nil {
 		t.Fatal("duplicate Register() should fail")
+	}
+}
+
+func TestRegistryMetadataRegistration(t *testing.T) {
+	r := NewMemoryRegistry()
+	metadata := ToolMetadata{
+		Name:             "custom_read",
+		Description:      "Read custom data",
+		RiskLevel:        RiskLevelLow,
+		Timeout:          5 * time.Second,
+		RequiresApproval: false,
+		AllowedPaths:     []string{"b", "a"},
+	}
+
+	if err := RegisterToolMetadata(r, metadata); err != nil {
+		t.Fatalf("RegisterToolMetadata() error = %v", err)
+	}
+
+	got, ok := LookupToolMetadata(r, "custom_read")
+	if !ok {
+		t.Fatal("LookupToolMetadata(custom_read) not found")
+	}
+	if got.Name != metadata.Name || got.RiskLevel != RiskLevelLow || got.Timeout != 5*time.Second || got.RequiresApproval {
+		t.Fatalf("metadata = %+v, want registered metadata", got)
+	}
+	if len(got.AllowedPaths) != 2 || got.AllowedPaths[0] != "a" || got.AllowedPaths[1] != "b" {
+		t.Fatalf("AllowedPaths = %v, want sorted copy", got.AllowedPaths)
+	}
+}
+
+func TestRegistryMetadataDuplicateRegistration(t *testing.T) {
+	r := NewMemoryRegistry()
+	metadata := ToolMetadata{Name: "custom_read", RiskLevel: RiskLevelLow}
+
+	if err := RegisterToolMetadata(r, metadata); err != nil {
+		t.Fatalf("RegisterToolMetadata() error = %v", err)
+	}
+	if err := RegisterToolMetadata(r, metadata); err == nil {
+		t.Fatal("duplicate RegisterToolMetadata() should fail")
+	}
+}
+
+func TestRegistryMetadataLookupFromRegisteredTool(t *testing.T) {
+	r := NewMemoryRegistry()
+	if err := r.Register(&FileWriteTool{}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	metadata, ok := LookupToolMetadata(r, "file_write")
+	if !ok {
+		t.Fatal("LookupToolMetadata(file_write) not found")
+	}
+	if metadata.Name != "file_write" || metadata.RiskLevel != RiskLevelMedium || !metadata.RequiresApproval {
+		t.Fatalf("metadata = %+v, want file_write medium approval metadata", metadata)
+	}
+}
+
+func TestRegistryListMetadataSorted(t *testing.T) {
+	r := NewMemoryRegistry()
+	for _, metadata := range []ToolMetadata{
+		{Name: "z_tool", RiskLevel: RiskLevelHigh},
+		{Name: "a_tool", RiskLevel: RiskLevelLow},
+	} {
+		if err := RegisterToolMetadata(r, metadata); err != nil {
+			t.Fatalf("RegisterToolMetadata(%s) error = %v", metadata.Name, err)
+		}
+	}
+
+	list := ListToolMetadata(r)
+	if len(list) != 2 {
+		t.Fatalf("ListToolMetadata() count = %d, want 2", len(list))
+	}
+	if list[0].Name != "a_tool" || list[1].Name != "z_tool" {
+		t.Fatalf("ListToolMetadata() order = %v, want sorted", []string{list[0].Name, list[1].Name})
 	}
 }
 
@@ -84,9 +159,9 @@ func TestRegistryRegisterEmptyName(t *testing.T) {
 
 type emptyNameTool struct{}
 
-func (t *emptyNameTool) Name() string        { return "" }
-func (t *emptyNameTool) Description() string  { return "" }
-func (t *emptyNameTool) RiskLevel() string    { return "low" }
+func (t *emptyNameTool) Name() string                  { return "" }
+func (t *emptyNameTool) Description() string           { return "" }
+func (t *emptyNameTool) RiskLevel() string             { return "low" }
 func (t *emptyNameTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 func (t *emptyNameTool) Run(_ context.Context, _ ToolRequest) (ToolResponse, error) {
 	return ToolResponse{}, nil

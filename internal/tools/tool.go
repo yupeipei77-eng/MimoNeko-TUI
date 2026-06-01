@@ -24,7 +24,7 @@ type Tool interface {
 	// Description returns a short human-readable description.
 	Description() string
 
-	// RiskLevel returns the tool's risk classification: "low" or "medium".
+	// RiskLevel returns the tool's risk classification.
 	RiskLevel() string
 
 	// Concurrency returns the tool's concurrency classification.

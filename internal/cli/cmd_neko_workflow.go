@@ -198,6 +198,10 @@ func runNekoWorkflowCacheStats(args []string, env Env) int {
 	return 0
 }
 
+func runNekoWorkflowTools(args []string, env Env) int {
+	return runToolsList(args, env)
+}
+
 type nekoPlanSkeleton struct {
 	Command              string         `json:"command"`
 	Goal                 string         `json:"goal"`

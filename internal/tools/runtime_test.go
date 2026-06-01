@@ -79,6 +79,30 @@ func TestRuntimeMissingRepoRoot(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetadataRegistrationAndLookup(t *testing.T) {
+	rt := newTestRuntime(t, t.TempDir())
+	metadata := ToolMetadata{
+		Name:             "runtime_observer",
+		Description:      "Observe runtime metadata",
+		RiskLevel:        RiskLevelLow,
+		RequiresApproval: false,
+	}
+
+	if err := rt.RegisterMetadata(metadata); err != nil {
+		t.Fatalf("RegisterMetadata() error = %v", err)
+	}
+	got, ok := rt.Metadata("runtime_observer")
+	if !ok {
+		t.Fatal("Metadata(runtime_observer) not found")
+	}
+	if got.Name != metadata.Name || got.RiskLevel != RiskLevelLow {
+		t.Fatalf("metadata = %+v, want runtime_observer metadata", got)
+	}
+	if len(rt.ListMetadata()) == 0 {
+		t.Fatal("ListMetadata() should include registered metadata")
+	}
+}
+
 func TestRuntimeFileReadSuccess(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("world"), 0o644); err != nil {
@@ -212,9 +236,9 @@ func TestRuntimeTimeout(t *testing.T) {
 // slowTool is a test tool that sleeps for a long time.
 type slowTool struct{}
 
-func (t *slowTool) Name() string        { return "slow_tool" }
-func (t *slowTool) Description() string { return "A slow test tool" }
-func (t *slowTool) RiskLevel() string   { return "low" }
+func (t *slowTool) Name() string                  { return "slow_tool" }
+func (t *slowTool) Description() string           { return "A slow test tool" }
+func (t *slowTool) RiskLevel() string             { return "low" }
 func (t *slowTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 func (t *slowTool) Run(ctx context.Context, _ ToolRequest) (ToolResponse, error) {
 	select {

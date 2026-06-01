@@ -1,5 +1,7 @@
 package tools
 
+import "time"
+
 // ToolRequest is the standard input for every tool execution.
 // All fields are set by ToolRuntime before reaching a Tool.
 type ToolRequest struct {
@@ -77,8 +79,11 @@ type ToolArtifact struct {
 
 // ToolInfo describes a registered tool for listing purposes.
 type ToolInfo struct {
-	Name        string
-	Description string
-	Enabled     bool
-	RiskLevel   string
+	Name             string
+	Description      string
+	Enabled          bool
+	RiskLevel        string
+	Timeout          time.Duration
+	RequiresApproval bool
+	AllowedPaths     []string
 }
