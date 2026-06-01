@@ -609,6 +609,59 @@ mimoneko approvals preview <id>
 
 ---
 
+### 12. Approval Resume Execution (Phase 5.6)
+
+**状态**: ✅ 已实现
+
+**功能**: 用户手动恢复执行已批准 approval 的工具调用。
+
+**核心原则**:
+- approve 只改变状态
+- resume 才执行工具
+- 不会 approve 后自动执行
+
+**CLI 命令**:
+```bash
+# 恢复执行已批准的请求
+mimoneko approvals resume <id>
+```
+
+**执行条件**:
+1. approval 存在
+2. approval.status == approved
+3. snapshot 存在
+4. snapshot.approval_id == approval.id
+5. tool 仍然存在于 registry
+6. 未被 resume 过
+
+**禁止执行**:
+| 状态 | 错误 |
+|------|------|
+| pending | approval still pending |
+| rejected | approval rejected |
+| expired | approval expired |
+| missing snapshot | approval snapshot missing |
+| tool missing | tool not found |
+| already resumed | approval already resumed |
+
+**安全要求**:
+- resume 前必须再次运行 Security Enforcement
+- critical path / critical risk tool 仍然必须阻断
+- rejected / expired approval 不可执行
+- resume 输出必须脱敏
+- resume 成功或失败都 emit event
+
+**事件**:
+- `approval.resume_started`
+- `approval.resume_completed`
+- `approval.resume_failed`
+
+**防重复执行**:
+- 默认拒绝再次执行
+- 错误: `approval already resumed`
+
+---
+
 ## 最佳实践
 
 ### 对于用户

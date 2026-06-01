@@ -79,6 +79,9 @@ type ApprovalRequest struct {
 
 	// DecidedBy identifies who made the decision (empty if pending).
 	DecidedBy string `json:"decided_by,omitempty"`
+
+	// ResumedAt is when the approved request was resumed for execution (zero if not resumed).
+	ResumedAt time.Time `json:"resumed_at,omitempty"`
 }
 
 // NewRequest creates a new ApprovalRequest with the given parameters.
@@ -178,6 +181,25 @@ func (r *ApprovalRequest) Expire() error {
 // IsPending returns true if the request is still pending.
 func (r *ApprovalRequest) IsPending() bool {
 	return r.Status == StatusPending
+}
+
+// IsResumed returns true if the request has been resumed.
+func (r *ApprovalRequest) IsResumed() bool {
+	return !r.ResumedAt.IsZero()
+}
+
+// Resume marks the request as resumed.
+// Returns an error if the request cannot be resumed.
+func (r *ApprovalRequest) Resume() error {
+	if r.Status != StatusApproved {
+		return fmt.Errorf("approval: cannot resume request %s with status %s", r.ID, r.Status)
+	}
+	if r.IsResumed() {
+		return fmt.Errorf("approval: request %s already resumed", r.ID)
+	}
+
+	r.ResumedAt = time.Now().UTC()
+	return nil
 }
 
 // IsExpired returns true if the request has expired based on the current time.
