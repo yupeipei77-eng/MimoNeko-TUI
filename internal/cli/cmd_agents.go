@@ -40,6 +40,8 @@ func (c *AgentsCommand) Run(args []string, env Env) int {
 		return c.runReports(args[1:], env)
 	case "report":
 		return c.runReport(args[1:], env)
+	case "patch-preview":
+		return c.runPatchPreview(args[1:], env)
 	case "list":
 		return c.runList(args[1:], env)
 	default:
@@ -61,6 +63,8 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  run --goal \"...\" --dry-run [--llm] [--json] [--save-report] 端到端 dry-run")
 	fmt.Fprintln(env.Stdout, "  reports                           列出最近 dry-run reports")
 	fmt.Fprintln(env.Stdout, "  report <workflow_id> [--json]      显示指定 report")
+	fmt.Fprintln(env.Stdout, "  patch-preview --intent-file <file> [--json] 预览 patch")
+	fmt.Fprintln(env.Stdout, "  patch-preview --report <id> [--json] 从 report 预览 patch")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "示例:")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents")
@@ -72,6 +76,8 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  mimoneko agents run --goal \"优化 README\" --dry-run --llm --save-report")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents reports")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents report <workflow_id>")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents patch-preview --intent-file intent.json")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents patch-preview --report <workflow_id>")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "注意: --dry-run 必须显式开启，不写文件、不执行测试、不执行工具。")
 }
@@ -904,6 +910,79 @@ func (c *AgentsCommand) runReport(args []string, env Env) int {
 		fmt.Fprintln(env.Stdout, jsonStr)
 	} else {
 		fmt.Fprint(env.Stdout, agents.FormatDryRunReport(report))
+	}
+
+	return 0
+}
+
+func (c *AgentsCommand) runPatchPreview(args []string, env Env) int {
+	fs := flag.NewFlagSet("agents patch-preview", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	intentFile := fs.String("intent-file", "", "path to CoderPatchIntent JSON file")
+	reportID := fs.String("report", "", "workflow ID of dry-run report")
+	jsonOutput := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+
+	if *intentFile == "" && *reportID == "" {
+		fmt.Fprintln(env.Stderr, "错误: 需要 --intent-file 或 --report 参数")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents patch-preview --intent-file <file> [--json]")
+		fmt.Fprintln(env.Stderr, "      mimoneko agents patch-preview --report <workflow_id> [--json]")
+		return 1
+	}
+
+	var preview *agents.PatchPreview
+	var err error
+
+	if *intentFile != "" {
+		// 从 intent 文件生成 preview
+		intentData, readErr := os.ReadFile(*intentFile)
+		if readErr != nil {
+			fmt.Fprintf(env.Stderr, "错误: 无法读取 intent 文件: %v\n", readErr)
+			return 1
+		}
+
+		var intent agents.CoderPatchIntent
+		if jsonErr := json.Unmarshal(intentData, &intent); jsonErr != nil {
+			fmt.Fprintf(env.Stderr, "错误: intent 文件不是有效的 JSON: %v\n", jsonErr)
+			return 1
+		}
+
+		preview, err = agents.GeneratePreviewFromIntent(&intent)
+	} else {
+		// 从 report 生成 preview
+		root, rootErr := resolveRoot("", env)
+		if rootErr != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", rootErr)
+			return 1
+		}
+
+		store := agents.NewReportStore(root)
+		report, loadErr := store.Load(*reportID)
+		if loadErr != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", loadErr)
+			return 1
+		}
+
+		preview, err = agents.GeneratePreviewFromReport(report)
+	}
+
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	// 输出
+	if *jsonOutput {
+		jsonStr, jsonErr := agents.FormatPatchPreviewJSON(preview)
+		if jsonErr != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", jsonErr)
+			return 1
+		}
+		fmt.Fprintln(env.Stdout, jsonStr)
+	} else {
+		fmt.Fprint(env.Stdout, agents.FormatPatchPreview(preview))
 	}
 
 	return 0

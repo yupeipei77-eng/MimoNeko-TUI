@@ -176,6 +176,9 @@ mimoneko agents run --goal "优化 README" --llm --dry-run --json  # Output as J
 mimoneko agents reports                     # List saved reports
 mimoneko agents report <workflow_id>        # View specific report
 mimoneko agents report <workflow_id> --json # View report as JSON
+mimoneko agents patch-preview --intent-file intent.json  # Preview patch from intent
+mimoneko agents patch-preview --report <workflow_id>     # Preview patch from report
+mimoneko agents patch-preview --report <workflow_id> --json  # Preview as JSON
 mimoneko neko events agents                 # View agent workflow events
 ```
 

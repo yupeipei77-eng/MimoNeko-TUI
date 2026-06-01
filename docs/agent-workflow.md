@@ -485,6 +485,33 @@ mimoneko agents report <workflow_id> --json
 - Reports are sorted by creation time (newest first)
 - Path traversal is rejected
 
+## Patch Preview - No Apply (Phase 7.4)
+
+Phase 7.4 adds patch preview from intent files or dry-run reports.
+
+### CLI Commands
+
+```bash
+# Preview from intent file
+mimoneko agents patch-preview --intent-file intent.json
+
+# Preview from dry-run report
+mimoneko agents patch-preview --report <workflow_id>
+
+# Preview as JSON
+mimoneko agents patch-preview --report <workflow_id> --json
+```
+
+### Important Notes
+
+- Preview only - no files are modified
+- No patch is applied
+- No tools are executed
+- `implementation_status` is always `preview_only`
+- `no_file_writes`, `no_patch_applied`, `no_tools_executed` are always `true`
+- Input is sanitized (no API keys, tokens)
+- EventStore fallback if unavailable
+
 ### Workflow
 
 1. **Planner** generates AgentPlan (implementation_status = plan_only)
