@@ -433,6 +433,20 @@ var safeMetadataKeys = map[string]bool{
 	"files_changed":  true,
 	"additions":      true,
 	"deletions":      true,
+	"status":         true,
+	// Agent workflow keys
+	"workflow_id":    true,
+	"role":           true,
+	"goal":           true,
+	"input_summary":  true,
+	"output_summary": true,
+	"error_message":  true,
+	"arg_key":        true,
+	"mode":           true,
+	"reason":         true,
+	"severity":       true,
+	"candidate":      true,
+	"rule":           true,
 }
 
 // redactPatterns are substrings that trigger full-line redaction in message/error fields.

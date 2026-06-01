@@ -3,11 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/mimoneko/mimoneko/internal/agents"
+	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/security"
 )
 
 type AgentsCommand struct{}
@@ -69,25 +70,8 @@ func (c *AgentsCommand) runPlan(args []string, env Env) int {
 		return 1
 	}
 
-	// Sanitize goal for display
-	sanitizedGoal := security.SanitizeText(goal)
-
-	// Create event emitter (skeleton phase uses noop)
-	// Real event emission will be added when integrating with EventStore
-	var eventEmitter events.EventEmitter = &events.NoopEventEmitter{}
-
-	// Emit workflow started event
-	events.SafeEmit(eventEmitter, context.Background(), events.RunEvent{
-		ID:      mustGenerateEventID(),
-		RunID:   "skeleton",
-		Type:    events.EventWorkflowStarted,
-		Source:  "agents",
-		Status:  "started",
-		Message: fmt.Sprintf("Workflow started: %s", sanitizedGoal),
-		Metadata: map[string]string{
-			"goal": sanitizedGoal,
-		},
-	})
+	// Create event emitter with EventStore integration
+	eventEmitter := c.createEventEmitter(env)
 
 	// Run skeleton workflow
 	workflow, err := agents.RunWorkflowSkeleton(goal)
@@ -96,57 +80,53 @@ func (c *AgentsCommand) runPlan(args []string, env Env) int {
 		return 1
 	}
 
-	// Emit step events
-	for _, step := range workflow.Steps {
-		// Step started
-		events.SafeEmit(eventEmitter, context.Background(), events.RunEvent{
-			ID:      mustGenerateEventID(),
-			RunID:   workflow.RunID,
-			Type:    events.EventStepStarted,
-			Source:  "agents",
-			Status:  "started",
-			Message: fmt.Sprintf("Step started: %s", step.Role),
-			Metadata: map[string]string{
-				"workflow_id": workflow.ID,
-				"role":        string(step.Role),
-			},
-		})
+	// Emit events using WorkflowEventEmitter
+	wfEmitter := agents.NewWorkflowEventEmitter(eventEmitter)
+	ctx := context.Background()
 
-		// Step completed
-		events.SafeEmit(eventEmitter, context.Background(), events.RunEvent{
-			ID:      mustGenerateEventID(),
-			RunID:   workflow.RunID,
-			Type:    events.EventStepCompleted,
-			Source:  "agents",
-			Status:  "completed",
-			Message: fmt.Sprintf("Step completed: %s", step.Role),
-			Metadata: map[string]string{
-				"workflow_id": workflow.ID,
-				"role":        string(step.Role),
-				"status":      string(step.Status),
-			},
-		})
+	wfEmitter.EmitWorkflowStarted(ctx, workflow)
+
+	for _, step := range workflow.Steps {
+		wfEmitter.EmitStepStarted(ctx, workflow, step.Role)
+		wfEmitter.EmitStepCompleted(ctx, workflow, step)
 	}
 
-	// Emit workflow completed event
-	events.SafeEmit(eventEmitter, context.Background(), events.RunEvent{
-		ID:      mustGenerateEventID(),
-		RunID:   workflow.RunID,
-		Type:    events.EventWorkflowCompleted,
-		Source:  "agents",
-		Status:  "completed",
-		Message: fmt.Sprintf("Workflow completed: %s", sanitizedGoal),
-		Metadata: map[string]string{
-			"workflow_id": workflow.ID,
-			"goal":        sanitizedGoal,
-			"status":      string(workflow.Status),
-		},
-	})
+	wfEmitter.EmitWorkflowCompleted(ctx, workflow)
 
 	// Print summary
 	fmt.Fprint(env.Stdout, agents.FormatWorkflowSummary(workflow))
 
 	return 0
+}
+
+// createEventEmitter creates an EventEmitter with EventStore integration.
+// Falls back to NoopEventEmitter if EventStore is unavailable.
+func (c *AgentsCommand) createEventEmitter(env Env) events.EventEmitter {
+	root, err := resolveRoot("", env)
+	if err != nil {
+		return &events.NoopEventEmitter{}
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		return &events.NoopEventEmitter{}
+	}
+
+	if !cfg.Events.Enabled {
+		return &events.NoopEventEmitter{}
+	}
+
+	eventStorePath := cfg.Events.StorePath
+	if !filepath.IsAbs(eventStorePath) {
+		eventStorePath = filepath.Join(root, eventStorePath)
+	}
+
+	store, err := events.NewJSONLRunEventStore(eventStorePath)
+	if err != nil {
+		return &events.NoopEventEmitter{}
+	}
+
+	return events.NewEventEmitterFromStore(store)
 }
 
 // extractGoalFromArgs extracts the goal from --goal argument.
@@ -161,15 +141,6 @@ func extractGoalFromArgs(args []string) string {
 		return strings.TrimSpace(args[0])
 	}
 	return ""
-}
-
-// mustGenerateEventID generates an event ID or returns a fallback.
-func mustGenerateEventID() string {
-	id, err := events.GenerateEventID()
-	if err != nil {
-		return "evt_error"
-	}
-	return id
 }
 
 func init() {

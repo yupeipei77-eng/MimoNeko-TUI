@@ -158,6 +158,7 @@ These commands provide a skeleton layer for multi-agent workflows. They do NOT c
 ```bash
 mimoneko agents                             # List available agent roles
 mimoneko agents plan --goal "修复 README"   # Create workflow skeleton
+mimoneko neko events agents                 # View agent workflow events
 ```
 
 The workflow skeleton includes four roles: Planner, Coder, Reviewer, and Validator. In the current skeleton phase:

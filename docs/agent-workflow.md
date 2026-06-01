@@ -91,6 +91,9 @@ mimoneko agents
 
 # Create workflow skeleton
 mimoneko agents plan --goal "修复 README 拼写错误"
+
+# View agent workflow events
+mimoneko neko events agents
 ```
 
 ### Workflow Output
@@ -110,16 +113,35 @@ Steps:
   4. validator    completed_stub
 ```
 
-### Event Emission
+### EventStore Integration (Phase 6.2)
 
-The workflow emits the following events:
+The workflow now emits events to the EventStore:
 
 - `agent.workflow_started`
 - `agent.step_started`
 - `agent.step_completed`
+- `agent.step_failed`
 - `agent.workflow_completed`
+- `agent.workflow_failed`
 
-All events are sanitized to prevent leaking sensitive information.
+View events with:
+```bash
+mimoneko neko events agents
+```
+
+Example output:
+```
+MimoNeko Agent Workflow Events
+TIME                 TYPE                     ROLE         STATUS       MESSAGE
+2024-01-01 12:00:00  agent.workflow_started                started      Workflow started: 修复 README
+2024-01-01 12:00:00  agent.step_started       planner      started      Step started: planner
+2024-01-01 12:00:00  agent.step_completed     planner      completed    Step completed: planner
+...
+```
+
+All event fields (goal, input_summary, output_summary, error_message) are sanitized to prevent secret leakage.
+
+EventStore fallback: If EventStore is unavailable, events are silently discarded without affecting workflow execution.
 
 ### Important Notes
 

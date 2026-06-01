@@ -16,18 +16,20 @@ import (
 
 func runNekoWorkflowEvents(args []string, env Env) int {
 	if len(args) == 0 {
-		fmt.Fprintln(env.Stderr, "Usage: neko events tools [--dir <project_root>] [--limit n]")
+		fmt.Fprintln(env.Stderr, "Usage: neko events tools|agents [--dir <project_root>] [--limit n]")
 		return 2
 	}
 	switch args[0] {
 	case "tools":
 		return runNekoWorkflowEventsTools(args[1:], env)
+	case "agents":
+		return runNekoWorkflowEventsAgents(args[1:], env)
 	case "-h", "--help", "help":
-		fmt.Fprintln(env.Stdout, "Usage: neko events tools [--dir <project_root>] [--limit n]")
+		fmt.Fprintln(env.Stdout, "Usage: neko events tools|agents [--dir <project_root>] [--limit n]")
 		return 0
 	default:
 		fmt.Fprintf(env.Stderr, "unknown neko events command %q\n", args[0])
-		fmt.Fprintln(env.Stderr, "Usage: neko events tools [--dir <project_root>] [--limit n]")
+		fmt.Fprintln(env.Stderr, "Usage: neko events tools|agents [--dir <project_root>] [--limit n]")
 		return 2
 	}
 }
@@ -172,4 +174,104 @@ func truncateForTable(value string, maxLen int) string {
 		return value[:maxLen]
 	}
 	return value[:maxLen-3] + "..."
+}
+
+func runNekoWorkflowEventsAgents(args []string, env Env) int {
+	fs := flag.NewFlagSet("neko events agents", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	dir := fs.String("dir", "", "project root")
+	limit := fs.Int("limit", 20, "max number of agent events to show")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+	if rejectExtraArgs(fs, env) {
+		return 2
+	}
+
+	root, err := workflowStartDir(*dir, env)
+	if err != nil {
+		fmt.Fprintln(env.Stdout, "unavailable")
+		return 0
+	}
+	cfg, err := config.Load(root)
+	if err != nil || !cfg.Events.Enabled {
+		fmt.Fprintln(env.Stdout, "unavailable")
+		return 0
+	}
+
+	eventStorePath := cfg.Events.StorePath
+	if !filepath.IsAbs(eventStorePath) {
+		eventStorePath = filepath.Join(root, eventStorePath)
+	}
+	store, err := events.OpenJSONLRunEventStoreReadOnly(eventStorePath)
+	if err != nil {
+		fmt.Fprintln(env.Stdout, "unavailable")
+		return 0
+	}
+	defer store.Close()
+
+	agentEvents, err := recentAgentEvents(store, *limit)
+	if err != nil {
+		fmt.Fprintln(env.Stdout, "unavailable")
+		return 0
+	}
+	if len(agentEvents) == 0 {
+		fmt.Fprintln(env.Stdout, "no agent events")
+		return 0
+	}
+
+	fmt.Fprintln(env.Stdout, "MimoNeko Agent Workflow Events")
+	fmt.Fprintf(env.Stdout, "%-20s %-24s %-12s %-12s %s\n", "TIME", "TYPE", "ROLE", "STATUS", "MESSAGE")
+	for _, evt := range agentEvents {
+		role := evt.Metadata["role"]
+		status := firstNonEmpty(evt.ResultStatus, evt.Status)
+		message := truncateForTable(evt.Message, 50)
+		fmt.Fprintf(
+			env.Stdout,
+			"%-20s %-24s %-12s %-12s %s\n",
+			formatEventTime(evt),
+			evt.Type,
+			role,
+			status,
+			message,
+		)
+	}
+	return 0
+}
+
+func recentAgentEvents(store events.EventStore, limit int) ([]events.RunEvent, error) {
+	summaries, err := store.ListRuns(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	var agentEvents []events.RunEvent
+	for _, summary := range summaries {
+		runEvents, err := store.ListEvents(context.Background(), summary.RunID)
+		if err != nil {
+			return nil, err
+		}
+		for _, evt := range runEvents {
+			if isAgentWorkflowEvent(evt.Type) {
+				agentEvents = append(agentEvents, evt)
+			}
+		}
+	}
+	slices.SortFunc(agentEvents, func(a, b events.RunEvent) int {
+		return cmp.Compare(eventTime(a).UnixNano(), eventTime(b).UnixNano())
+	})
+	if limit > 0 && len(agentEvents) > limit {
+		agentEvents = agentEvents[:limit]
+	}
+	return agentEvents, nil
+}
+
+func isAgentWorkflowEvent(eventType events.EventType) bool {
+	switch eventType {
+	case events.EventWorkflowStarted, events.EventStepStarted,
+		events.EventStepCompleted, events.EventStepFailed,
+		events.EventWorkflowCompleted, events.EventWorkflowFailed:
+		return true
+	default:
+		return false
+	}
 }

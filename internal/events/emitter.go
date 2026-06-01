@@ -74,3 +74,22 @@ func NewEventEmitter(bus *DefaultEventBus) EventEmitter {
 	}
 	return bus
 }
+
+// NewEventEmitterFromStore creates an EventEmitter that writes to an EventStore.
+// If store is nil, returns a NoopEventEmitter.
+func NewEventEmitterFromStore(store EventStore) EventEmitter {
+	if store == nil {
+		return &NoopEventEmitter{}
+	}
+	return &storeEventEmitter{store: store}
+}
+
+// storeEventEmitter implements EventEmitter by writing to an EventStore.
+type storeEventEmitter struct {
+	store EventStore
+}
+
+// Emit writes the event to the store.
+func (e *storeEventEmitter) Emit(ctx context.Context, event RunEvent) error {
+	return e.store.Append(ctx, event)
+}
