@@ -124,6 +124,12 @@ mimoneko auth logout             # 清除用户级配置
 mimoneko model test              # 测试模型连接
 mimoneko model list              # 查看项目模型配置
 mimoneko init                    # 初始化当前项目配置
+mimoneko security status         # 查看安全配置状态
+mimoneko security check <path>   # 检查路径安全性
+mimoneko approvals list          # 列出待审批请求
+mimoneko approvals show <id>     # 显示审批详情
+mimoneko approvals approve <id>  # 批准请求
+mimoneko approvals reject <id>   # 拒绝请求
 ```
 
 ## Agent Workflow Commands
@@ -267,6 +273,17 @@ export PATH="$HOME/.local/bin:$PATH"
 - 项目目录只保存 provider、base URL、model、env var 名称，不保存真实 API Key。
 - 安装脚本只修改用户目录和用户 PATH，不需要管理员权限。
 - MioNeko 默认 dry-run，不会自动提交或推送代码。
+- **No files modified by default** - 默认不修改文件
+- **No patch applied by default** - 默认不应用补丁
+- **No tools executed in dry-run** - dry-run 模式不执行工具
+- **No tests executed in validator suggestions** - 验证建议不执行测试
+- **Patch preview is not patch apply** - 预览不等于应用
+
+## 版本策略
+
+- **v0.7.x-alpha**: 多 Agent dry-run / patch preview 阶段
+- **v0.8.x-alpha**: patch apply with approval（计划中）
+- **v1.0.0**: 稳定安全 release（计划中）
 
 ## 链接
 
