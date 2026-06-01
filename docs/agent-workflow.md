@@ -457,6 +457,34 @@ mimoneko agents run --goal "优化 README" --dry-run
 - `api key missing`: Environment variable not set
 - `base url invalid`: URL format error
 
+### Dry Run Report Persistence (Phase 7.3)
+
+Phase 7.3 adds optional report persistence for dry-run workflows.
+
+### CLI Commands
+
+```bash
+# Save report after dry-run
+mimoneko agents run --goal "优化 README" --llm --dry-run --save-report
+
+# List saved reports
+mimoneko agents reports
+
+# View specific report
+mimoneko agents report <workflow_id>
+
+# View report as JSON
+mimoneko agents report <workflow_id> --json
+```
+
+### Important Notes
+
+- Reports are saved only with `--save-report` flag
+- Default location: `.mimoneko/agent_runs/<workflow_id>.json`
+- Reports are **sanitized** before saving (no API keys, tokens, etc.)
+- Reports are sorted by creation time (newest first)
+- Path traversal is rejected
+
 ### Workflow
 
 1. **Planner** generates AgentPlan (implementation_status = plan_only)

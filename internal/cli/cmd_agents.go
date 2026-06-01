@@ -36,6 +36,10 @@ func (c *AgentsCommand) Run(args []string, env Env) int {
 		return c.runValidate(args[1:], env)
 	case "run":
 		return c.runAgentsRun(args[1:], env)
+	case "reports":
+		return c.runReports(args[1:], env)
+	case "report":
+		return c.runReport(args[1:], env)
 	case "list":
 		return c.runList(args[1:], env)
 	default:
@@ -54,7 +58,9 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  code --goal \"...\" --plan-file <file> [--llm] [--json] 生成 patch intent")
 	fmt.Fprintln(env.Stdout, "  review --intent-file <file> [--llm] [--json] 审查 patch intent")
 	fmt.Fprintln(env.Stdout, "  validate --review-file <file> --intent-file <file> [--llm] [--json] 生成验证建议")
-	fmt.Fprintln(env.Stdout, "  run --goal \"...\" --dry-run [--llm] [--json] 端到端 dry-run")
+	fmt.Fprintln(env.Stdout, "  run --goal \"...\" --dry-run [--llm] [--json] [--save-report] 端到端 dry-run")
+	fmt.Fprintln(env.Stdout, "  reports                           列出最近 dry-run reports")
+	fmt.Fprintln(env.Stdout, "  report <workflow_id> [--json]      显示指定 report")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "示例:")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents")
@@ -63,7 +69,9 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  mimoneko agents code --goal \"优化 README\" --plan-file plan.json --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents review --intent-file intent.json --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents validate --review-file review.json --intent-file intent.json --llm")
-	fmt.Fprintln(env.Stdout, "  mimoneko agents run --goal \"优化 README\" --dry-run --llm")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents run --goal \"优化 README\" --dry-run --llm --save-report")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents reports")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents report <workflow_id>")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "注意: --dry-run 必须显式开启，不写文件、不执行测试、不执行工具。")
 }
@@ -623,6 +631,7 @@ func (c *AgentsCommand) runAgentsRun(args []string, env Env) int {
 	useLLM := fs.Bool("llm", false, "use LLM for all agents")
 	dryRun := fs.Bool("dry-run", false, "dry-run mode (required)")
 	jsonOutput := fs.Bool("json", false, "output as JSON")
+	saveReport := fs.Bool("save-report", false, "save report to .mimoneko/agent_runs/")
 	if err := fs.Parse(args); err != nil {
 		return flagExitCode(err)
 	}
@@ -635,13 +644,13 @@ func (c *AgentsCommand) runAgentsRun(args []string, env Env) int {
 	}
 
 	if *goal == "" {
-		fmt.Fprintln(env.Stderr, "用法: mimoneko agents run --goal \"...\" --dry-run [--llm] [--json]")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents run --goal \"...\" --dry-run [--llm] [--json] [--save-report]")
 		return 1
 	}
 
 	if !*dryRun {
 		fmt.Fprintln(env.Stderr, "错误: agents run 当前需要 --dry-run 参数")
-		fmt.Fprintln(env.Stderr, "用法: mimoneko agents run --goal \"...\" --dry-run [--llm] [--json]")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents run --goal \"...\" --dry-run [--llm] [--json] [--save-report]")
 		return 1
 	}
 
@@ -663,6 +672,19 @@ func (c *AgentsCommand) runAgentsRun(args []string, env Env) int {
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
 		return 1
+	}
+
+	// 保存报告（如果请求）
+	if *saveReport {
+		root, rootErr := resolveRoot("", env)
+		if rootErr == nil {
+			reportStore := agents.NewReportStore(root)
+			if saveErr := reportStore.Save(report); saveErr != nil {
+				fmt.Fprintf(env.Stderr, "警告: 无法保存报告: %v\n", saveErr)
+			} else {
+				fmt.Fprintf(env.Stdout, "\n报告已保存到 .mimoneko/agent_runs/%s.json\n", report.WorkflowID)
+			}
+		}
 	}
 
 	// 输出
@@ -811,6 +833,80 @@ func (c *AgentsCommand) emitDryRunEvents(eventEmitter events.EventEmitter, repor
 		workflow.Status = agents.AgentStatusFailed
 		wfEmitter.EmitWorkflowFailed(ctx, workflow, fmt.Errorf("%s", report.ErrorMessage))
 	}
+}
+
+func (c *AgentsCommand) runReports(args []string, env Env) int {
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store := agents.NewReportStore(root)
+	reports, err := store.List()
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	if len(reports) == 0 {
+		fmt.Fprintln(env.Stdout, "no agent dry-run reports")
+		return 0
+	}
+
+	fmt.Fprintln(env.Stdout, "Agent Dry-Run Reports")
+	fmt.Fprintf(env.Stdout, "%-36s %-20s %-12s %-12s %s\n", "WORKFLOW_ID", "CREATED", "STATUS", "PROVIDER", "GOAL")
+	for _, r := range reports {
+		fmt.Fprintf(env.Stdout, "%-36s %-20s %-12s %-12s %s\n",
+			r.WorkflowID,
+			r.CreatedAt.Format("2006-01-02 15:04:05"),
+			r.Status,
+			r.Provider,
+			security.SanitizeText(truncateString(r.Goal, 40)),
+		)
+	}
+	return 0
+}
+
+func (c *AgentsCommand) runReport(args []string, env Env) int {
+	fs := flag.NewFlagSet("agents report", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	jsonOutput := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+
+	if fs.NArg() == 0 {
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents report <workflow_id> [--json]")
+		return 1
+	}
+
+	workflowID := fs.Arg(0)
+	root, err := resolveRoot("", env)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	store := agents.NewReportStore(root)
+	report, err := store.Load(workflowID)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+		return 1
+	}
+
+	if *jsonOutput {
+		jsonStr, err := agents.FormatDryRunReportJSON(report)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(env.Stdout, jsonStr)
+	} else {
+		fmt.Fprint(env.Stdout, agents.FormatDryRunReport(report))
+	}
+
+	return 0
 }
 
 // createEventEmitter creates an EventEmitter with EventStore integration.

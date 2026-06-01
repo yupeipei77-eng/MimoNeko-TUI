@@ -171,7 +171,11 @@ mimoneko agents validate --review-file review.json --intent-file intent.json --l
 mimoneko agents validate --review-file review.json --intent-file intent.json --llm --json  # Output as JSON
 mimoneko agents run --goal "优化 README" --dry-run  # End-to-end dry run (skeleton)
 mimoneko agents run --goal "优化 README" --llm --dry-run  # End-to-end dry run (LLM)
+mimoneko agents run --goal "优化 README" --llm --dry-run --save-report  # Save report
 mimoneko agents run --goal "优化 README" --llm --dry-run --json  # Output as JSON
+mimoneko agents reports                     # List saved reports
+mimoneko agents report <workflow_id>        # View specific report
+mimoneko agents report <workflow_id> --json # View report as JSON
 mimoneko neko events agents                 # View agent workflow events
 ```
 
