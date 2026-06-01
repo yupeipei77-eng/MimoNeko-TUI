@@ -307,6 +307,78 @@ summary := security.GetSecuritySummary(toolCount, highRisk, criticalRisk, approv
 
 ---
 
+### 6. Approval Request Model (Phase 5.1)
+
+**状态**: ✅ 已实现（数据模型）
+
+**功能**: Approval Request 的核心数据模型。
+
+**重要说明**:
+- ⚠️ 当前只是 **data model**，不是 **interactive approval**
+- 不实现交互式审批流程
+- 不实现持久化
+- 不修改 ToolRuntime 执行行为
+
+**ApprovalStatus**:
+| Status | 说明 |
+|--------|------|
+| `pending` | 等待审批 |
+| `approved` | 已批准 |
+| `rejected` | 已拒绝 |
+| `expired` | 已过期 |
+
+**ApprovalScope**:
+| Scope | 说明 |
+|-------|------|
+| `tool` | 工具执行 |
+| `path` | 路径访问 |
+| `patch` | 补丁应用 |
+| `command` | 命令执行 |
+
+**状态转换**:
+```
+pending → approved
+pending → rejected
+pending → expired
+```
+
+**API 示例**:
+```go
+import "github.com/mimoneko/mimoneko/internal/approval"
+
+// 创建请求
+req, err := approval.NewRequest(
+    "run-123",
+    "file_write",
+    approval.ScopeTool,
+    "high risk tool requires approval",
+    "high",
+    "",
+    "",
+    "",
+)
+
+// 批准
+err = req.Approve("user-1")
+
+// 拒绝
+err = req.Reject("user-1")
+
+// 过期
+err = req.Expire()
+
+// 检查状态
+req.IsPending()  // true if pending
+req.IsExpired(time.Now())  // true if expired
+```
+
+**使用场景**:
+- 为后续 CLI approval 命令做准备
+- 为持久化 approval 记录做准备
+- 为恢复执行做准备
+
+---
+
 ## 最佳实践
 
 ### 对于用户
