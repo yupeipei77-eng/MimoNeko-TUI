@@ -70,6 +70,73 @@ The current audit event types are:
 
 These events include the tool metadata introduced in Phase 4.1, including risk level, approval flag, and duration information. They are observational only; approval, rollback, sandbox enforcement, and stronger redaction are reserved for later phases.
 
+## Multi-Agent Workflow Skeleton
+
+Phase 6.1 introduces a skeleton layer for multi-agent workflows. This layer provides:
+
+### Agent Roles
+
+| Role | Description |
+|------|-------------|
+| `planner` | Decomposes user goal into actionable plan steps |
+| `coder` | Generates patch intent based on plan (skeleton: no real patch) |
+| `reviewer` | Reviews patch intent for quality and safety (skeleton: no real diff) |
+| `validator` | Validates review output (skeleton: no real tests) |
+
+### CLI Commands
+
+```bash
+# List available agent roles
+mimoneko agents
+
+# Create workflow skeleton
+mimoneko agents plan --goal "修复 README 拼写错误"
+```
+
+### Workflow Output
+
+```bash
+$ mimoneko agents plan --goal "修复 README 拼写错误"
+
+Workflow:
+  ID: wf_xxx
+  Goal: 修复 README 拼写错误
+  Status: completed
+
+Steps:
+  1. planner      completed
+  2. coder        completed_stub
+  3. reviewer     completed_stub
+  4. validator    completed_stub
+```
+
+### Event Emission
+
+The workflow emits the following events:
+
+- `agent.workflow_started`
+- `agent.step_started`
+- `agent.step_completed`
+- `agent.workflow_completed`
+
+All events are sanitized to prevent leaking sensitive information.
+
+### Important Notes
+
+- **Skeleton only**: The current implementation does NOT call any LLM
+- **No file modification**: No business files are modified
+- **No patch application**: No patches are applied or committed
+- **Stub outputs**: Coder, Reviewer, and Validator steps produce stub outputs
+
+### Future Phases
+
+The following capabilities will be added in later phases:
+
+- Real LLM integration for Planner
+- Real patch generation for Coder
+- Real diff review for Reviewer
+- Real test execution for Validator
+
 ## Planned Commands
 
 The following write-capable commands are intentionally left for a later phase:

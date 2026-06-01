@@ -72,6 +72,14 @@ const (
 	EventPathBlocked          EventType = "path.blocked"
 	EventToolDenied           EventType = "tool.denied"
 	EventToolApprovalRequired EventType = "tool.approval_required"
+
+	// Agent workflow events
+	EventWorkflowStarted   EventType = "agent.workflow_started"
+	EventStepStarted       EventType = "agent.step_started"
+	EventStepCompleted     EventType = "agent.step_completed"
+	EventStepFailed        EventType = "agent.step_failed"
+	EventWorkflowCompleted EventType = "agent.workflow_completed"
+	EventWorkflowFailed    EventType = "agent.workflow_failed"
 )
 
 // IsTerminal returns true if the event type represents a terminal state
