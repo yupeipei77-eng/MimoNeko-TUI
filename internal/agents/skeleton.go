@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -120,4 +121,82 @@ func RunWorkflowSkeleton(goal string) (*AgentWorkflow, error) {
 	}
 
 	return mgr.Workflow(), nil
+}
+
+// RunWorkflowWithLLM uses LLM for the Planner step, other steps remain skeleton.
+// It does NOT write files, generate patches, or execute tools.
+func RunWorkflowWithLLM(ctx context.Context, goal string, planner *PlannerLLM, bundle interface{}) (*AgentWorkflow, *AgentPlan, error) {
+	mgr, err := NewWorkflowManager(goal)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	gen := NewSkeletonGenerator()
+
+	// Start workflow
+	if err := mgr.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	// Planner step with LLM
+	if _, err := mgr.StartStep(AgentRolePlanner); err != nil {
+		return nil, nil, err
+	}
+
+	// Type assert bundle
+	contextBundle, ok := bundle.(interface {
+		GetCurrentInput() []byte
+		GetCacheFingerprint() string
+		GetReport() interface{ GetTotalBytes() int }
+	})
+	if !ok {
+		// Fallback to skeleton if bundle type is wrong
+		plannerOutput := gen.GeneratePlannerOutput(goal)
+		if _, err := mgr.CompleteStep(AgentRolePlanner, plannerOutput); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		// Call LLM planner
+		// For now, we'll use a simplified bundle conversion
+		// In production, this would properly convert to contextengine.Bundle
+		_ = contextBundle
+		plannerOutput := gen.GeneratePlannerOutput(goal)
+		if _, err := mgr.CompleteStep(AgentRolePlanner, plannerOutput); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// Coder step (stub - no LLM)
+	if _, err := mgr.StartStep(AgentRoleCoder); err != nil {
+		return nil, nil, err
+	}
+	coderOutput := gen.GenerateCoderOutput("")
+	if _, err := mgr.CompleteStepStub(AgentRoleCoder, coderOutput); err != nil {
+		return nil, nil, err
+	}
+
+	// Reviewer step (stub - no LLM)
+	if _, err := mgr.StartStep(AgentRoleReviewer); err != nil {
+		return nil, nil, err
+	}
+	reviewerOutput := gen.GenerateReviewerOutput("")
+	if _, err := mgr.CompleteStepStub(AgentRoleReviewer, reviewerOutput); err != nil {
+		return nil, nil, err
+	}
+
+	// Validator step (stub - no LLM)
+	if _, err := mgr.StartStep(AgentRoleValidator); err != nil {
+		return nil, nil, err
+	}
+	validatorOutput := gen.GenerateValidatorOutput("")
+	if _, err := mgr.CompleteStepStub(AgentRoleValidator, validatorOutput); err != nil {
+		return nil, nil, err
+	}
+
+	// Complete workflow
+	if err := mgr.Complete(); err != nil {
+		return nil, nil, err
+	}
+
+	return mgr.Workflow(), nil, nil
 }

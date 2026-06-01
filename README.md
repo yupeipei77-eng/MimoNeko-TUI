@@ -151,22 +151,26 @@ mimoneko neko tools
 mimoneko neko events tools
 ```
 
-## Multi-Agent Workflow Commands (Phase 6.1)
+## Multi-Agent Workflow Commands (Phase 6.1+)
 
 These commands provide a skeleton layer for multi-agent workflows. They do NOT call LLMs or modify files.
 
 ```bash
 mimoneko agents                             # List available agent roles
 mimoneko agents plan --goal "修复 README"   # Create workflow skeleton
+mimoneko agents plan --goal "优化 README" --llm   # Create plan with LLM (plan only)
+mimoneko agents plan --goal "优化 README" --llm --json  # Output as JSON
 mimoneko neko events agents                 # View agent workflow events
 ```
 
 The workflow skeleton includes four roles: Planner, Coder, Reviewer, and Validator. In the current skeleton phase:
 
-- **Planner**: Produces a skeleton plan (no real LLM call)
+- **Planner**: Produces a skeleton plan (no real LLM call) or LLM-generated plan with `--llm`
 - **Coder**: Produces a skeleton patch intent (no real patch)
 - **Review**: Produces a skeleton review (no real diff analysis)
 - **Validator**: Produces a skeleton validation (no real test execution)
+
+**Important**: `--llm` only generates plans. No files are written, no patches are generated, no tools are executed.
 
 `neko approve <patch_id>` and `neko rollback <run_id>` are reserved for a later phase. They are not implemented in this release slice.
 

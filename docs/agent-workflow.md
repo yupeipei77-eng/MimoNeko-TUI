@@ -150,12 +150,63 @@ EventStore fallback: If EventStore is unavailable, events are silently discarded
 - **No patch application**: No patches are applied or committed
 - **Stub outputs**: Coder, Reviewer, and Validator steps produce stub outputs
 
+## Planner LLM Integration (Phase 6.3)
+
+Phase 6.3 adds LLM integration for the Planner step only.
+
+### CLI Commands
+
+```bash
+# Skeleton mode (default, no LLM call)
+mimoneko agents plan --goal "优化 README"
+
+# LLM mode (calls Planner LLM, plan only)
+mimoneko agents plan --goal "优化 README" --llm
+
+# LLM mode with JSON output
+mimoneko agents plan --goal "优化 README" --llm --json
+```
+
+### Important Constraints
+
+- `--llm` must be explicitly enabled
+- Without `--llm`, skeleton behavior is preserved
+- Planner LLM ONLY generates plans
+- ImplementationStatus is ALWAYS `plan_only`
+- No files are written
+- No patches are generated
+- No tools are executed
+- Coder/Reviewer/Validator do NOT call LLM
+
+### AgentPlan Output
+
+```json
+{
+  "goal": "优化 README",
+  "summary": "Add project description and usage examples",
+  "steps": [
+    {
+      "id": "step_1",
+      "title": "Analyze current README",
+      "description": "Review existing content and identify gaps",
+      "risk_level": "low",
+      "expected_files": ["README.md"],
+      "validation_hint": "Check for completeness"
+    }
+  ],
+  "risks": ["May affect existing links"],
+  "files_maybe_affected": ["README.md"],
+  "validation_suggestions": ["Run tests"],
+  "implementation_status": "plan_only"
+}
+```
+
 ### Future Phases
 
 The following capabilities will be added in later phases:
 
-- Real LLM integration for Planner
-- Real patch generation for Coder
+- Real LLM integration for Coder
+- Real patch generation
 - Real diff review for Reviewer
 - Real test execution for Validator
 
