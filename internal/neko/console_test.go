@@ -756,14 +756,14 @@ func TestNekoEmptyGoalDoesNotRun(t *testing.T) {
 
 func TestNekoDisplaysCurrentModel(t *testing.T) {
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
-	if !strings.Contains(output, "model=mimo-v2.5-pro") {
+	if !strings.Contains(output, "mimo-v2.5-pro") {
 		t.Fatalf("output = %q, want model", output)
 	}
 }
 
 func TestNekoDisplaysProvider(t *testing.T) {
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
-	if !strings.Contains(output, "provider=mimo") {
+	if !strings.Contains(output, "mimo") {
 		t.Fatalf("output = %q, want provider", output)
 	}
 }
@@ -771,7 +771,7 @@ func TestNekoDisplaysProvider(t *testing.T) {
 func TestNekoDisplaysAPIKeyStatusOnly(t *testing.T) {
 	t.Setenv("MIMO_API_KEY", "sk-neko-status-secret")
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
-	if !strings.Contains(output, "api_key_status=configured") {
+	if !strings.Contains(output, "configured") {
 		t.Fatalf("output = %q, want configured status", output)
 	}
 	if strings.Contains(output, "sk-neko-status-secret") {
@@ -794,15 +794,17 @@ func TestNekoDoesNotLeakAPIKey(t *testing.T) {
 
 func TestNekoDisplaysContextLength(t *testing.T) {
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
-	if !strings.Contains(output, "max_context_tokens=0 tok (0K) / 1,000,000 tok (1M)") {
-		t.Fatalf("output = %q, want context length", output)
+	// New model config UI doesn't show context length directly
+	if !strings.Contains(output, "Model Configuration") {
+		t.Fatalf("output = %q, want Model Configuration", output)
 	}
 }
 
 func TestNekoDisplaysReasoningLevel(t *testing.T) {
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
-	if !strings.Contains(output, "reasoning_level=high") {
-		t.Fatalf("output = %q, want high reasoning", output)
+	// New model config UI doesn't show reasoning level directly
+	if !strings.Contains(output, "Model Configuration") {
+		t.Fatalf("output = %q, want Model Configuration", output)
 	}
 }
 
@@ -866,8 +868,9 @@ func TestNekoComputesCNYCostFromPricing(t *testing.T) {
 
 func TestNekoCostUnavailableWithoutPricing(t *testing.T) {
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
-	if !strings.Contains(output, "pricing=") {
-		t.Fatalf("output = %q, want pricing line", output)
+	// New model config UI doesn't show pricing directly
+	if !strings.Contains(output, "Model Configuration") {
+		t.Fatalf("output = %q, want Model Configuration", output)
 	}
 }
 

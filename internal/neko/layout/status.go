@@ -7,19 +7,20 @@ import (
 )
 
 type StatusData struct {
-	Context   string
-	Tools     int
-	Memory    string
-	Cache     string
-	Reasoning string
-	Model     string
-	Provider  string
-	Latency   string
-	Session   string
-	Cost      string
-	NoColor   bool
-	Compact   bool
-	CommandUI string
+	Context           string
+	Tools             int
+	Memory            string
+	Cache             string
+	Reasoning         string
+	Model             string
+	Provider          string
+	Latency           string
+	Session           string
+	Cost              string
+	NoColor           bool
+	Compact           bool
+	CommandUI         string
+	ThoughtToggleHint string
 }
 
 func RenderStatusBar(w io.Writer, data StatusData) {
@@ -50,6 +51,9 @@ func RenderStatusBar(w io.Writer, data StatusData) {
 	}
 	if data.Cost != "" {
 		items = append(items, "cost "+paintValue(data.Cost, data.NoColor))
+	}
+	if data.ThoughtToggleHint != "" {
+		items = append(items, data.ThoughtToggleHint)
 	}
 
 	left := strings.Join(items, "  ")

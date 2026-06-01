@@ -1,25 +1,25 @@
 package branding
 
 const (
-	Reset        = "\x1b[0m"
-	Dim          = "\x1b[2m"
-	Italic       = "\x1b[3m"
-	Cyan         = "\x1b[36m"
-	BrightCyan   = "\x1b[96m"
-	WarmAccent   = "\x1b[38;5;214m"  // Orange-gold - primary accent
-	WarmLabel    = "\x1b[38;5;180m"  // Softer gold
-	WarmTitle    = "\x1b[38;5;255m"  // Bright white
-	WarmMuted    = "\x1b[38;5;245m"  // Medium gray
-	SuccessGreen = "\x1b[38;5;114m"  // Soft green
-	FailureRed   = "\x1b[38;5;203m"  // Soft red
-	Bold         = "\x1b[1m"
-	White        = "\x1b[97m"
-	BorderDim    = "\x1b[38;5;240m"  // Dark gray for borders
-	UserAccent   = "\x1b[38;5;116m"  // Soft cyan for user
-	AIAccent     = "\x1b[38;5;214m"  // Orange for AI
-	SystemAccent = "\x1b[38;5;138m"  // Muted gold for system
-	BoxTopLeft   = "╭"
-	BoxTopRight  = "╮"
+	Reset          = "\x1b[0m"
+	Dim            = "\x1b[2m"
+	Italic         = "\x1b[3m"
+	Cyan           = "\x1b[36m"
+	BrightCyan     = "\x1b[96m"
+	WarmAccent     = "\x1b[38;5;214m" // Orange-gold - primary accent
+	WarmLabel      = "\x1b[38;5;180m" // Softer gold
+	WarmTitle      = "\x1b[38;5;255m" // Bright white
+	WarmMuted      = "\x1b[38;5;245m" // Medium gray
+	SuccessGreen   = "\x1b[38;5;114m" // Soft green
+	FailureRed     = "\x1b[38;5;203m" // Soft red
+	Bold           = "\x1b[1m"
+	White          = "\x1b[97m"
+	BorderDim      = "\x1b[38;5;240m" // Dark gray for borders
+	UserAccent     = "\x1b[38;5;116m" // Soft cyan for user
+	AIAccent       = "\x1b[38;5;214m" // Orange for AI
+	SystemAccent   = "\x1b[38;5;138m" // Muted gold for system
+	BoxTopLeft     = "╭"
+	BoxTopRight    = "╮"
 	BoxBottomLeft  = "╰"
 	BoxBottomRight = "╯"
 	BoxHorizontal  = "─"
@@ -109,4 +109,12 @@ func (r Renderer) Bold(text string) string {
 
 func (r Renderer) Highlight(text string) string {
 	return r.Paint("\x1b[38;5;141m", text) // Purple highlight
+}
+
+func (r Renderer) Success(text string) string {
+	return r.Paint(SuccessGreen, text)
+}
+
+func (r Renderer) Error(text string) string {
+	return r.Paint(FailureRed, text)
 }

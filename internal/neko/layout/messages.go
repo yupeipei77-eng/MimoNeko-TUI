@@ -154,18 +154,19 @@ func writeStreamingText(w io.Writer, text string, isError, noColor bool, delay t
 }
 
 type InputRenderer struct {
-	Model     string
-	Provider  string
-	Reasoning string
-	Context   string
-	Cost      string
-	Tools     int
-	Memory    string
-	Cache     string
-	Latency   string
-	Session   string
-	CommandUI string
-	NoColor   bool
+	Model             string
+	Provider          string
+	Reasoning         string
+	Context           string
+	Cost              string
+	Tools             int
+	Memory            string
+	Cache             string
+	Latency           string
+	Session           string
+	CommandUI         string
+	ThoughtToggleHint string
+	NoColor           bool
 }
 
 func NewInputRenderer(model, provider, reasoning string) InputRenderer {
@@ -232,18 +233,19 @@ func (r InputRenderer) RenderPromptClose(w io.Writer) {
 		paintAccent("╯", r.NoColor))
 
 	RenderStatusBar(w, StatusData{
-		Context:   r.Context,
-		Tools:     r.Tools,
-		Memory:    r.Memory,
-		Cache:     r.Cache,
-		Reasoning: r.Reasoning,
-		Model:     r.Model,
-		Provider:  r.Provider,
-		Latency:   r.Latency,
-		Session:   r.Session,
-		Cost:      r.Cost,
-		NoColor:   r.NoColor,
-		CommandUI: r.CommandUI,
+		Context:           r.Context,
+		Tools:             r.Tools,
+		Memory:            r.Memory,
+		Cache:             r.Cache,
+		Reasoning:         r.Reasoning,
+		Model:             r.Model,
+		Provider:          r.Provider,
+		Latency:           r.Latency,
+		Session:           r.Session,
+		Cost:              r.Cost,
+		NoColor:           r.NoColor,
+		CommandUI:         r.CommandUI,
+		ThoughtToggleHint: r.ThoughtToggleHint,
 	})
 	fmt.Fprintln(w)
 }

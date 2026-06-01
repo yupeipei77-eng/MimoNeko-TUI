@@ -87,9 +87,9 @@ type PatchHandler func(context.Context, Session, string) (string, error)
 
 // StreamingChatChunk represents a single streamed token.
 type StreamingChatChunk struct {
-	Text string
+	Text          string
 	ReasoningText string
-	Done bool
+	Done          bool
 }
 
 func Run(ctx context.Context, opt Options) int {
@@ -131,6 +131,8 @@ type Console struct {
 	Messages        layout.MessageRenderer
 	Input           layout.InputRenderer
 	Runtime         layout.RuntimeRenderer
+	Thinking        *layout.ThinkingRenderer
+	Mascot          *branding.MascotAnimator
 	screenActive    bool
 	screenEntered   bool
 	screenCols      int
@@ -153,6 +155,8 @@ func (c *Console) Run(ctx context.Context) int {
 		c.Messages.Delay = 2 * time.Millisecond
 	}
 	c.Runtime.SetNoColor(c.Session.NoColor)
+	c.Thinking = layout.NewThinkingRenderer(c.Session.NoColor)
+	c.Mascot = branding.NewMascotAnimator(c.Session.NoColor)
 	c.setupScreen()
 	if c.screenActive {
 		c.introActive = true
@@ -239,6 +243,11 @@ func (c *Console) refreshInput() {
 	c.Input.Session = c.Session.SessionLabel()
 	c.Input.CommandUI = c.Session.CommandHint()
 	c.Input.NoColor = c.Session.NoColor
+
+	// Add thinking toggle hint
+	if c.Thinking != nil {
+		c.Input.ThoughtToggleHint = layout.ThoughtToggleHint(c.Thinking.ShowThoughts(), c.Session.NoColor)
+	}
 }
 
 func (c *Console) renderPrompt() {
@@ -285,8 +294,23 @@ func (c *Console) handleControlInput(ctx context.Context, rawLine string) bool {
 	case "\x12":
 		c.cycleReasoning()
 		return true
+	case "\x14": // Ctrl+Shift+T
+		c.toggleThinking()
+		return true
 	default:
 		return false
+	}
+}
+
+// toggleThinking switches the thinking display state.
+func (c *Console) toggleThinking() {
+	if c.Thinking != nil {
+		c.Thinking.Toggle()
+		if c.Thinking.ShowThoughts() {
+			c.emitInfo("Thought shown · Ctrl+Shift+T 隐藏")
+		} else {
+			c.emitInfo("Thought hidden · Ctrl+Shift+T 显示")
+		}
 	}
 }
 
@@ -529,24 +553,52 @@ func formatDuration(d time.Duration) string {
 func (c *Console) handleModel(ctx context.Context, arg string) {
 	switch strings.TrimSpace(arg) {
 	case "":
-		var out strings.Builder
-		fmt.Fprintf(&out, "provider=%s\n", emptyAsUnknown(c.Session.Provider))
-		fmt.Fprintf(&out, "model=%s\n", emptyAsUnknown(c.Session.Model))
-		fmt.Fprintf(&out, "base_url_host=%s\n", emptyAsUnknown(c.Session.BaseURLHost))
-		fmt.Fprintf(&out, "api_key_status=%s\n", emptyAsUnknown(c.Session.APIKeyStatus))
-		fmt.Fprintf(&out, "max_context_tokens=%s\n", c.Session.ContextLabel())
-		if c.Session.ReasoningStatusLabel() != "" {
-			fmt.Fprintf(&out, "reasoning_level=%s\n", c.Session.ReasoningStatusLabel())
-		}
-		fmt.Fprintf(&out, "pricing=%s", FormatCost(ComputeCost(c.Session.Usage, c.Session.Pricing)))
-		c.emitOutput(out.String())
+		// Show interactive model configuration UI
+		c.showModelConfig()
 	case "test":
 		c.callSimple(ctx, c.Options.ModelTester, "model test unavailable")
 	case "enrich":
 		c.callSimple(ctx, c.Options.ModelEnricher, "model enrich unavailable")
 	default:
-		c.emitInfo("usage: /model, /model test, or /model enrich")
+		// Handle subcommands
+		fields := strings.Fields(arg)
+		if len(fields) == 0 {
+			c.showModelConfig()
+			return
+		}
+		switch fields[0] {
+		case "use":
+			if len(fields) < 2 {
+				c.emitInfo("usage: /model use <model_name>")
+				return
+			}
+			modelName := fields[1]
+			if c.Session.SelectModel(modelName) {
+				c.emitOutput(fmt.Sprintf("✓ Switched to %s (provider: %s)", c.Session.Model, c.Session.Provider))
+			} else {
+				c.emitOutput(fmt.Sprintf("✗ Model %q not found; run /model to see available models", modelName))
+			}
+		case "list":
+			c.showModelConfig()
+		default:
+			c.emitInfo("usage: /model, /model test, /model enrich, /model use <name>, /model list")
+		}
 	}
+}
+
+// showModelConfig displays the model configuration UI.
+func (c *Console) showModelConfig() {
+	config := NewModelConfig(c.Session)
+	// Get available models from session
+	config.AvailableModels = c.Session.AvailableModels()
+
+	if c.screenActive {
+		var buf strings.Builder
+		config.RenderModelConfig(&buf)
+		c.appendScreen("info", strings.TrimRight(buf.String(), "\n"), false)
+		return
+	}
+	config.RenderModelConfig(c.Options.Out)
 }
 
 func (c *Console) runGoal(ctx context.Context, goal string) {
@@ -702,7 +754,7 @@ func (c *Console) tryLocalAutoSave(message string, start time.Time) bool {
 		reply = formatAutoSaveResult(save)
 	}
 	c.Session.AddAssistantMemory(reply)
-		c.emitAssistant("MIMO", reply, replyIsError)
+	c.emitAssistant("MIMO", reply, replyIsError)
 	c.emitBuildBadge(c.Session.LastLatency)
 	return true
 }
@@ -710,33 +762,63 @@ func (c *Console) tryLocalAutoSave(message string, start time.Time) bool {
 func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, start time.Time) {
 	c.emitRuntimeStage("requesting model")
 
-	var chunks []string
+	var answerChunks []string
+	var reasoningChunks []string
 	var lastUsage Usage
 	suppressBody := hasAutoSaveIntent(chatReq.Message)
 
+	// Start thinking animation and mascot
+	if c.Thinking != nil {
+		c.Thinking.StartThinking()
+		defer c.Thinking.StopThinking()
+	}
+	if c.Mascot != nil {
+		c.Mascot.SetState(branding.MascotThinking)
+		defer c.Mascot.SetState(branding.MascotDone)
+	}
+
 	var reasoningDone bool
+	var answerStarted bool
 	result, err := c.Options.StreamingChatter(ctx, chatReq, func(chunk StreamingChatChunk) {
 		if chunk.ReasoningText != "" {
-			chunks = append(chunks, chunk.ReasoningText)
+			reasoningChunks = append(reasoningChunks, chunk.ReasoningText)
 			if suppressBody {
 				return
 			}
 			if !reasoningDone {
 				reasoningDone = true
+				// Render thinking area
+				if c.Thinking != nil {
+					c.Thinking.AddThought(chunk.ReasoningText)
+					if !c.screenActive {
+						c.Thinking.RenderThinking(c.Options.Out)
+					}
+				}
 			}
 			if c.screenActive {
-				c.updateScreenAssistantStream(strings.Join(chunks, ""))
-			} else {
-				fmt.Fprint(c.Options.Out, chunk.ReasoningText)
+				c.updateScreenAssistantStream(strings.Join(append(reasoningChunks, answerChunks...), ""))
 			}
 		}
 		if chunk.Text != "" {
-			chunks = append(chunks, chunk.Text)
+			answerChunks = append(answerChunks, chunk.Text)
 			if suppressBody {
 				return
 			}
+			// If this is the first answer chunk, render separator
+			if !answerStarted && len(reasoningChunks) > 0 {
+				answerStarted = true
+				if c.Thinking != nil && !c.screenActive {
+					c.Thinking.StopThinking()
+					c.Thinking.ClearThinkingLine(c.Options.Out)
+					c.Thinking.RenderThinkingSeparator(c.Options.Out)
+				}
+				// Switch mascot to answering state
+				if c.Mascot != nil {
+					c.Mascot.SetState(branding.MascotAnswering)
+				}
+			}
 			if c.screenActive {
-				c.updateScreenAssistantStream(strings.Join(chunks, ""))
+				c.updateScreenAssistantStream(strings.Join(append(reasoningChunks, answerChunks...), ""))
 			} else {
 				fmt.Fprint(c.Options.Out, chunk.Text)
 			}
@@ -749,7 +831,8 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 
 	c.Session.ApplyActualUsage(lastUsage)
 	c.Session.LastLatency = time.Since(start)
-	if !suppressBody && !c.screenActive && len(chunks) > 0 {
+	allChunks := append(reasoningChunks, answerChunks...)
+	if !suppressBody && !c.screenActive && len(allChunks) > 0 {
 		fmt.Fprintln(c.Options.Out)
 	}
 	c.emitRuntimeDone(c.Session.LastLatency)
@@ -768,12 +851,12 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 	}
 
 	streamedReply := ""
-	if len(chunks) > 0 {
-		streamedReply = SanitizeOutput(strings.Join(chunks, ""))
+	if len(allChunks) > 0 {
+		streamedReply = SanitizeOutput(strings.Join(allChunks, ""))
 	}
 	saveSource := result.Response
-	if strings.TrimSpace(saveSource) == "" && len(chunks) > 0 {
-		saveSource = strings.Join(chunks, "")
+	if strings.TrimSpace(saveSource) == "" && len(allChunks) > 0 {
+		saveSource = strings.Join(allChunks, "")
 	}
 	reply := SanitizeOutput(result.Response)
 	if reply == "" && streamedReply != "" {
@@ -801,8 +884,8 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 		c.addToChatHistory("assistant", reply)
 		if c.screenActive {
 			c.finalizeScreenAssistantStream(reply, false)
-		} else if suppressBody || len(chunks) == 0 {
-		c.emitAssistant("MIMO", reply, false)
+		} else if suppressBody || len(allChunks) == 0 {
+			c.emitAssistant("MIMO", reply, false)
 		} else if reply != streamedReply {
 			c.emitOutput(strings.TrimSpace(strings.TrimPrefix(reply, streamedReply)))
 		}
