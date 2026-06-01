@@ -29,6 +29,8 @@ func (c *AgentsCommand) Run(args []string, env Env) int {
 		return c.runPlan(args[1:], env)
 	case "code":
 		return c.runCode(args[1:], env)
+	case "review":
+		return c.runReview(args[1:], env)
 	case "list":
 		return c.runList(args[1:], env)
 	default:
@@ -45,14 +47,16 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  list                              列出可用 agent 角色")
 	fmt.Fprintln(env.Stdout, "  plan --goal \"...\" [--llm] [--json] 创建 workflow plan")
 	fmt.Fprintln(env.Stdout, "  code --goal \"...\" --plan-file <file> [--llm] [--json] 生成 patch intent")
+	fmt.Fprintln(env.Stdout, "  review --intent-file <file> [--llm] [--json] 审查 patch intent")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "示例:")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents plan --goal \"修复 README 拼写错误\"")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents plan --goal \"优化 README\" --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents code --goal \"优化 README\" --plan-file plan.json --llm")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents review --intent-file intent.json --llm")
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "注意: --llm 只生成计划/意图，不写文件、不生成 patch、不执行工具。")
+	fmt.Fprintln(env.Stdout, "注意: --llm 只生成计划/意图/审查，不写文件、不生成 patch、不执行工具。")
 }
 
 func (c *AgentsCommand) runList(args []string, env Env) int {
@@ -315,6 +319,128 @@ func (c *AgentsCommand) runCodeWithLLM(goal string, plan *agents.AgentPlan, even
 	}
 
 	return intent, nil
+}
+
+func (c *AgentsCommand) runReview(args []string, env Env) int {
+	fs := flag.NewFlagSet("agents review", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	intentFile := fs.String("intent-file", "", "path to CoderPatchIntent JSON file")
+	useLLM := fs.Bool("llm", false, "use LLM for reviewer (review only, no file writes)")
+	jsonOutput := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+
+	if *intentFile == "" {
+		fmt.Fprintln(env.Stderr, "错误: --intent-file 是必需的")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents review --intent-file <file> [--llm] [--json]")
+		return 1
+	}
+
+	// 读取 intent 文件
+	intentData, err := os.ReadFile(*intentFile)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: 无法读取 intent 文件: %v\n", err)
+		return 1
+	}
+
+	// 解析 intent
+	var intent agents.CoderPatchIntent
+	if err := json.Unmarshal(intentData, &intent); err != nil {
+		fmt.Fprintf(env.Stderr, "错误: intent 文件不是有效的 JSON: %v\n", err)
+		return 1
+	}
+
+	// 验证 intent
+	if intent.ImplementationStatus != agents.ImplementationStatusIntentOnly {
+		fmt.Fprintf(env.Stderr, "错误: intent implementation_status 必须是 %q, 当前是 %q\n", agents.ImplementationStatusIntentOnly, intent.ImplementationStatus)
+		return 1
+	}
+	if !intent.NoFileWrites {
+		fmt.Fprintln(env.Stderr, "错误: intent no_file_writes 必须是 true")
+		return 1
+	}
+
+	// 创建 event emitter
+	eventEmitter := c.createEventEmitter(env)
+
+	// 运行 reviewer
+	var review *agents.ReviewerIntentReview
+	var reviewErr error
+
+	if *useLLM {
+		// LLM 模式
+		review, reviewErr = c.runReviewWithLLM(&intent, eventEmitter, env)
+	} else {
+		// Skeleton 模式
+		review, reviewErr = c.runReviewSkeleton(&intent)
+	}
+
+	if reviewErr != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", reviewErr)
+		return 1
+	}
+
+	// 输出
+	if *jsonOutput {
+		jsonStr, err := agents.FormatReviewerReviewJSON(review)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(env.Stdout, jsonStr)
+	} else {
+		fmt.Fprint(env.Stdout, agents.FormatReviewerReview(review))
+	}
+
+	return 0
+}
+
+// runReviewSkeleton 运行 skeleton 模式的 reviewer
+func (c *AgentsCommand) runReviewSkeleton(intent *agents.CoderPatchIntent) (*agents.ReviewerIntentReview, error) {
+	review := &agents.ReviewerIntentReview{
+		Goal:                  security.SanitizeText(intent.Goal),
+		ReviewStatus:          agents.ReviewStatusApproved,
+		ImplementationStatus:  agents.ImplementationStatusReviewOnly,
+		Summary:               "Skeleton review (no real analysis)",
+		Approved:              true,
+		Issues:                []agents.ReviewIssue{},
+		Risks:                 []string{"Skeleton review - actual LLM integration pending"},
+		RequiredChanges:       []string{},
+		ValidationSuggestions: []string{"Run tests after implementation"},
+		NoFileWrites:          true,
+		NoPatchGenerated:      true,
+	}
+
+	return review, nil
+}
+
+// runReviewWithLLM 运行 LLM 模式的 reviewer
+func (c *AgentsCommand) runReviewWithLLM(intent *agents.CoderPatchIntent, eventEmitter events.EventEmitter, env Env) (*agents.ReviewerIntentReview, error) {
+	// 目前使用 skeleton 模式作为 placeholder
+	review, err := c.runReviewSkeleton(intent)
+	if err != nil {
+		return nil, err
+	}
+
+	// 发送事件
+	wfEmitter := agents.NewWorkflowEventEmitter(eventEmitter)
+	ctx := context.Background()
+
+	// 创建临时 workflow 用于事件发送
+	workflow := &agents.AgentWorkflow{
+		RunID: "reviewer_run",
+		Goal:  security.SanitizeText(intent.Goal),
+	}
+
+	// 找到 reviewer step
+	reviewerStep, _ := workflow.FindStep(agents.AgentRoleReviewer)
+	if reviewerStep != nil {
+		reviewerStep.Status = agents.AgentStatusCompleted
+		wfEmitter.EmitStepCompleted(ctx, workflow, *reviewerStep)
+	}
+
+	return review, nil
 }
 
 // createEventEmitter creates an EventEmitter with EventStore integration.

@@ -277,6 +277,66 @@ The system rejects:
 - Real diff content (`diff --git`, unified diff)
 - Command execution wording (`command executed`, `test executed`)
 
+## Reviewer Intent Review (Phase 6.5)
+
+Phase 6.5 adds Reviewer integration for reviewing patch intents.
+
+### CLI Commands
+
+```bash
+# Skeleton mode (default, no LLM call)
+mimoneko agents review --intent-file intent.json
+
+# LLM mode (calls Reviewer LLM, review only)
+mimoneko agents review --intent-file intent.json --llm
+
+# LLM mode with JSON output
+mimoneko agents review --intent-file intent.json --llm --json
+```
+
+### Important Constraints
+
+- `--llm` must be explicitly enabled
+- `--intent-file` is required and must contain a valid CoderPatchIntent JSON
+- Intent implementation_status must be `intent_only`
+- Intent no_file_writes must be `true`
+- Reviewer ONLY reviews patch intents (no real diff review)
+- ImplementationStatus is ALWAYS `review_only`
+- NoFileWrites is ALWAYS `true`
+- NoPatchGenerated is ALWAYS `true`
+- No files are written
+- No real patches are reviewed
+- No tools are executed
+
+### ReviewerIntentReview Output
+
+```json
+{
+  "goal": "优化 README",
+  "review_status": "approved",
+  "implementation_status": "review_only",
+  "summary": "Intent review passed",
+  "approved": true,
+  "issues": [],
+  "risks": [],
+  "required_changes": [],
+  "validation_suggestions": ["run tests"],
+  "no_file_writes": true,
+  "no_patch_generated": true
+}
+```
+
+### Review Status
+
+| Status | Meaning |
+|--------|---------|
+| `approved` | Intent review passed (NOT permission to apply) |
+| `changes_requested` | Intent needs changes |
+| `rejected` | Intent is not acceptable |
+| `needs_clarification` | Intent needs clarification |
+
+**Important**: `approved` only means intent review passed. It does NOT mean the patch can be applied.
+
 ## Planned Commands
 
 The following write-capable commands are intentionally left for a later phase:

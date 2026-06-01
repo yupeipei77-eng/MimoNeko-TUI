@@ -163,6 +163,9 @@ mimoneko agents plan --goal "优化 README" --llm --json  # Output as JSON
 mimoneko agents code --goal "优化 README" --plan-file plan.json  # Create patch intent skeleton
 mimoneko agents code --goal "优化 README" --plan-file plan.json --llm  # Create patch intent with LLM
 mimoneko agents code --goal "优化 README" --plan-file plan.json --llm --json  # Output as JSON
+mimoneko agents review --intent-file intent.json  # Review patch intent skeleton
+mimoneko agents review --intent-file intent.json --llm  # Review with LLM
+mimoneko agents review --intent-file intent.json --llm --json  # Output as JSON
 mimoneko neko events agents                 # View agent workflow events
 ```
 
@@ -170,13 +173,15 @@ The workflow skeleton includes four roles: Planner, Coder, Reviewer, and Validat
 
 - **Planner**: Produces a skeleton plan (no real LLM call) or LLM-generated plan with `--llm`
 - **Coder**: Produces a skeleton patch intent (no real patch) or LLM-generated intent with `--llm`
-- **Review**: Produces a skeleton review (no real diff analysis)
+- **Reviewer**: Produces a skeleton review (no real analysis) or LLM-generated review with `--llm`
 - **Validator**: Produces a skeleton validation (no real test execution)
 
 **Important**: 
-- `--llm` only generates plans/intents. No files are written, no patches are generated, no tools are executed.
+- `--llm` only generates plans/intents/reviews. No files are written, no patches are generated, no tools are executed.
 - `--plan-file` is required for `code` command and must contain a valid AgentPlan JSON.
-- `implementation_status` is always `plan_only` (Planner) or `intent_only` (Coder).
+- `--intent-file` is required for `review` command and must contain a valid CoderPatchIntent JSON.
+- `implementation_status` is always `plan_only` (Planner), `intent_only` (Coder), or `review_only` (Reviewer).
+- `approved` in Reviewer only means intent review passed, NOT permission to apply patch.
 
 `neko approve <patch_id>` and `neko rollback <run_id>` are reserved for a later phase. They are not implemented in this release slice.
 
