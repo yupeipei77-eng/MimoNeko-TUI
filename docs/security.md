@@ -566,6 +566,49 @@ mimoneko approvals snapshot <id>
 
 ---
 
+### 11. Approval Resume Preview (Phase 5.5.5)
+
+**状态**: ✅ 已实现
+
+**功能**: 预览批准后将执行的操作。
+
+**重要说明**:
+- ⚠️ preview ≠ execution
+- ⚠️ 当前阶段 **不会执行任何工具**
+- 只展示未来将执行什么
+
+**CLI 命令**:
+```bash
+# 预览批准后将执行的操作
+mimoneko approvals preview <id>
+```
+
+**状态要求**:
+| 状态 | 行为 |
+|------|------|
+| pending | 显示 `approval still pending` |
+| approved | 允许 preview |
+| rejected | 显示 `approval rejected` |
+| expired | 显示 `approval expired` |
+
+**输出内容**:
+- Approval ID
+- Tool Name
+- Risk Level
+- Status
+- Reason
+- Path
+- Command
+- Sanitized Preview
+
+**安全要求**:
+- 绝不显示真实 tool_args
+- 绝不显示原始 secret
+- 必须使用 security.SanitizeOutput()
+- 必须使用 security.SanitizeText()
+
+---
+
 ## 最佳实践
 
 ### 对于用户
