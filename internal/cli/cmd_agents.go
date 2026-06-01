@@ -31,6 +31,8 @@ func (c *AgentsCommand) Run(args []string, env Env) int {
 		return c.runCode(args[1:], env)
 	case "review":
 		return c.runReview(args[1:], env)
+	case "validate":
+		return c.runValidate(args[1:], env)
 	case "list":
 		return c.runList(args[1:], env)
 	default:
@@ -48,6 +50,7 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  plan --goal \"...\" [--llm] [--json] 创建 workflow plan")
 	fmt.Fprintln(env.Stdout, "  code --goal \"...\" --plan-file <file> [--llm] [--json] 生成 patch intent")
 	fmt.Fprintln(env.Stdout, "  review --intent-file <file> [--llm] [--json] 审查 patch intent")
+	fmt.Fprintln(env.Stdout, "  validate --review-file <file> --intent-file <file> [--llm] [--json] 生成验证建议")
 	fmt.Fprintln(env.Stdout, "")
 	fmt.Fprintln(env.Stdout, "示例:")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents")
@@ -55,8 +58,9 @@ func printAgentsHelp(env Env) {
 	fmt.Fprintln(env.Stdout, "  mimoneko agents plan --goal \"优化 README\" --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents code --goal \"优化 README\" --plan-file plan.json --llm")
 	fmt.Fprintln(env.Stdout, "  mimoneko agents review --intent-file intent.json --llm")
+	fmt.Fprintln(env.Stdout, "  mimoneko agents validate --review-file review.json --intent-file intent.json --llm")
 	fmt.Fprintln(env.Stdout, "")
-	fmt.Fprintln(env.Stdout, "注意: --llm 只生成计划/意图/审查，不写文件、不生成 patch、不执行工具。")
+	fmt.Fprintln(env.Stdout, "注意: --llm 只生成计划/意图/审查/建议，不写文件、不执行测试、不执行工具。")
 }
 
 func (c *AgentsCommand) runList(args []string, env Env) int {
@@ -441,6 +445,170 @@ func (c *AgentsCommand) runReviewWithLLM(intent *agents.CoderPatchIntent, eventE
 	}
 
 	return review, nil
+}
+
+func (c *AgentsCommand) runValidate(args []string, env Env) int {
+	fs := flag.NewFlagSet("agents validate", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	reviewFile := fs.String("review-file", "", "path to ReviewerIntentReview JSON file")
+	intentFile := fs.String("intent-file", "", "path to CoderPatchIntent JSON file")
+	useLLM := fs.Bool("llm", false, "use LLM for validator (suggestions only, no tests executed)")
+	jsonOutput := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(args); err != nil {
+		return flagExitCode(err)
+	}
+
+	if *reviewFile == "" {
+		fmt.Fprintln(env.Stderr, "错误: --review-file 是必需的")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents validate --review-file <file> --intent-file <file> [--llm] [--json]")
+		return 1
+	}
+
+	if *intentFile == "" {
+		fmt.Fprintln(env.Stderr, "错误: --intent-file 是必需的")
+		fmt.Fprintln(env.Stderr, "用法: mimoneko agents validate --review-file <file> --intent-file <file> [--llm] [--json]")
+		return 1
+	}
+
+	// 读取 review 文件
+	reviewData, err := os.ReadFile(*reviewFile)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: 无法读取 review 文件: %v\n", err)
+		return 1
+	}
+
+	// 解析 review
+	var review agents.ReviewerIntentReview
+	if err := json.Unmarshal(reviewData, &review); err != nil {
+		fmt.Fprintf(env.Stderr, "错误: review 文件不是有效的 JSON: %v\n", err)
+		return 1
+	}
+
+	// 验证 review
+	if review.ImplementationStatus != agents.ImplementationStatusReviewOnly {
+		fmt.Fprintf(env.Stderr, "错误: review implementation_status 必须是 %q, 当前是 %q\n", agents.ImplementationStatusReviewOnly, review.ImplementationStatus)
+		return 1
+	}
+
+	// 读取 intent 文件
+	intentData, err := os.ReadFile(*intentFile)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "错误: 无法读取 intent 文件: %v\n", err)
+		return 1
+	}
+
+	// 解析 intent
+	var intent agents.CoderPatchIntent
+	if err := json.Unmarshal(intentData, &intent); err != nil {
+		fmt.Fprintf(env.Stderr, "错误: intent 文件不是有效的 JSON: %v\n", err)
+		return 1
+	}
+
+	// 验证 intent
+	if intent.ImplementationStatus != agents.ImplementationStatusIntentOnly {
+		fmt.Fprintf(env.Stderr, "错误: intent implementation_status 必须是 %q, 当前是 %q\n", agents.ImplementationStatusIntentOnly, intent.ImplementationStatus)
+		return 1
+	}
+	if !intent.NoFileWrites {
+		fmt.Fprintln(env.Stderr, "错误: intent no_file_writes 必须是 true")
+		return 1
+	}
+
+	// 创建 event emitter
+	eventEmitter := c.createEventEmitter(env)
+
+	// 运行 validator
+	var suggestions *agents.ValidatorSuggestions
+	var validateErr error
+
+	if *useLLM {
+		// LLM 模式
+		suggestions, validateErr = c.runValidateWithLLM(&intent, &review, eventEmitter, env)
+	} else {
+		// Skeleton 模式
+		suggestions, validateErr = c.runValidateSkeleton(&intent, &review)
+	}
+
+	if validateErr != nil {
+		fmt.Fprintf(env.Stderr, "错误: %v\n", validateErr)
+		return 1
+	}
+
+	// 输出
+	if *jsonOutput {
+		jsonStr, err := agents.FormatValidatorSuggestionsJSON(suggestions)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "错误: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(env.Stdout, jsonStr)
+	} else {
+		fmt.Fprint(env.Stdout, agents.FormatValidatorSuggestions(suggestions))
+	}
+
+	return 0
+}
+
+// runValidateSkeleton 运行 skeleton 模式的 validator
+func (c *AgentsCommand) runValidateSkeleton(intent *agents.CoderPatchIntent, review *agents.ReviewerIntentReview) (*agents.ValidatorSuggestions, error) {
+	suggestions := &agents.ValidatorSuggestions{
+		Goal:                 security.SanitizeText(intent.Goal),
+		ValidationStatus:     "pending",
+		ImplementationStatus: agents.ImplementationStatusSuggestionsOnly,
+		Summary:              "Skeleton validation suggestions (no real analysis)",
+		Checks: func() []agents.ValidationCheck {
+			files := []string{}
+			if len(intent.FilesToChange) > 0 {
+				files = []string{intent.FilesToChange[0].Path}
+			}
+			return []agents.ValidationCheck{
+				{
+					ID:             "check_1",
+					Category:       "unit_test",
+					Description:    "Run unit tests",
+					ExpectedSignal: "All tests pass",
+					Priority:       "high",
+					RelatedFiles:   files,
+				},
+			}
+		}(),
+		Risks:               []string{"Skeleton validation - actual LLM integration pending"},
+		RecommendedCommands: []string{"go test ./...", "go vet ./..."},
+		ManualChecks:        []string{"Check README examples match CLI behavior"},
+		NoFileWrites:        true,
+		NoTestsExecuted:     true,
+		NoToolsExecuted:     true,
+	}
+
+	return suggestions, nil
+}
+
+// runValidateWithLLM 运行 LLM 模式的 validator
+func (c *AgentsCommand) runValidateWithLLM(intent *agents.CoderPatchIntent, review *agents.ReviewerIntentReview, eventEmitter events.EventEmitter, env Env) (*agents.ValidatorSuggestions, error) {
+	// 目前使用 skeleton 模式作为 placeholder
+	suggestions, err := c.runValidateSkeleton(intent, review)
+	if err != nil {
+		return nil, err
+	}
+
+	// 发送事件
+	wfEmitter := agents.NewWorkflowEventEmitter(eventEmitter)
+	ctx := context.Background()
+
+	// 创建临时 workflow 用于事件发送
+	workflow := &agents.AgentWorkflow{
+		RunID: "validator_run",
+		Goal:  security.SanitizeText(intent.Goal),
+	}
+
+	// 找到 validator step
+	validatorStep, _ := workflow.FindStep(agents.AgentRoleValidator)
+	if validatorStep != nil {
+		validatorStep.Status = agents.AgentStatusCompleted
+		wfEmitter.EmitStepCompleted(ctx, workflow, *validatorStep)
+	}
+
+	return suggestions, nil
 }
 
 // createEventEmitter creates an EventEmitter with EventStore integration.

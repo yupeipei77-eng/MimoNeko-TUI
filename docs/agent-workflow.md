@@ -337,6 +337,76 @@ mimoneko agents review --intent-file intent.json --llm --json
 
 **Important**: `approved` only means intent review passed. It does NOT mean the patch can be applied.
 
+## Validator Suggestions Only (Phase 6.6)
+
+Phase 6.6 adds Validator integration for generating validation suggestions.
+
+### CLI Commands
+
+```bash
+# Skeleton mode (default, no LLM call)
+mimoneko agents validate --review-file review.json --intent-file intent.json
+
+# LLM mode (calls Validator LLM, suggestions only)
+mimoneko agents validate --review-file review.json --intent-file intent.json --llm
+
+# LLM mode with JSON output
+mimoneko agents validate --review-file review.json --intent-file intent.json --llm --json
+```
+
+### Important Constraints
+
+- `--llm` must be explicitly enabled
+- `--review-file` and `--intent-file` are required
+- Review implementation_status must be `review_only`
+- Intent implementation_status must be `intent_only`
+- Validator ONLY generates validation suggestions (no real tests)
+- ImplementationStatus is ALWAYS `suggestions_only`
+- NoFileWrites is ALWAYS `true`
+- NoTestsExecuted is ALWAYS `true`
+- NoToolsExecuted is ALWAYS `true`
+- No files are written
+- No tests are executed
+- No tools are executed
+- `recommended_commands` are suggestions only, NOT executed
+
+### ValidatorSuggestions Output
+
+```json
+{
+  "goal": "优化 README",
+  "validation_status": "pending",
+  "implementation_status": "suggestions_only",
+  "summary": "Validation suggestions",
+  "checks": [
+    {
+      "id": "check_1",
+      "category": "unit_test",
+      "description": "Run unit tests",
+      "expected_signal": "All tests pass",
+      "priority": "high",
+      "related_files": ["README.md"]
+    }
+  ],
+  "risks": [],
+  "recommended_commands": ["go test ./..."],
+  "manual_checks": ["Check README examples"],
+  "no_file_writes": true,
+  "no_tests_executed": true,
+  "no_tools_executed": true
+}
+```
+
+### Safety Validation
+
+The system rejects:
+- `implementation_status` other than `suggestions_only`
+- `no_file_writes` set to `false`
+- `no_tests_executed` set to `false`
+- `no_tools_executed` set to `false`
+- Content like "test passed", "tests passed", "executed"
+- Command execution wording
+
 ## Planned Commands
 
 The following write-capable commands are intentionally left for a later phase:

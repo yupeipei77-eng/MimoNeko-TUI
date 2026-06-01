@@ -166,6 +166,9 @@ mimoneko agents code --goal "优化 README" --plan-file plan.json --llm --json  
 mimoneko agents review --intent-file intent.json  # Review patch intent skeleton
 mimoneko agents review --intent-file intent.json --llm  # Review with LLM
 mimoneko agents review --intent-file intent.json --llm --json  # Output as JSON
+mimoneko agents validate --review-file review.json --intent-file intent.json  # Validation suggestions skeleton
+mimoneko agents validate --review-file review.json --intent-file intent.json --llm  # Validation with LLM
+mimoneko agents validate --review-file review.json --intent-file intent.json --llm --json  # Output as JSON
 mimoneko neko events agents                 # View agent workflow events
 ```
 
@@ -174,14 +177,16 @@ The workflow skeleton includes four roles: Planner, Coder, Reviewer, and Validat
 - **Planner**: Produces a skeleton plan (no real LLM call) or LLM-generated plan with `--llm`
 - **Coder**: Produces a skeleton patch intent (no real patch) or LLM-generated intent with `--llm`
 - **Reviewer**: Produces a skeleton review (no real analysis) or LLM-generated review with `--llm`
-- **Validator**: Produces a skeleton validation (no real test execution)
+- **Validator**: Produces skeleton validation suggestions (no real tests) or LLM-generated suggestions with `--llm`
 
 **Important**: 
-- `--llm` only generates plans/intents/reviews. No files are written, no patches are generated, no tools are executed.
+- `--llm` only generates plans/intents/reviews/suggestions. No files are written, no patches are generated, no tests are executed, no tools are executed.
 - `--plan-file` is required for `code` command and must contain a valid AgentPlan JSON.
 - `--intent-file` is required for `review` command and must contain a valid CoderPatchIntent JSON.
-- `implementation_status` is always `plan_only` (Planner), `intent_only` (Coder), or `review_only` (Reviewer).
+- `--review-file` and `--intent-file` are required for `validate` command.
+- `implementation_status` is always `plan_only` (Planner), `intent_only` (Coder), `review_only` (Reviewer), or `suggestions_only` (Validator).
 - `approved` in Reviewer only means intent review passed, NOT permission to apply patch.
+- `recommended_commands` in Validator are suggestions only, NOT executed automatically.
 
 `neko approve <patch_id>` and `neko rollback <run_id>` are reserved for a later phase. They are not implemented in this release slice.
 
