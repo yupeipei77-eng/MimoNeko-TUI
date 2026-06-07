@@ -15,19 +15,22 @@ type ProviderCacheRef struct {
 }
 
 type Observation struct {
-	Fingerprint         prefix.Fingerprint
-	Provider            string
-	Model               string
-	RequestID           string
-	InputTokens         int
-	CachedTokens        int
-	ObservedAt          time.Time
-	ProviderCacheID     string
-	Estimated           bool
-	PrefixTokens        int
-	ConversationTokens  int
-	ScratchpadTokens    int
-	CurrentInputTokens  int
+	Fingerprint        prefix.Fingerprint
+	Provider           string
+	Model              string
+	RequestID          string
+	InputTokens        int
+	CachedTokens       int
+	CacheHitTokens     int
+	CacheMissTokens    int
+	NativeCacheKnown   bool
+	ObservedAt         time.Time
+	ProviderCacheID    string
+	Estimated          bool
+	PrefixTokens       int
+	ConversationTokens int
+	ScratchpadTokens   int
+	CurrentInputTokens int
 }
 
 type Entry struct {
@@ -53,14 +56,17 @@ const (
 
 // PerFingerprintReport is the cache statistics for a single prefix hash.
 type PerFingerprintReport struct {
-	PrefixHash             string
-	TotalTokens            int
-	CachedTokens           int
-	UncachedTokens         int
-	HitRate                float64
-	EstimatedSavingPercent float64
-	ReuseCount             int
-	PossibleMissReasons    []MissReason
+	PrefixHash              string
+	TotalTokens             int
+	CachedTokens            int
+	CacheHitTokens          int
+	CacheMissTokens         int
+	NativeCacheObservations int
+	UncachedTokens          int
+	HitRate                 float64
+	EstimatedSavingPercent  float64
+	ReuseCount              int
+	PossibleMissReasons     []MissReason
 }
 
 // CacheReport contains per-fingerprint statistics and a global summary.
@@ -71,10 +77,13 @@ type CacheReport struct {
 
 // GlobalCacheSummary is the aggregate cache statistics across all fingerprints.
 type GlobalCacheSummary struct {
-	TotalObservations      int
-	TotalTokens            int
-	TotalCachedTokens      int
-	OverallHitRate         float64
-	EstimatedSavingPercent float64
-	CorruptLineCount       int
+	TotalObservations       int
+	TotalTokens             int
+	TotalCachedTokens       int
+	TotalCacheHitTokens     int
+	TotalCacheMissTokens    int
+	NativeCacheObservations int
+	OverallHitRate          float64
+	EstimatedSavingPercent  float64
+	CorruptLineCount        int
 }

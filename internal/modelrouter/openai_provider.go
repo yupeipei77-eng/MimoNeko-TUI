@@ -207,10 +207,12 @@ type openAIChoiceMessage struct {
 
 // openAIUsage is the usage information from the API response.
 type openAIUsage struct {
-	PromptTokens        int                  `json:"prompt_tokens"`
-	CompletionTokens    int                  `json:"completion_tokens"`
-	TotalTokens         int                  `json:"total_tokens"`
-	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens          int                  `json:"prompt_tokens"`
+	CompletionTokens      int                  `json:"completion_tokens"`
+	TotalTokens           int                  `json:"total_tokens"`
+	PromptCacheHitTokens  *int                 `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens *int                 `json:"prompt_cache_miss_tokens,omitempty"`
+	PromptTokensDetails   *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 }
 
 // promptTokensDetails contains cached token information.
@@ -223,13 +225,27 @@ type promptTokensDetails struct {
 // If cached_tokens is missing, Estimated=true.
 // If the API returns no usage at all, uses bundleReportTotal for estimation.
 func parseUsage(apiUsage openAIUsage, bundleReportTotal int) Usage {
+	return parseUsageWithCacheMode(apiUsage, bundleReportTotal, false)
+}
+
+func parseMimoUsage(apiUsage openAIUsage, bundleReportTotal int) Usage {
+	return parseUsageWithCacheMode(apiUsage, bundleReportTotal, true)
+}
+
+func parseUsageWithCacheMode(apiUsage openAIUsage, bundleReportTotal int, nativeCache bool) Usage {
 	usage := Usage{
 		InputTokens:  apiUsage.PromptTokens,
 		OutputTokens: apiUsage.CompletionTokens,
 		TotalTokens:  apiUsage.TotalTokens,
 	}
 
-	if apiUsage.PromptTokensDetails != nil {
+	if nativeCache && (apiUsage.PromptCacheHitTokens != nil || apiUsage.PromptCacheMissTokens != nil) {
+		usage.CacheHitTokens = intPtrValue(apiUsage.PromptCacheHitTokens)
+		usage.CacheMissTokens = intPtrValue(apiUsage.PromptCacheMissTokens)
+		usage.CachedTokens = usage.CacheHitTokens
+		usage.NativeCacheKnown = true
+		usage.Estimated = false
+	} else if apiUsage.PromptTokensDetails != nil {
 		usage.CachedTokens = apiUsage.PromptTokensDetails.CachedTokens
 		usage.Estimated = false
 	} else {
@@ -245,6 +261,13 @@ func parseUsage(apiUsage openAIUsage, bundleReportTotal int) Usage {
 	}
 
 	return usage
+}
+
+func intPtrValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // extractText gets the content from the first choice in the response.

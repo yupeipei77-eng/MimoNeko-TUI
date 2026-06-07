@@ -15,7 +15,7 @@ func runFirstTimeSetup(env Env) int {
 	reader := bufio.NewReader(env.Stdin)
 	ui := newCLIUI()
 
-	ui.PrintHeader(env.Stdout, "Welcome to MioNeko")
+	ui.PrintHeader(env.Stdout, "Welcome to MimoNeko")
 	fmt.Fprintln(env.Stdout, "MiMo-first AI Coding Agent")
 	fmt.Fprintln(env.Stdout, "Fast. Safe. Cache-aware.")
 	fmt.Fprintln(env.Stdout)

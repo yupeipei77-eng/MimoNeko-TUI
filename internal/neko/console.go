@@ -55,8 +55,9 @@ type ChatRequest struct {
 }
 
 type ChatResult struct {
-	Response string
-	Usage    Usage
+	Response  string
+	Reasoning string
+	Usage     Usage
 }
 
 type RunRequest struct {
@@ -126,31 +127,67 @@ func Run(ctx context.Context, opt Options) int {
 }
 
 type Console struct {
-	Session         Session
-	Options         Options
-	Messages        layout.MessageRenderer
-	Input           layout.InputRenderer
-	Runtime         layout.RuntimeRenderer
-	Thinking        *layout.ThinkingRenderer
-	Mascot          *branding.MascotAnimator
-	screenActive    bool
-	screenEntered   bool
-	screenCols      int
-	screenRows      int
-	screenLog       []screenLine
-	draft           string
-	introActive     bool
-	paletteOpen     bool
-	paletteFilter   string
-	paletteSelected int
-	panelMode       string
-	panelTitle      string
-	panelContent    string
-	chatHistory     []ChatMessage
+	Session                Session
+	Options                Options
+	Messages               layout.MessageRenderer
+	Input                  layout.InputRenderer
+	Runtime                layout.RuntimeRenderer
+	Thinking               *layout.ThinkingRenderer
+	Mascot                 *branding.MascotAnimator
+	screenActive           bool
+	screenEntered          bool
+	screenCols             int
+	screenRows             int
+	screenLog              []screenLine
+	draft                  string
+	introActive            bool
+	paletteOpen            bool
+	paletteFilter          string
+	paletteSelected        int
+	providerPickerOpen     bool
+	providerPickerSelected int
+	providerPickerItems    []providerPickerItem
+	agentPickerOpen        bool
+	agentPickerSelected    int
+	agentPickerItems       []agentPickerItem
+	modelPickerOpen        bool
+	modelPickerSelected    int
+	modelPickerItems       []modelPickerItem
+	addFlow                addProviderFlow
+	panelMode              string
+	panelTitle             string
+	panelContent           string
+	chatHistory            []ChatMessage
+	lastReasoningText      string
+	uiMode                 string // "build" or "plan"
+}
+
+type modelPickerItem struct {
+	Provider      string
+	Model         string
+	IsGroup       bool // true for provider group headers
+	IsAddProvider bool // true for the "+ Add API / Provider" entry
+}
+
+type agentPickerItem struct {
+	Name string
+	Mode string
+	Help string
+}
+
+type providerPickerItem struct {
+	Name       string
+	BaseURL    string
+	Configured bool
+	Current    bool
+	IsCustom   bool
 }
 
 func (c *Console) Run(ctx context.Context) int {
 	c.Messages.SetNoColor(c.Session.NoColor)
+	if c.uiMode == "" {
+		c.uiMode = "build"
+	}
 	if shouldStreamOutput(c.Options.Out, c.Session.NoColor) {
 		c.Messages.Delay = 2 * time.Millisecond
 	}
@@ -206,7 +243,7 @@ func (c *Console) enterWorkspace() {
 		fmt.Fprint(c.Options.Out, "\x1b[?1049h")
 		c.screenEntered = true
 	}
-	fmt.Fprintf(c.Options.Out, "\x1b]0;MIMO | %s\x07\x1b[?25h\x1b[2J\x1b[H", c.Session.Model)
+	fmt.Fprintf(c.Options.Out, "\x1b]0;MimoNeko | %s\x07\x1b[?25h\x1b[2J\x1b[H", c.Session.Model)
 }
 
 func (c *Console) teardownScreen() {
@@ -289,12 +326,16 @@ func (c *Console) handleInputLine(ctx context.Context, rawLine string) bool {
 func (c *Console) handleControlInput(ctx context.Context, rawLine string) bool {
 	switch rawLine {
 	case "\x10":
-		c.cycleReasoning()
+		if c.screenActive {
+			c.toggleCommandPalette()
+		} else {
+			c.cycleReasoning()
+		}
 		return true
 	case "\x12":
 		c.cycleReasoning()
 		return true
-	case "\x14": // Ctrl+Shift+T
+	case "\x14": // Ctrl+T
 		c.toggleThinking()
 		return true
 	default:
@@ -306,11 +347,26 @@ func (c *Console) handleControlInput(ctx context.Context, rawLine string) bool {
 func (c *Console) toggleThinking() {
 	if c.Thinking != nil {
 		c.Thinking.Toggle()
-		if c.Thinking.ShowThoughts() {
-			c.emitInfo("Thought shown · Ctrl+Shift+T 隐藏")
+		if c.screenActive {
+			c.refreshScreenThinking()
+		} else if c.Thinking.ShowThoughts() {
+			c.emitInfo("Thought shown · Ctrl+T to hide")
 		} else {
-			c.emitInfo("Thought hidden · Ctrl+Shift+T 显示")
+			c.emitInfo("Thought hidden · Ctrl+T to show")
 		}
+	}
+}
+
+// cycleUIMode switches between Build and Plan modes.
+func (c *Console) cycleUIMode() {
+	if c.uiMode == "build" {
+		c.uiMode = "plan"
+	} else {
+		c.uiMode = "build"
+	}
+	// Just refresh screen; no message is added to chat history.
+	if c.screenActive {
+		c.repaintScreen()
 	}
 }
 
@@ -362,8 +418,18 @@ func (c *Console) handleSlash(ctx context.Context, line string) bool {
 		c.showRendered(func(w io.Writer) { RenderCommandPalette(w, c.Session) })
 	case "/panel":
 		c.handlePanel(arg)
+	case "/diff":
+		c.handlePanel("diff")
+	case "/editor":
+		c.handlePanel("editor")
+	case "/connect":
+		if c.screenActive {
+			c.openProviderPicker()
+			return false
+		}
+		c.emitInfo("Provider setup is available in the TUI with /connect.")
 	case "/exit", "/quit":
-		c.emitInfo("Goodbye from MIMO.")
+		c.emitInfo("Goodbye from MimoNeko.")
 		return true
 	case "/help":
 		c.showRendered(func(w io.Writer) { RenderHelp(w, c.Session.NoColor) })
@@ -377,6 +443,10 @@ func (c *Console) handleSlash(ctx context.Context, line string) bool {
 		c.emitInfo("New session.")
 	case "/agents":
 		if arg == "" {
+			if c.screenActive {
+				c.openAgentPicker()
+				return false
+			}
 			c.showRendered(func(w io.Writer) { RenderAgents(w, c.Session) })
 			return false
 		}
@@ -401,17 +471,26 @@ func (c *Console) handleSlash(ctx context.Context, line string) bool {
 			return false
 		}
 	case "/model":
+		if c.screenActive && strings.TrimSpace(arg) == "" {
+			c.openModelPicker()
+			return false
+		}
 		c.handleModel(ctx, arg)
 	case "/models":
 		if arg == "" {
+			if c.screenActive {
+				c.openModelPicker()
+				return false
+			}
 			c.showRendered(func(w io.Writer) { RenderModels(w, c.Session) })
 			return false
 		}
 		if !c.Session.SelectModel(arg) {
-			c.emitInfo(fmt.Sprintf("model %q not found; run /models to inspect configured models", arg))
+			c.setStatus(fmt.Sprintf("model %q not found; run /models to inspect configured models", arg), true)
 			return false
 		}
-		c.emitInfo(fmt.Sprintf("model=%s provider=%s", c.Session.Model, c.Session.Provider))
+		c.refreshInput()
+		c.setStatus(fmt.Sprintf("Model switched to %s · provider %s", c.Session.Model, c.Session.Provider), false)
 	case "/runs":
 		c.callSimple(ctx, c.Options.RunsLister, "recent runs unavailable")
 	case "/preview":
@@ -462,10 +541,23 @@ func (c *Console) cycleReasoning() {
 
 func (c *Console) emitInfo(text string) {
 	if c.screenActive {
+		if c.shouldSuppressAddFlowInfo(text) {
+			c.repaintScreen()
+			return
+		}
 		c.appendScreen("info", text, false)
 		return
 	}
 	fmt.Fprintln(c.Options.Out, text)
+}
+
+func (c *Console) shouldSuppressAddFlowInfo(text string) bool {
+	if !c.addFlow.active {
+		return false
+	}
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "> ") ||
+		strings.HasPrefix(trimmed, "Add API Provider")
 }
 
 func (c *Console) emitOutput(text string) {
@@ -486,6 +578,39 @@ func (c *Console) emitError(text string) {
 		return
 	}
 	layout.RenderErrorMessage(c.Options.Out, "Error", text, c.Session.NoColor)
+}
+
+// setStatus replaces the trailing status line in screenLog with a single new entry.
+// Successes use kind="done" (rendered as green ✓), failures use kind="error" (red !).
+// Trailing "done" / "error" / ✓-prefixed "info" entries are dropped so callers
+// can call setStatus repeatedly without stacking status lines.
+func (c *Console) setStatus(text string, isError bool) {
+	if !c.screenActive {
+		if isError {
+			fmt.Fprintln(c.Options.Out, "! "+text)
+		} else {
+			fmt.Fprintln(c.Options.Out, "✓ "+text)
+		}
+		return
+	}
+	for len(c.screenLog) > 0 {
+		last := c.screenLog[len(c.screenLog)-1]
+		if last.Kind == "done" || last.Kind == "error" {
+			c.screenLog = c.screenLog[:len(c.screenLog)-1]
+			continue
+		}
+		if last.Kind == "info" && strings.HasPrefix(strings.TrimSpace(last.Text), "✓") {
+			c.screenLog = c.screenLog[:len(c.screenLog)-1]
+			continue
+		}
+		break
+	}
+	kind := "done"
+	if isError {
+		kind = "error"
+	}
+	c.screenLog = append(c.screenLog, screenLine{Kind: kind, Text: text})
+	c.repaintScreen()
 }
 
 func (c *Console) emitUser(role, text string) {
@@ -511,6 +636,11 @@ func (c *Console) emitAssistant(role, text string, isError bool) {
 }
 
 func (c *Console) emitRuntimeStage(stage string) {
+	// Suppress noisy intermediate stages from normal display
+	switch stage {
+	case "requesting model", "generating response":
+		return
+	}
 	if c.screenActive {
 		c.appendScreen("runtime", stage+"...", false)
 		return
@@ -519,25 +649,21 @@ func (c *Console) emitRuntimeStage(stage string) {
 }
 
 func (c *Console) emitRuntimeDone(elapsed time.Duration) {
-	label := "done · " + formatDuration(elapsed)
 	if c.screenActive {
-		c.appendScreen("done", label, false)
+		// Done status is transient — removed after streaming completes
 		return
 	}
 	c.Runtime.RenderDone(c.Options.Out, elapsed)
 }
 
 func (c *Console) emitThought(elapsed time.Duration) {
-	if c.screenActive {
-		c.appendScreen("thought", "Thought: "+formatDuration(elapsed), false)
-		return
-	}
-	c.Runtime.RenderThoughtSummary(c.Options.Out)
+	// Thought summary is hidden by default — only shown in debug/verbose mode
+	// The build badge already shows timing info
 }
 
 func (c *Console) emitBuildBadge(elapsed time.Duration) {
 	if c.screenActive {
-		c.appendScreen("build", c.Session.Model+" · "+formatDuration(elapsed), false)
+		// Build badge is redundant in screen mode — composer already shows model info
 		return
 	}
 	layout.RenderBuildBadge(c.Options.Out, c.Session.Model, elapsed, c.Session.NoColor)
@@ -689,6 +815,9 @@ func (c *Console) chatMessage(ctx context.Context, message string) {
 	c.emitUser("You", message)
 	c.Runtime.Reset()
 	start := time.Now()
+	if c.Mascot != nil {
+		c.Mascot.SetState(branding.MascotThinking)
+	}
 	c.emitRuntimeStage("thinking")
 	if c.tryLocalAutoSave(message, start) {
 		return
@@ -700,7 +829,10 @@ func (c *Console) chatMessage(ctx context.Context, message string) {
 		c.emitThought(c.Session.LastLatency)
 		reply := defaultLocalChatReply(message)
 		c.Session.AddAssistantMemory(reply)
-		c.emitAssistant("MIMO", reply, false)
+		c.emitAssistant("MimoNeko", reply, false)
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotSuccess)
+		}
 		c.emitBuildBadge(c.Session.LastLatency)
 		c.addToChatHistory("user", message)
 		c.addToChatHistory("assistant", reply)
@@ -754,7 +886,14 @@ func (c *Console) tryLocalAutoSave(message string, start time.Time) bool {
 		reply = formatAutoSaveResult(save)
 	}
 	c.Session.AddAssistantMemory(reply)
-	c.emitAssistant("MIMO", reply, replyIsError)
+	c.emitAssistant("MimoNeko", reply, replyIsError)
+	if c.Mascot != nil {
+		if replyIsError {
+			c.Mascot.SetState(branding.MascotError)
+		} else {
+			c.Mascot.SetState(branding.MascotSuccess)
+		}
+	}
 	c.emitBuildBadge(c.Session.LastLatency)
 	return true
 }
@@ -766,6 +905,7 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 	var reasoningChunks []string
 	var lastUsage Usage
 	suppressBody := hasAutoSaveIntent(chatReq.Message)
+	c.lastReasoningText = ""
 
 	// Start thinking animation and mascot
 	if c.Thinking != nil {
@@ -774,7 +914,7 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 	}
 	if c.Mascot != nil {
 		c.Mascot.SetState(branding.MascotThinking)
-		defer c.Mascot.SetState(branding.MascotDone)
+		defer c.Mascot.SetState(branding.MascotSuccess)
 	}
 
 	var reasoningDone bool
@@ -785,18 +925,19 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 			if suppressBody {
 				return
 			}
-			if !reasoningDone {
-				reasoningDone = true
-				// Render thinking area
-				if c.Thinking != nil {
-					c.Thinking.AddThought(chunk.ReasoningText)
-					if !c.screenActive {
-						c.Thinking.RenderThinking(c.Options.Out)
-					}
+			// Update thinking renderer on every reasoning chunk
+			if c.Thinking != nil {
+				c.Thinking.AddThought(chunk.ReasoningText)
+				if !c.screenActive {
+					c.Thinking.RenderThinking(c.Options.Out)
 				}
 			}
+			if !reasoningDone {
+				reasoningDone = true
+			}
+			// Screen mode: update thought stream (not assistant stream)
 			if c.screenActive {
-				c.updateScreenAssistantStream(strings.Join(append(reasoningChunks, answerChunks...), ""))
+				c.updateScreenThoughtStream(strings.Join(reasoningChunks, ""))
 			}
 		}
 		if chunk.Text != "" {
@@ -804,9 +945,17 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 			if suppressBody {
 				return
 			}
-			// If this is the first answer chunk, render separator
-			if !answerStarted && len(reasoningChunks) > 0 {
+			// If this is the first answer chunk, finalize thinking phase
+			if !answerStarted {
 				answerStarted = true
+				if len(reasoningChunks) > 0 {
+					// Store reasoning for toggle-after-stream
+					c.lastReasoningText = strings.Join(reasoningChunks, "")
+					// Screen mode: finalize thought stream
+					if c.screenActive {
+						c.finalizeScreenThoughtStream()
+					}
+				}
 				if c.Thinking != nil && !c.screenActive {
 					c.Thinking.StopThinking()
 					c.Thinking.ClearThinkingLine(c.Options.Out)
@@ -818,7 +967,7 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 				}
 			}
 			if c.screenActive {
-				c.updateScreenAssistantStream(strings.Join(append(reasoningChunks, answerChunks...), ""))
+				c.updateScreenAssistantStream(strings.Join(answerChunks, ""))
 			} else {
 				fmt.Fprint(c.Options.Out, chunk.Text)
 			}
@@ -831,11 +980,13 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 
 	c.Session.ApplyActualUsage(lastUsage)
 	c.Session.LastLatency = time.Since(start)
-	allChunks := append(reasoningChunks, answerChunks...)
-	if !suppressBody && !c.screenActive && len(allChunks) > 0 {
+	if !suppressBody && !c.screenActive && len(answerChunks) > 0 {
 		fmt.Fprintln(c.Options.Out)
 	}
-	c.emitRuntimeDone(c.Session.LastLatency)
+	// Clean up transient status entries (thinking, runtime, done)
+	if c.screenActive {
+		c.removeTransientScreenEntries()
+	}
 	c.emitThought(c.Session.LastLatency)
 
 	if err != nil {
@@ -844,19 +995,22 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 		if c.screenActive {
 			c.finalizeScreenAssistantStream(reply, true)
 		} else {
-			c.emitAssistant("MIMO", reply, true)
+			c.emitAssistant("MimoNeko", reply, true)
+		}
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotError)
 		}
 		c.emitBuildBadge(c.Session.LastLatency)
 		return
 	}
 
 	streamedReply := ""
-	if len(allChunks) > 0 {
-		streamedReply = SanitizeOutput(strings.Join(allChunks, ""))
+	if len(answerChunks) > 0 {
+		streamedReply = SanitizeOutput(strings.Join(answerChunks, ""))
 	}
 	saveSource := result.Response
-	if strings.TrimSpace(saveSource) == "" && len(allChunks) > 0 {
-		saveSource = strings.Join(allChunks, "")
+	if strings.TrimSpace(saveSource) == "" && len(answerChunks) > 0 {
+		saveSource = strings.Join(answerChunks, "")
 	}
 	reply := SanitizeOutput(result.Response)
 	if reply == "" && streamedReply != "" {
@@ -876,7 +1030,10 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 		if c.screenActive {
 			c.finalizeScreenAssistantStream(reply, true)
 		} else {
-			c.emitAssistant("MIMO", reply, true)
+			c.emitAssistant("MimoNeko", reply, true)
+		}
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotError)
 		}
 	} else {
 		c.Session.AddAssistantMemory(reply)
@@ -884,10 +1041,13 @@ func (c *Console) chatMessageStream(ctx context.Context, chatReq ChatRequest, st
 		c.addToChatHistory("assistant", reply)
 		if c.screenActive {
 			c.finalizeScreenAssistantStream(reply, false)
-		} else if suppressBody || len(allChunks) == 0 {
-			c.emitAssistant("MIMO", reply, false)
+		} else if suppressBody || len(answerChunks) == 0 {
+			c.emitAssistant("MimoNeko", reply, false)
 		} else if reply != streamedReply {
 			c.emitOutput(strings.TrimSpace(strings.TrimPrefix(reply, streamedReply)))
+		}
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotSuccess)
 		}
 	}
 	c.emitBuildBadge(c.Session.LastLatency)
@@ -904,7 +1064,10 @@ func (c *Console) chatMessageSync(ctx context.Context, chatReq ChatRequest, star
 	if err != nil {
 		reply := fmt.Sprintf("I could not reach the chat model yet: %s\nUse /run <goal> for agent work, or /model to inspect provider status.", SanitizeOutput(err.Error()))
 		c.Session.AddAssistantMemory(reply)
-		c.emitAssistant("MIMO", reply, true)
+		c.emitAssistant("MimoNeko", reply, true)
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotError)
+		}
 		c.emitBuildBadge(c.Session.LastLatency)
 		return
 	}
@@ -920,12 +1083,18 @@ func (c *Console) chatMessageSync(ctx context.Context, chatReq ChatRequest, star
 	}
 	if replyIsError {
 		c.Session.AddAssistantMemory(reply)
-		c.emitAssistant("MIMO", reply, true)
+		c.emitAssistant("MimoNeko", reply, true)
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotError)
+		}
 	} else {
 		c.Session.AddAssistantMemory(reply)
 		c.addToChatHistory("user", chatReq.Message)
 		c.addToChatHistory("assistant", reply)
-		c.emitAssistant("MIMO", reply, false)
+		c.emitAssistant("MimoNeko", reply, false)
+		if c.Mascot != nil {
+			c.Mascot.SetState(branding.MascotSuccess)
+		}
 	}
 	c.emitBuildBadge(c.Session.LastLatency)
 }

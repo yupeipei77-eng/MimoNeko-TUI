@@ -1,6 +1,6 @@
 # internal/server
 
-`internal/server` implements the local Web Dashboard for NekoMIMO.
+`internal/server` implements the local Web Dashboard for MimoNeko.
 
 The package is intentionally small and read-only:
 
@@ -15,7 +15,7 @@ The package is intentionally small and read-only:
 Default CLI entrypoint:
 
 ```sh
-NekoMIMO serve
+MimoNeko serve
 ```
 
 Default listen address:

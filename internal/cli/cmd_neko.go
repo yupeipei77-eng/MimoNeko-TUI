@@ -136,13 +136,17 @@ func (c *NekoCommand) Run(args []string, env Env) int {
 			return neko.ChatResult{}, err
 		}
 		return neko.ChatResult{
-			Response: result.Response,
+			Response:  result.Response,
+			Reasoning: result.Reasoning,
 			Usage: neko.Usage{
-				InputTokens:  result.PromptTokens,
-				CachedTokens: result.CachedTokens,
-				OutputTokens: result.CompletionTokens,
-				TotalTokens:  result.TotalTokens,
-				Estimated:    result.TotalTokens == 0 || !result.CachedTokensKnown,
+				InputTokens:      result.PromptTokens,
+				CachedTokens:     result.CachedTokens,
+				CacheHitTokens:   result.CacheHitTokens,
+				CacheMissTokens:  result.CacheMissTokens,
+				NativeCacheKnown: result.NativeCacheKnown,
+				OutputTokens:     result.CompletionTokens,
+				TotalTokens:      result.TotalTokens,
+				Estimated:        result.TotalTokens == 0 || !result.CachedTokensKnown,
 			},
 		}, nil
 	}
@@ -183,13 +187,17 @@ func (c *NekoCommand) Run(args []string, env Env) int {
 		}
 
 		return neko.ChatResult{
-			Response: result.Response,
+			Response:  result.Response,
+			Reasoning: result.Reasoning,
 			Usage: neko.Usage{
-				InputTokens:  result.PromptTokens,
-				CachedTokens: result.CachedTokens,
-				OutputTokens: result.CompletionTokens,
-				TotalTokens:  result.TotalTokens,
-				Estimated:    result.TotalTokens == 0 || !result.CachedTokensKnown,
+				InputTokens:      result.PromptTokens,
+				CachedTokens:     result.CachedTokens,
+				CacheHitTokens:   result.CacheHitTokens,
+				CacheMissTokens:  result.CacheMissTokens,
+				NativeCacheKnown: result.NativeCacheKnown,
+				OutputTokens:     result.CompletionTokens,
+				TotalTokens:      result.TotalTokens,
+				Estimated:        result.TotalTokens == 0 || !result.CachedTokensKnown,
 			},
 		}, nil
 	}

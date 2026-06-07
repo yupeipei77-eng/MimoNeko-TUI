@@ -348,9 +348,9 @@ func TestOpenAIProviderName(t *testing.T) {
 
 func TestParseUsageWithCachedTokens(t *testing.T) {
 	apiUsage := openAIUsage{
-		PromptTokens:     100,
-		CompletionTokens: 50,
-		TotalTokens:      150,
+		PromptTokens:        100,
+		CompletionTokens:    50,
+		TotalTokens:         150,
 		PromptTokensDetails: &promptTokensDetails{CachedTokens: 30},
 	}
 
@@ -361,6 +361,56 @@ func TestParseUsageWithCachedTokens(t *testing.T) {
 	}
 	if usage.Estimated != false {
 		t.Errorf("Estimated = %v, want false", usage.Estimated)
+	}
+}
+
+func TestParseMimoUsageWithNativeCacheTokens(t *testing.T) {
+	hit := 930
+	miss := 70
+	apiUsage := openAIUsage{
+		PromptTokens:          1000,
+		CompletionTokens:      50,
+		TotalTokens:           1050,
+		PromptCacheHitTokens:  &hit,
+		PromptCacheMissTokens: &miss,
+		PromptTokensDetails:   &promptTokensDetails{CachedTokens: 123},
+	}
+
+	usage := parseMimoUsage(apiUsage, 0)
+
+	if !usage.NativeCacheKnown {
+		t.Fatal("NativeCacheKnown = false, want true")
+	}
+	if usage.CacheHitTokens != 930 || usage.CacheMissTokens != 70 {
+		t.Fatalf("native cache = hit %d miss %d, want 930/70", usage.CacheHitTokens, usage.CacheMissTokens)
+	}
+	if usage.CachedTokens != 930 {
+		t.Fatalf("CachedTokens = %d, want native hit tokens 930", usage.CachedTokens)
+	}
+	if usage.Estimated {
+		t.Fatal("Estimated = true, want false")
+	}
+}
+
+func TestOpenAIParseUsageIgnoresMimoNativeCacheByDefault(t *testing.T) {
+	hit := 930
+	miss := 70
+	apiUsage := openAIUsage{
+		PromptTokens:          1000,
+		CompletionTokens:      50,
+		TotalTokens:           1050,
+		PromptCacheHitTokens:  &hit,
+		PromptCacheMissTokens: &miss,
+		PromptTokensDetails:   &promptTokensDetails{CachedTokens: 123},
+	}
+
+	usage := parseUsage(apiUsage, 0)
+
+	if usage.NativeCacheKnown {
+		t.Fatal("NativeCacheKnown = true, want false for non-MIMO parse")
+	}
+	if usage.CachedTokens != 123 {
+		t.Fatalf("CachedTokens = %d, want legacy cached_tokens 123", usage.CachedTokens)
 	}
 }
 
@@ -402,7 +452,7 @@ func TestOpenAIProviderDefaultMaxTokens(t *testing.T) {
 		resp := openAIResponse{
 			ID: "resp-default", Model: "m",
 			Choices: []openAIChoice{{Message: openAIChoiceMessage{Content: "ok"}}},
-			Usage: openAIUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+			Usage:   openAIUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -435,7 +485,7 @@ func TestOpenAIProviderConvertsBundleToMessages(t *testing.T) {
 		resp := openAIResponse{
 			ID: "resp-bundle", Model: "m",
 			Choices: []openAIChoice{{Message: openAIChoiceMessage{Content: "ok"}}},
-			Usage: openAIUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+			Usage:   openAIUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))

@@ -13,7 +13,7 @@
 - `ExecutablePath()` - Get current executable path
 - `ExecutableDir()` - Get directory containing executable
 - `ExeName()` - Get executable name (lowercase)
-- `IsNekoMIMOExe()` - Check if running as NekoMIMO
+- `IsMimoNekoExe()` - Check if running as MimoNeko
 - `IsNekoExe()` - Check if running as neko
 
 ### Path Functions
@@ -34,7 +34,7 @@
 - `EnvIsSet(key)` - Check if env is set
 - `APIKeyStatus(envVar)` - Check API key status
 - `ResolveAPIKey(envVar)` - Get API key value
-- `NekoRootFromEnv()` - Get NekoForge root from env
+- `NekoRootFromEnv()` - Get MimoNeko root from env
 
 ## Boundaries
 

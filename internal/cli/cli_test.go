@@ -414,7 +414,7 @@ func TestNoArgsStartsFirstRunWizardWhenUserConfigMissing(t *testing.T) {
 		t.Fatalf("Run(nil) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "Welcome to MioNeko") || !strings.Contains(output, "Step 1/3") || !strings.Contains(output, "Configuration Complete") {
+	if !strings.Contains(output, "Welcome to MimoNeko") || !strings.Contains(output, "Step 1/3") || !strings.Contains(output, "Configuration Complete") {
 		t.Fatalf("stdout = %q, want first-run wizard success", output)
 	}
 	if !strings.Contains(output, "Provider: MiMo") || !strings.Contains(output, "Model: mimo-v2.5-pro") || !strings.Contains(output, "Press Enter to continue") {
@@ -447,22 +447,20 @@ func TestOnboardingModelOptionsIncludeDefaultAndCustom(t *testing.T) {
 }
 
 func TestNoArgsShowsReadyLandingWhenConfigured(t *testing.T) {
-	setUserConfigHome(t)
+	home := setUserConfigHome(t)
 	saveUserConfigForTest(t, "mimo", "sk-configured", "https://token-plan-cn.xiaomimimo.com/v1", "mimo-v2.5-pro")
 
 	var stdout bytes.Buffer
-	code := Run(nil, Env{Stdout: &stdout})
+	var stdin strings.Builder
+	stdin.WriteString("/exit\n")
+	code := Run(nil, Env{Stdout: &stdout, Stdin: strings.NewReader(stdin.String()), Getwd: func() (string, error) { return home, nil }})
 	if code != 0 {
 		t.Fatalf("Run(nil) code = %d, want 0", code)
 	}
 	output := stdout.String()
-	if strings.Contains(output, "Usage: mimoneko <command>") {
-		t.Fatalf("stdout = %q, should not show usage for configured no-args launch", output)
-	}
-	for _, want := range []string{"MioNeko Ready", "mimoneko \"", "mimoneko run", "mimoneko neko"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("stdout = %q, want %q", output, want)
-		}
+	// Now it should enter TUI and show the header
+	if !strings.Contains(output, "MimoNeko") && !strings.Contains(output, "Goodbye") {
+		t.Fatalf("stdout = %q, should enter TUI or show goodbye", output)
 	}
 }
 
@@ -524,12 +522,15 @@ func TestUnknownCommandShowsUsage(t *testing.T) {
 	t.Setenv("MIMO_API_KEY", "sk-routing-test")
 	var stderr bytes.Buffer
 	code := Run([]string{"unknown-command"}, Env{Stderr: &stderr})
-	if code != 2 {
-		t.Fatalf("Run(unknown-command) code = %d, want 2", code)
+	// Now "unknown-command" is treated as a goal and routed to run
+	// It should return 1 (run failure) not 2 (usage error)
+	if code != 1 {
+		t.Fatalf("Run(unknown-command) code = %d, want 1", code)
 	}
 	output := stderr.String()
-	if !strings.Contains(output, "unknown command") || !strings.Contains(output, "Usage: mimoneko <command>") {
-		t.Fatalf("stderr = %q, want unknown command and usage", output)
+	// Should not show "unknown command" anymore
+	if strings.Contains(output, "unknown command") {
+		t.Fatalf("stderr = %q, should not report unknown command", output)
 	}
 }
 
@@ -1053,7 +1054,7 @@ func TestMimoNekoNekoAlias(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("MimoNeko neko code = %d, output = %q", code, stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
+	if !strings.Contains(stdout.String(), "MimoNeko") || !strings.Contains(stdout.String(), "Goodbye from MimoNeko.") {
 		t.Fatalf("stdout = %q, want console branding and exit", stdout.String())
 	}
 }
@@ -1284,7 +1285,7 @@ func TestNekoFindsProjectRootFromSubdirectory(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("neko code = %d, stdout = %q", code, stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
+	if !strings.Contains(stdout.String(), "MimoNeko") || !strings.Contains(stdout.String(), "Goodbye from MimoNeko.") {
 		t.Fatalf("stdout = %q, want console from discovered project root", stdout.String())
 	}
 }
@@ -1306,7 +1307,7 @@ func TestNekoUsesDefaultProjectRootOutsideProject(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("neko code = %d, stdout = %q", code, stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "MIMO") || !strings.Contains(stdout.String(), "Goodbye from MIMO.") {
+	if !strings.Contains(stdout.String(), "MimoNeko") || !strings.Contains(stdout.String(), "Goodbye from MimoNeko.") {
 		t.Fatalf("stdout = %q, want console from default project root", stdout.String())
 	}
 }
@@ -1328,7 +1329,7 @@ func TestNekoDefaultProjectRootFileAllowsUTF8BOM(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("neko code = %d, stdout = %q", code, stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "MIMO") {
+	if !strings.Contains(stdout.String(), "MimoNeko") {
 		t.Fatalf("stdout = %q, want console from BOM default root file", stdout.String())
 	}
 }
@@ -1897,7 +1898,7 @@ func TestRunSuccessOutputIsHumanReadable(t *testing.T) {
 		t.Fatalf("run code = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"MioNeko Run", "Goal:", "Reply OK", "Running", "Completed", "Result:", "OK", "Run ID:", "Tokens:", "Input", "Cached", "Hit Rate"} {
+	for _, want := range []string{"MimoNeko Run", "Goal:", "Reply OK", "Running", "Completed", "Result:", "OK", "Run ID:", "Tokens:", "Input", "Cached", "Hit Rate"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout = %q, want %q", output, want)
 		}

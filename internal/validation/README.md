@@ -1,6 +1,6 @@
 # validation
 
-Test validation runner for NekoMIMO.
+Test validation runner for MimoNeko.
 
 ## Responsibilities
 

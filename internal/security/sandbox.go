@@ -1,4 +1,4 @@
-// Package security provides path sandbox detection for MioNeko.
+// Package security provides path sandbox detection for MimoNeko.
 //
 // This file implements DETECTION ONLY. It does NOT:
 //   - Block or deny tool execution

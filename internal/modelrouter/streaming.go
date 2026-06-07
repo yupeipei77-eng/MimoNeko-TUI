@@ -2,7 +2,6 @@ package modelrouter
 
 import (
 	"context"
-	"strings"
 )
 
 // StreamChunk represents a single chunk of streamed model output.
@@ -102,17 +101,11 @@ func CollectStream(ctx context.Context, resp StreamResponse) (string, Usage, err
 	}
 }
 
-// accumulateChunk appends both Text and ReasoningText from a chunk,
-// preserving the chronological order in which they arrived.
+// accumulateChunk returns only the answer text from a chunk.
+// Reasoning text is intentionally excluded so it does not leak into
+// displayed responses or session memory.
 func accumulateChunk(chunk StreamChunk) string {
-	var sb strings.Builder
-	if chunk.ReasoningText != "" {
-		sb.WriteString(chunk.ReasoningText)
-	}
-	if chunk.Text != "" {
-		sb.WriteString(chunk.Text)
-	}
-	return sb.String()
+	return chunk.Text
 }
 
 // NopStreamCloser is a no-op WriteCloser for discarding stream output.

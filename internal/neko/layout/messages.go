@@ -3,9 +3,12 @@ package layout
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
-	"unicode"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
 const (
@@ -13,6 +16,8 @@ const (
 	DialogWidth   = 112
 	DialogPadding = (CanvasWidth - DialogWidth) / 2
 )
+
+var layoutANSIEscapePattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 type Message struct {
 	Role  string
@@ -107,7 +112,7 @@ func renderUserBlock(w io.Writer, text string, noColor bool) {
 func renderAssistantBlock(w io.Writer, role, text string, isError, noColor bool, delay time.Duration) {
 	indent := strings.Repeat(" ", DialogPadding)
 	innerWidth := DialogWidth - 2
-	label := emptyAs(role, "MIMO")
+	label := emptyAs(role, "MimoNeko")
 
 	// Assistant label with icon
 	if isError {
@@ -214,7 +219,7 @@ func (r InputRenderer) RenderPromptInput(w io.Writer) {
 		paintMuted(padRight("  "+meta, innerWidth), r.NoColor),
 		paintAccent("│", r.NoColor))
 
-	// Input line with prompt cursor
+	// Input line prompt.
 	promptSymbol := paintAccent("▸", r.NoColor)
 	fmt.Fprintf(w, "%s%s %s %s", indent,
 		paintAccent("│", r.NoColor),
@@ -319,23 +324,29 @@ func visibleLen(value string) int {
 func truncateToWidth(value string, width int) string {
 	var out strings.Builder
 	current := 0
-	for _, r := range value {
+	for i := 0; i < len(value); {
+		if escapeLen := layoutANSIEscapeLen(value, i); escapeLen > 0 {
+			out.WriteString(value[i : i+escapeLen])
+			i += escapeLen
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(value[i:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
 		rw := runeWidth(r)
 		if current+rw > width {
 			break
 		}
 		out.WriteRune(r)
 		current += rw
+		i += size
 	}
 	return out.String()
 }
 
 func terminalWidth(value string) int {
-	width := 0
-	for _, r := range value {
-		width += runeWidth(r)
-	}
-	return width
+	return runewidth.StringWidth(stripLayoutANSI(value))
 }
 
 func runeWidth(r rune) int {
@@ -345,25 +356,26 @@ func runeWidth(r rune) int {
 	if r < 0x20 || (r >= 0x7f && r < 0xa0) {
 		return 0
 	}
-	if isWideRune(r) {
-		return 2
-	}
-	return 1
+	return runewidth.RuneWidth(r)
 }
 
-func isWideRune(r rune) bool {
-	if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hangul, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) {
-		return true
+func stripLayoutANSI(value string) string {
+	if value == "" {
+		return ""
 	}
-	return (r >= 0x1100 && r <= 0x115f) ||
-		(r >= 0x2329 && r <= 0x232a) ||
-		(r >= 0x2e80 && r <= 0xa4cf) ||
-		(r >= 0xac00 && r <= 0xd7a3) ||
-		(r >= 0xf900 && r <= 0xfaff) ||
-		(r >= 0xfe10 && r <= 0xfe19) ||
-		(r >= 0xfe30 && r <= 0xfe6f) ||
-		(r >= 0xff00 && r <= 0xff60) ||
-		(r >= 0xffe0 && r <= 0xffe6)
+	return layoutANSIEscapePattern.ReplaceAllString(value, "")
+}
+
+func layoutANSIEscapeLen(value string, start int) int {
+	if start >= len(value) || value[start] != '\x1b' || start+1 >= len(value) || value[start+1] != '[' {
+		return 0
+	}
+	for i := start + 2; i < len(value) && i-start <= 32; i++ {
+		if value[i] >= 0x40 && value[i] <= 0x7e {
+			return i - start + 1
+		}
+	}
+	return 0
 }
 
 func emptyAs(value, fallback string) string {

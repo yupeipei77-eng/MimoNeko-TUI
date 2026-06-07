@@ -62,6 +62,11 @@ func readCacheObservationsAfter(path string, skip int) []cache.Observation {
 
 func sumCacheObservations(observations []cache.Observation) (inputTokens int, cachedTokens int) {
 	for _, obs := range observations {
+		if obs.NativeCacheKnown {
+			inputTokens += obs.CacheHitTokens + obs.CacheMissTokens
+			cachedTokens += obs.CacheHitTokens
+			continue
+		}
 		inputTokens += obs.InputTokens
 		cachedTokens += obs.CachedTokens
 	}

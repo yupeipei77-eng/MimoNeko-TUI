@@ -59,7 +59,7 @@ func FormatDryRunReport(report *AgentDryRunReport) string {
 	var buf strings.Builder
 
 	fmt.Fprintf(&buf, "╔══════════════════════════════════════════════════════════════╗\n")
-	fmt.Fprintf(&buf, "║              MioNeko Agent Dry Run Report                   ║\n")
+	fmt.Fprintf(&buf, "║             MimoNeko Agent Dry Run Report                   ║\n")
 	fmt.Fprintf(&buf, "╚══════════════════════════════════════════════════════════════╝\n")
 	fmt.Fprintf(&buf, "\n")
 

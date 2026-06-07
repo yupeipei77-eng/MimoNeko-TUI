@@ -78,13 +78,9 @@ func (ts *ThinkingState) RenderThinking(w io.Writer) {
 
 // renderThoughtsShown renders the thinking area with full text.
 func (ts *ThinkingState) renderThoughtsShown(w io.Writer, indent string) {
-	// Header
-	header := paintMuted("(思考中... 按 Ctrl+Shift+T 隐藏思考过程)", ts.NoColor)
-	fmt.Fprintf(w, "%s%s\n", indent, header)
-
 	// Thought lines
 	if len(ts.ThoughtText) == 0 {
-		fmt.Fprintf(w, "%s%s\n", indent, paintDim("› 等待思考内容...", ts.NoColor))
+		fmt.Fprintf(w, "%s%s\n", indent, paintMuted("thinking...", ts.NoColor))
 	} else {
 		for _, line := range ts.ThoughtText {
 			fmt.Fprintf(w, "%s%s\n", indent, paintDim("› "+line, ts.NoColor))
@@ -98,7 +94,7 @@ func (ts *ThinkingState) renderThoughtsShown(w io.Writer, indent string) {
 // renderThoughtsHidden renders the thinking area with dot animation.
 func (ts *ThinkingState) renderThoughtsHidden(w io.Writer, indent string) {
 	dots := ts.Animator.Dots()
-	status := paintMuted(fmt.Sprintf("(思考中...) %s", dots), ts.NoColor)
+	status := paintMuted(fmt.Sprintf("thinking%s", dots), ts.NoColor)
 	fmt.Fprintf(w, "%s%s\r", indent, status)
 }
 
@@ -159,7 +155,7 @@ func (da *DotAnimator) IsRunning() bool {
 // ThoughtToggleHint returns the toggle hint text.
 func ThoughtToggleHint(showThoughts bool, noColor bool) string {
 	if showThoughts {
-		return paintMuted("Thought shown · Ctrl+Shift+T 隐藏", noColor)
+		return paintMuted("Thought shown · Ctrl+T to hide", noColor)
 	}
-	return paintMuted("Thought hidden · Ctrl+Shift+T 显示", noColor)
+	return paintMuted("Thought hidden · Ctrl+T to show", noColor)
 }

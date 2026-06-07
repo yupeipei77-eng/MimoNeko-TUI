@@ -54,6 +54,9 @@ func (c *CacheReportCommand) Run(args []string, env Env) int {
 		{Key: "Total Requests", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalObservations)},
 		{Key: "Input Tokens", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalTokens)},
 		{Key: "Cached Tokens", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalCachedTokens)},
+		{Key: "MIMO Native Samples", Value: fmt.Sprintf("%d", report.GlobalSummary.NativeCacheObservations)},
+		{Key: "MIMO Cache Hit", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalCacheHitTokens)},
+		{Key: "MIMO Cache Miss", Value: fmt.Sprintf("%d", report.GlobalSummary.TotalCacheMissTokens)},
 		{Key: "Hit Rate", Value: percent(report.GlobalSummary.OverallHitRate)},
 		{Key: "Fingerprints", Value: fmt.Sprintf("%d", len(report.ByFingerprint))},
 	})
@@ -66,8 +69,8 @@ func (c *CacheReportCommand) Run(args []string, env Env) int {
 		}
 	}
 	fmt.Fprintln(env.Stdout)
-	PrintInfo(env.Stdout, "单次请求 CachedTokens=0 不代表缓存失败。")
-	PrintInfo(env.Stdout, "缓存通常需要多轮相似前缀才会命中。")
+	PrintInfo(env.Stdout, "MIMO hit rate uses prompt_cache_hit_tokens / (hit + miss) when available.")
+	PrintInfo(env.Stdout, "Other providers fall back to prompt_tokens_details.cached_tokens.")
 
 	return 0
 }

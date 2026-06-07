@@ -8,7 +8,7 @@ Model Router implements the routing layer between ContextEngine Bundles and mode
 - Select provider/model via configurable fallback chain.
 - Call providers through the `Provider` interface.
 - Record token usage into `cache.CacheRegistry` via `UsageToObservation`.
-- Expose `NekoMIMO models` CLI command output.
+- Expose `MimoNeko models` CLI command output.
 
 ## Boundaries
 

@@ -386,3 +386,33 @@ func TestMimoProviderParsesUsageWithCachedTokens(t *testing.T) {
 		t.Errorf("Estimated = %v, want false", resp.Usage.Estimated)
 	}
 }
+
+func TestMimoProviderParsesNativeCacheHitMissTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"resp-native-cache","model":"test-model","choices":[{"delta":{"content":"ok"}}],"usage":{"prompt_tokens":1000,"completion_tokens":50,"total_tokens":1050,"prompt_cache_hit_tokens":930,"prompt_cache_miss_tokens":70,"prompt_tokens_details":{"cached_tokens":123}}}`)
+	}))
+	defer server.Close()
+
+	os.Setenv("TEST_MIMO_NATIVE_CACHE_KEY", "sk-test")
+	defer os.Unsetenv("TEST_MIMO_NATIVE_CACHE_KEY")
+
+	p := NewMimoProvider("test", server.URL, "TEST_MIMO_NATIVE_CACHE_KEY", []string{"test-model"}, server.Client())
+
+	resp, err := p.Complete(context.Background(), CompletionRequest{
+		Model:  "test-model",
+		Bundle: makeTestBundle(),
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	if !resp.Usage.NativeCacheKnown {
+		t.Fatal("NativeCacheKnown = false, want true")
+	}
+	if resp.Usage.CacheHitTokens != 930 || resp.Usage.CacheMissTokens != 70 {
+		t.Fatalf("native cache = hit %d miss %d, want 930/70", resp.Usage.CacheHitTokens, resp.Usage.CacheMissTokens)
+	}
+	if resp.Usage.CachedTokens != 930 {
+		t.Fatalf("CachedTokens = %d, want native hit tokens 930", resp.Usage.CachedTokens)
+	}
+}

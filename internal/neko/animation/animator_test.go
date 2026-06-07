@@ -29,9 +29,9 @@ func TestMascotAnimationOnlyRedrawsHeader(t *testing.T) {
 	if !strings.Contains(seq, "\x1b[1;1H") {
 		t.Fatalf("redraw sequence = %q, want absolute header positioning", seq)
 	}
-	// New design includes cat mascot and MIMO brand (M is styled separately)
-	if !strings.Contains(seq, "IMO") {
-		t.Fatalf("redraw sequence = %q, want IMO brand", seq)
+	// New design includes cat mascot and MimoNeko brand.
+	if !strings.Contains(seq, "Mimo") || !strings.Contains(seq, "Neko") {
+		t.Fatalf("redraw sequence = %q, want MimoNeko brand", seq)
 	}
 	if strings.Contains(seq, "Assistant:") || strings.Contains(seq, "User:") {
 		t.Fatalf("redraw sequence touched message region: %q", seq)
@@ -53,9 +53,9 @@ func TestNoColorDisablesAnimation(t *testing.T) {
 	if strings.Contains(text, "\x1b[") {
 		t.Fatalf("no-color animation leaked ANSI: %q", text)
 	}
-	// New design includes MIMO brand (may appear as "MIMO" or split across styles)
-	if !strings.Contains(text, "MIMO") {
-		t.Fatalf("no-color startup should render header with MIMO brand, got %q", text)
+	// New design includes MimoNeko brand.
+	if !strings.Contains(text, "MimoNeko") {
+		t.Fatalf("no-color startup should render header with MimoNeko brand, got %q", text)
 	}
 }
 

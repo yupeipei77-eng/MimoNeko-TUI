@@ -18,6 +18,8 @@ import (
 //   - RequestID           <- request ID from provider
 //   - InputTokens         <- Usage.InputTokens (fallback: Bundle.Report.TotalTokens)
 //   - CachedTokens        <- Usage.CachedTokens (0 if missing)
+//   - CacheHitTokens      <- Usage.CacheHitTokens (MIMO native when available)
+//   - CacheMissTokens     <- Usage.CacheMissTokens (MIMO native when available)
 //   - ObservedAt          <- time.Now()
 //   - Estimated           <- Usage.Estimated
 //   - PrefixTokens        <- Bundle.Report.PrefixTokens
@@ -40,6 +42,9 @@ func UsageToObservation(usage Usage, bundle contextengine.Bundle, provider, mode
 		RequestID:          requestID,
 		InputTokens:        inputTokens,
 		CachedTokens:       usage.CachedTokens,
+		CacheHitTokens:     usage.CacheHitTokens,
+		CacheMissTokens:    usage.CacheMissTokens,
+		NativeCacheKnown:   usage.NativeCacheKnown,
 		ObservedAt:         time.Now(),
 		Estimated:          usage.Estimated,
 		PrefixTokens:       bundle.Report.PrefixTokens,

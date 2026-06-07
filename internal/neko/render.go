@@ -28,31 +28,14 @@ func HeaderDataFromSession(session Session) branding.HeaderData {
 
 func RenderHelp(w io.Writer, noColor bool) {
 	renderer := branding.NewRenderer(noColor)
-	fmt.Fprintln(w, renderer.Title("MIMO commands"))
+	fmt.Fprintln(w, renderer.Title("Commands"))
 	fmt.Fprintln(w, "plain text")
 	fmt.Fprintln(w, "  chat with the configured model")
-	fmt.Fprintln(w, "/help")
-	fmt.Fprintln(w, "/mode single")
-	fmt.Fprintln(w, "/mode multi")
-	fmt.Fprintln(w, "/model")
-	fmt.Fprintln(w, "/models")
-	fmt.Fprintln(w, "/model test")
-	fmt.Fprintln(w, "/model enrich")
-	fmt.Fprintln(w, "/reasoning")
-	fmt.Fprintln(w, "/reasoning low|medium|high")
-	fmt.Fprintln(w, "/agents")
-	fmt.Fprintln(w, "/new")
-	fmt.Fprintln(w, "/runs")
-	fmt.Fprintln(w, "/run <goal>")
-	fmt.Fprintln(w, "  execute an agent task")
-	fmt.Fprintln(w, "/preview <worktree_id>")
-	fmt.Fprintln(w, "/review <worktree_id>")
-	fmt.Fprintln(w, "/discard <worktree_id>")
-	fmt.Fprintln(w, "ctrl+p")
-	fmt.Fprintln(w, "  cycle reasoning when the current model supports it")
 	fmt.Fprintln(w, "/")
 	fmt.Fprintln(w, "  command palette")
-	fmt.Fprintln(w, "/exit")
+	for _, item := range commandPaletteItems() {
+		fmt.Fprintf(w, "%-10s %s\n", item.Command, item.Help)
+	}
 }
 
 func RenderCommandPalette(w io.Writer, session Session) {
@@ -74,27 +57,19 @@ func RenderCommandPalette(w io.Writer, session Session) {
 type commandPaletteItem struct {
 	Command string
 	Help    string
+	Section string
 }
 
 func commandPaletteItems() []commandPaletteItem {
 	return []commandPaletteItem{
-		{"/run <goal>", "run agent task"},
-		{"/agents", "switch agent mode"},
-		{"/agents single", "single-agent dry run"},
-		{"/agents multi", "multi-agent worktree build"},
-		{"/models", "inspect model/provider"},
-		{"/models <name>", "switch model"},
-		{"/reasoning", "cycle reasoning level"},
-		{"/panel diff", "show diff panel"},
-		{"/panel editor", "show editor panel"},
-		{"/panel off", "hide panel"},
-		{"/new", "new session"},
-		{"/preview <worktree_id>", "patch preview"},
-		{"/review <worktree_id>", "patch review"},
-		{"/discard <worktree_id>", "discard worktree"},
-		{"/runs", "recent runs"},
-		{"/help", "help"},
-		{"/exit", "quit"},
+		{Command: "/agents", Help: "Switch agent", Section: "Suggested"},
+		{Command: "/models", Help: "Switch model", Section: "Suggested"},
+		{Command: "/connect", Help: "Connect provider", Section: "Suggested"},
+		{Command: "/diff", Help: "Open diff viewer", Section: "Workspace"},
+		{Command: "/editor", Help: "Open editor", Section: "Workspace"},
+		{Command: "/new", Help: "New session", Section: "Session"},
+		{Command: "/help", Help: "Help", Section: "Session"},
+		{Command: "/exit", Help: "Exit the app", Section: "Session"},
 	}
 }
 
@@ -124,8 +99,7 @@ func RenderAgents(w io.Writer, session Session) {
 		Help string
 	}{
 		{"Build", "multi", "multi-agent worktree build"},
-		{"Single", "single", "single-agent dry run"},
-		{"Review", "review", "patch review via /review"},
+		{"Single", "single", "single-agent direct chat"},
 	}
 	for _, agent := range agents {
 		selected := ""
@@ -136,7 +110,6 @@ func RenderAgents(w io.Writer, session Session) {
 		}
 		fmt.Fprintf(w, "%s%-10s %s\n", renderer.Accent(selected), agent.Name, renderer.Muted(agent.Help))
 	}
-	fmt.Fprintln(w, renderer.Muted("Use /agents single or /agents multi."))
 	fmt.Fprintln(w)
 }
 

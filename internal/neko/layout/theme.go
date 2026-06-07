@@ -12,9 +12,9 @@ const (
 	ansiGreen    = "\x1b[38;5;114m" // Soft green - success
 	ansiErrorRed = "\x1b[38;5;203m" // Soft red - errors
 	ansiWarning  = "\x1b[38;5;221m" // Warm yellow - warnings
-	ansiInfo     = "\x1b[38;5;111m" // Soft blue - info
-	ansiCyan     = "\x1b[38;5;116m" // Soft cyan - user accent
-	ansiPurple   = "\x1b[38;5;141m" // Soft purple - highlights
+	ansiInfo     = "\x1b[38;5;180m" // Muted warm info
+	ansiCyan     = "\x1b[38;5;215m" // Warm peach user accent
+	ansiPurple   = "\x1b[38;5;216m" // Warm peach highlights
 	ansiPanel    = "\x1b[48;5;236m" // Dark panel background
 	ansiPanelLight = "\x1b[48;5;238m" // Lighter panel for user messages
 	ansiBorder   = "\x1b[38;5;240m" // Dark gray for borders

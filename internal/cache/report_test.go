@@ -53,6 +53,38 @@ func TestReportPartialHit(t *testing.T) {
 	}
 }
 
+func TestReportUsesNativeCacheHitMissWhenKnown(t *testing.T) {
+	observations := []Observation{
+		{
+			Fingerprint:      prefix.Fingerprint{SHA256: "mimo-hash"},
+			InputTokens:      2000,
+			CachedTokens:     10,
+			CacheHitTokens:   900,
+			CacheMissTokens:  100,
+			NativeCacheKnown: true,
+			Provider:         "mimo",
+			Model:            "mimo-v2.5-pro",
+			ObservedAt:       time.Now(),
+		},
+	}
+
+	report := buildReport(observations, time.Now())
+	fp := report.ByFingerprint[0]
+
+	if fp.TotalTokens != 1000 {
+		t.Fatalf("TotalTokens = %d, want hit+miss 1000", fp.TotalTokens)
+	}
+	if fp.CacheHitTokens != 900 || fp.CacheMissTokens != 100 {
+		t.Fatalf("native cache = hit %d miss %d, want 900/100", fp.CacheHitTokens, fp.CacheMissTokens)
+	}
+	if fp.HitRate != 0.9 {
+		t.Fatalf("HitRate = %f, want 0.9", fp.HitRate)
+	}
+	if report.GlobalSummary.NativeCacheObservations != 1 {
+		t.Fatalf("NativeCacheObservations = %d, want 1", report.GlobalSummary.NativeCacheObservations)
+	}
+}
+
 func TestReportMissNoPriorObservation(t *testing.T) {
 	observations := []Observation{
 		{Fingerprint: prefix.Fingerprint{SHA256: "hash1"}, InputTokens: 1000, CachedTokens: 0, Provider: "p1", Model: "m1", ObservedAt: time.Now()},

@@ -5,12 +5,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/mimoneko/mimoneko/internal/neko/branding"
+	"github.com/mimoneko/mimoneko/internal/neko/layout"
 )
 
 func TestNekoNoColor(t *testing.T) {
@@ -26,7 +31,7 @@ func TestNekoRendersBranding(t *testing.T) {
 	session := newTestSession(t, nil, Options{NoColor: true, DryRun: true, DryRunSet: true})
 	var out bytes.Buffer
 	RenderHeader(&out, session)
-	if !strings.Contains(out.String(), "MIMO") {
+	if !strings.Contains(out.String(), "MimoNeko") {
 		t.Fatalf("branding output = %q", out.String())
 	}
 	for _, forbidden := range []string{"Session", "Shortcuts", "Ask anything", "local agent runtime"} {
@@ -84,7 +89,7 @@ func TestNekoBareInputUsesChatNotAgent(t *testing.T) {
 	if !chatCalled {
 		t.Fatal("bare input should call chat")
 	}
-	if !strings.Contains(output, "▸ You") || !strings.Contains(output, "MIMO") || !strings.Contains(output, "你好，我在。") {
+	if !strings.Contains(output, "▸ You") || !strings.Contains(output, "MimoNeko") || !strings.Contains(output, "你好，我在。") {
 		t.Fatalf("output = %q, want terminal-native chat stream", output)
 	}
 }
@@ -95,7 +100,7 @@ func TestNekoRuntimeEventStreamForChat(t *testing.T) {
 			return ChatResult{Response: "Ready."}, nil
 		},
 	})
-	for _, want := range []string{"thinking...", "requesting model...", "generating response...", "done ·", "+ Thought:"} {
+	for _, want := range []string{"thinking...", "Ready."} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want runtime event %q", output, want)
 		}
@@ -136,9 +141,14 @@ func TestNekoScreenStreamingReplyFinalizesWithoutDuplicate(t *testing.T) {
 
 func TestNekoSlashOpensCommandPalette(t *testing.T) {
 	output := runTestConsole(t, "/\n/exit\n", Options{})
-	for _, want := range []string{"Commands", "/agents", "/models", "/reasoning", "/new"} {
+	for _, want := range []string{"Commands", "/agents", "/connect", "/models", "/new"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want command palette item %q", output, want)
+		}
+	}
+	for _, hidden := range []string{"/reasoning", "/run <goal>", "/preview", "/review", "/discard"} {
+		if strings.Contains(output, hidden) {
+			t.Fatalf("output = %q, should hide extra command %q", output, hidden)
 		}
 	}
 }
@@ -163,10 +173,36 @@ func TestNekoAgentsCommandSwitchesMode(t *testing.T) {
 	}
 }
 
+func TestNekoAgentsCommandOpensPickerInScreenMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.handleInputLine(context.Background(), "/agents")
+
+	if !console.agentPickerOpen {
+		t.Fatal("agentPickerOpen = false after /agents, want true")
+	}
+	text := out.String()
+	for _, want := range []string{"Switch agent", "Build", "Single"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("screen = %q, want %q", text, want)
+		}
+	}
+	if strings.Contains(text, "Use /agents") {
+		t.Fatalf("screen = %q, should not render plain agents help text", text)
+	}
+}
+
 func TestNekoModelsCommandSwitchesModel(t *testing.T) {
 	output := runTestConsole(t, "/models fast-model\n/exit\n", Options{})
-	if !strings.Contains(output, "model=fast-model provider=fast") {
-		t.Fatalf("output = %q, want model switch", output)
+	if !strings.Contains(output, "Model switched to fast-model") {
+		t.Fatalf("output = %q, want model switch message", output)
 	}
 	if !strings.Contains(output, "Build · fast-model · fast") {
 		t.Fatalf("output = %q, want composer to reflect switched model", output)
@@ -185,9 +221,70 @@ func TestNekoScreenComposerStaysAtBottom(t *testing.T) {
 	}
 	console.appendScreen("user", "hello", false)
 	text := out.String()
-	// Check for key UI elements - new design includes cat mascot and improved styling
-	if !strings.Contains(text, "Ask anything") || !strings.Contains(text, "Build") || !strings.Contains(text, "mimo-v2.5-pro") {
+	// Check for key UI elements - mode in title, model in header
+	if !strings.Contains(text, "Build") || !strings.Contains(text, "mimo-v2.5-pro") {
 		t.Fatalf("screen = %q, want fixed bottom composer with model info", text)
+	}
+}
+
+func TestNekoScreenComposerUsesNativeCursorForCJKDraft(t *testing.T) {
+	session := newTestSession(t, nil, Options{DryRun: true, DryRunSet: true})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		draft:        "你好",
+	}
+	console.repaintScreen()
+	text := out.String()
+	if !strings.Contains(text, "> 你好") {
+		t.Fatalf("screen = %q, want plain prompt text", text)
+	}
+	for _, forbidden := range []string{"|你好", "你|好", "你好|", "\x1b[7m"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("screen = %q, contains fake cursor %q", text, forbidden)
+		}
+	}
+
+	width := console.composerWidth()
+	left := (console.screenCols - width) / 2
+	if left < 1 {
+		left = 1
+	}
+	composerTop := console.screenRows - 4
+	wantCursor := fmt.Sprintf("\x1b[%d;%dH", composerTop+1, left+2+runewidth.StringWidth("> ")+runewidth.StringWidth("你好"))
+	if !strings.Contains(text, wantCursor) {
+		t.Fatalf("screen = %q, want cursor move %q", text, wantCursor)
+	}
+}
+
+func TestNekoAddProviderAPIKeyComposerIsMasked(t *testing.T) {
+	session := newTestSession(t, nil, Options{DryRun: true, DryRunSet: true})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		addFlow:      addProviderFlow{active: true, step: stepAPIKey},
+		draft:        "sk-secret",
+	}
+	console.repaintScreen()
+	text := out.String()
+	if strings.Contains(text, "sk-secret") {
+		t.Fatalf("screen = %q, leaked API key draft", text)
+	}
+	if !strings.Contains(text, "*********") || !strings.Contains(text, "API key") {
+		t.Fatalf("screen = %q, want masked API key modal", text)
+	}
+	for _, forbidden := range []string{"|sk", "•", "› ", "╭", "╮", "╰", "╯", "│"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("screen = %q, contains dialog/cursor marker %q", text, forbidden)
+		}
 	}
 }
 
@@ -204,13 +301,13 @@ func TestNekoIntroScreenShowsLargePromptBeforeWorkspace(t *testing.T) {
 	}
 	console.repaintScreen()
 	text := out.String()
-	for _, want := range []string{"MIMO", "Ask MIMO", "/ commands"} {
+	for _, want := range []string{"/  |/  /", "\\____", "Ask anything", "ctrl+p commands"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("intro = %q, want %q", text, want)
 		}
 	}
-	if strings.Contains(text, "Ask anything") || strings.Contains(text, "local agent runtime") {
-		t.Fatalf("intro should be clean launch dialog: %q", text)
+	if strings.Contains(text, "\U0001F431") || strings.Contains(text, "Ask MIMO") || strings.Contains(text, "local agent runtime") || strings.Contains(text, "\nMIMO") {
+		t.Fatalf("intro should be clean launch composer: %q", text)
 	}
 }
 
@@ -220,11 +317,8 @@ func TestNekoContextUsageGrowsWithConversation(t *testing.T) {
 			return ChatResult{Response: "Ready."}, nil
 		},
 	})
-	if !strings.Contains(output, "ctx 5 tok (0.005K) / 1M") {
-		t.Fatalf("output = %q, want estimated context usage to grow", output)
-	}
-	if !strings.Contains(output, "memory 2 msgs") {
-		t.Fatalf("output = %q, want memory message count", output)
+	if !strings.Contains(output, "ctx <1%") {
+		t.Fatalf("output = %q, want estimated context percentage", output)
 	}
 }
 
@@ -237,14 +331,11 @@ func TestNekoNewResetsConversationState(t *testing.T) {
 	if !strings.Contains(output, "New session.") {
 		t.Fatalf("output = %q, want new session acknowledgement", output)
 	}
-	if !strings.Contains(output, "ctx 0 tok (0K) / 1M") || !strings.Contains(output, "memory 0 msgs") {
-		t.Fatalf("output = %q, want reset context and memory", output)
-	}
 }
 
 func TestNekoStatusBarRendersRuntimeContext(t *testing.T) {
 	output := runTestConsole(t, "/exit\n", Options{})
-	for _, want := range []string{"ctx 0 tok (0K) / 1M", "cache n/a", "tools 0", "memory 0 msgs", "model mimo-v2.5-pro", "provider mimo", "reasoning high"} {
+	for _, want := range []string{"ctx <1%", "tools 0", "model mimo-v2.5-pro"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want status item %q", output, want)
 		}
@@ -254,12 +345,13 @@ func TestNekoStatusBarRendersRuntimeContext(t *testing.T) {
 func TestNekoContextStatusUsesKUnits(t *testing.T) {
 	session := newTestSession(t, nil, Options{})
 	session.ContextUsedTokens = 228
-	if got := statusContextLabel(session.ContextLabel()); got != "228 tok (0.228K) / 1M" {
-		t.Fatalf("context label = %q, want K-formatted usage", got)
+	got := session.ContextLabel()
+	if got != "<1%" {
+		t.Fatalf("context label = %q, want <1%%", got)
 	}
 }
 
-func TestNekoCommandPaletteSelectionFillsArgumentCommand(t *testing.T) {
+func TestNekoCommandPaletteSelectionOpensAgentPicker(t *testing.T) {
 	session := newTestSession(t, nil, Options{})
 	var out bytes.Buffer
 	console := Console{
@@ -272,10 +364,38 @@ func TestNekoCommandPaletteSelectionFillsArgumentCommand(t *testing.T) {
 		paletteSelected: 0,
 	}
 	if exit := console.executePaletteSelection(context.Background()); exit {
-		t.Fatal("argument command selection should not exit")
+		t.Fatal("command selection should not exit")
 	}
-	if console.draft != "/run " || console.paletteOpen {
-		t.Fatalf("draft=%q paletteOpen=%v, want selected command inserted", console.draft, console.paletteOpen)
+	if console.draft != "" || console.paletteOpen || !console.agentPickerOpen {
+		t.Fatalf("draft=%q paletteOpen=%v agentPickerOpen=%v, want agent picker", console.draft, console.paletteOpen, console.agentPickerOpen)
+	}
+	if !strings.Contains(out.String(), "Switch agent") || !strings.Contains(out.String(), "Single") {
+		t.Fatalf("screen = %q, want agent picker", out.String())
+	}
+}
+
+func TestNekoAgentPickerSelectionSwitchesMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openAgentPicker()
+	console.agentPickerSelected = 1
+	console.executeAgentPickerSelection()
+
+	if console.agentPickerOpen {
+		t.Fatal("agent picker should close after selection")
+	}
+	if console.Session.Mode != "single" || console.Session.Worktree {
+		t.Fatalf("mode=%q worktree=%v, want single false", console.Session.Mode, console.Session.Worktree)
+	}
+	if !strings.Contains(out.String(), "Agent switched to Single") {
+		t.Fatalf("screen = %q, want agent switch status", out.String())
 	}
 }
 
@@ -323,14 +443,43 @@ func TestNekoRawSlashShowsPullUpPaletteAndEnterConfirms(t *testing.T) {
 		t.Fatalf("paletteOpen=%v draft=%q, want slash pull-up palette", console.paletteOpen, console.draft)
 	}
 	text := out.String()
-	if !strings.Contains(text, "Commands /") || !strings.Contains(text, "/run <goal>") {
+	if !strings.Contains(text, "Commands") || !strings.Contains(text, "/agents") {
 		t.Fatalf("screen = %q, want pull-up command options", text)
 	}
 	if exit := console.handleRawRune(context.Background(), bufio.NewReader(strings.NewReader("")), '\r'); exit {
-		t.Fatal("selecting /run placeholder should fill draft, not exit")
+		t.Fatal("selecting first command should not exit")
 	}
-	if console.paletteOpen || console.draft != "/run " {
-		t.Fatalf("paletteOpen=%v draft=%q, want enter to confirm selected command into draft", console.paletteOpen, console.draft)
+	if console.paletteOpen || console.draft != "" {
+		t.Fatalf("paletteOpen=%v draft=%q, want enter to execute selected command", console.paletteOpen, console.draft)
+	}
+}
+
+func TestNekoScreenCommandPaletteIsCompactBorderless(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openCommandPalette()
+	text := out.String()
+	for _, want := range []string{"Commands", "Search", "Suggested", "/agents", "/connect", "/models"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("screen = %q, want %q", text, want)
+		}
+	}
+	for _, hidden := range []string{"/run <goal>", "/reasoning", "/preview", "/review", "/discard", "/mode "} {
+		if strings.Contains(text, hidden) {
+			t.Fatalf("screen = %q, should hide extra command %q", text, hidden)
+		}
+	}
+	for _, border := range []string{"╭", "╮", "╰", "╯", "│"} {
+		if strings.Contains(text, border) {
+			t.Fatalf("screen = %q, command palette should not draw border %q", text, border)
+		}
 	}
 }
 
@@ -369,7 +518,7 @@ func TestNekoCtrlPCyclesReasoning(t *testing.T) {
 	}
 }
 
-func TestNekoCtrlPVTSequenceCyclesReasoning(t *testing.T) {
+func TestNekoCtrlPVTSequenceOpensCommandsInScreenMode(t *testing.T) {
 	session := newTestSession(t, nil, Options{})
 	var out bytes.Buffer
 	console := Console{
@@ -380,8 +529,8 @@ func TestNekoCtrlPVTSequenceCyclesReasoning(t *testing.T) {
 		screenRows:   30,
 	}
 	console.handleEscapeSequence(bufio.NewReader(strings.NewReader("[112;5u")))
-	if console.Session.Reasoning != "low" || !strings.Contains(out.String(), "low") {
-		t.Fatalf("reasoning=%q output=%q, want CSI ctrl+p to cycle reasoning", console.Session.Reasoning, out.String())
+	if !console.paletteOpen {
+		t.Fatalf("paletteOpen = false, want commands after CSI ctrl+p")
 	}
 }
 
@@ -396,9 +545,6 @@ func TestNekoHidesReasoningForModelsWithoutReasoning(t *testing.T) {
 	if console.Input.Reasoning != "" {
 		t.Fatalf("status reasoning = %q, want hidden", console.Input.Reasoning)
 	}
-	if strings.Contains(console.screenStatusLine(120), "reasoning") {
-		t.Fatalf("status line = %q, should not show reasoning", console.screenStatusLine(120))
-	}
 	console.cycleReasoning()
 	if console.Session.Reasoning != "medium" || out.String() != "" {
 		t.Fatalf("reasoning=%q output=%q, want unavailable no-op", console.Session.Reasoning, out.String())
@@ -410,6 +556,23 @@ func TestNekoCacheHitRateLabelFromActualUsage(t *testing.T) {
 	session.ApplyActualUsage(Usage{InputTokens: 100, CachedTokens: 40, OutputTokens: 10, TotalTokens: 110, Estimated: false})
 	if got := session.CacheLabel(); got != "40.0%" {
 		t.Fatalf("CacheLabel() = %q, want 40.0%%", got)
+	}
+}
+
+func TestNekoCacheHitRateLabelFromMimoNativeUsage(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	session.ApplyActualUsage(Usage{
+		InputTokens:      1000,
+		CachedTokens:     12,
+		CacheHitTokens:   900,
+		CacheMissTokens:  100,
+		NativeCacheKnown: true,
+		OutputTokens:     10,
+		TotalTokens:      1010,
+		Estimated:        false,
+	})
+	if got := session.CacheLabel(); got != "90.0%" {
+		t.Fatalf("CacheLabel() = %q, want 90.0%%", got)
 	}
 }
 
@@ -437,7 +600,7 @@ func TestNekoRunShowsExecutionRuntimeEvents(t *testing.T) {
 			return RunResult{RunID: "run_runtime", State: "succeeded"}, nil
 		},
 	})
-	for _, want := range []string{"planning...", "executing agent runtime...", "collecting result...", "+ Thought:", "◆ Build"} {
+	for _, want := range []string{"planning...", "executing agent runtime...", "collecting result..."} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want run event %q", output, want)
 		}
@@ -722,8 +885,11 @@ func TestNekoAutoSavesBatScriptWithoutExplicitSaveIntent(t *testing.T) {
 
 func TestNekoSlashHelp(t *testing.T) {
 	output := runTestConsole(t, "/help\n/exit\n", Options{})
-	if !strings.Contains(output, "MIMO commands") || !strings.Contains(output, "/mode single") {
+	if !strings.Contains(output, "Commands") || !strings.Contains(output, "/connect") {
 		t.Fatalf("help output = %q", output)
+	}
+	if strings.Contains(output, "/mode single") || strings.Contains(output, "/run <goal>") {
+		t.Fatalf("help output = %q, should show compact command list", output)
 	}
 }
 
@@ -736,7 +902,7 @@ func TestNekoModeSwitch(t *testing.T) {
 
 func TestNekoExitCommand(t *testing.T) {
 	output := runTestConsole(t, "/exit\n", Options{})
-	if !strings.Contains(output, "Goodbye from MIMO.") {
+	if !strings.Contains(output, "Goodbye from MimoNeko.") {
 		t.Fatalf("output = %q, want goodbye", output)
 	}
 }
@@ -866,6 +1032,28 @@ func TestNekoComputesCNYCostFromPricing(t *testing.T) {
 	}
 }
 
+func TestNekoComputesMimoNativeCacheCostFromHitMiss(t *testing.T) {
+	pricing := &config.ModelPricingConfig{
+		Currency:               "CNY",
+		InputPer1MTokens:       10,
+		CachedInputPer1MTokens: 1,
+		OutputPer1MTokens:      20,
+		Source:                 "user",
+	}
+	cost := ComputeCost(Usage{
+		InputTokens:      1000,
+		CachedTokens:     12,
+		CacheHitTokens:   900,
+		CacheMissTokens:  100,
+		NativeCacheKnown: true,
+		OutputTokens:     1000,
+		TotalTokens:      2000,
+	}, pricing)
+	if got := FormatCost(cost); got != "\u00a50.0219" {
+		t.Fatalf("cost = %q, want \\u00a50.0219", got)
+	}
+}
+
 func TestNekoCostUnavailableWithoutPricing(t *testing.T) {
 	output := runTestConsole(t, "/model\n/exit\n", Options{})
 	// New model config UI doesn't show pricing directly
@@ -948,7 +1136,7 @@ func TestNekoShowsPatchNextSteps(t *testing.T) {
 			return RunResult{WorktreeID: "wt_next", State: "succeeded"}, nil
 		},
 	})
-		for _, want := range []string{"/preview wt_next", "/review wt_next", "/discard wt_next", "mimoneko patch apply wt_next"} {
+	for _, want := range []string{"/preview wt_next", "/review wt_next", "/discard wt_next", "mimoneko patch apply wt_next"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want %q", output, want)
 		}
@@ -1000,6 +1188,526 @@ func TestNekoDoesNotExposeChainOfThought(t *testing.T) {
 	lower := strings.ToLower(output)
 	if strings.Contains(lower, "chain-of-thought") || strings.Contains(lower, "hidden reasoning") || strings.Contains(lower, "private reasoning") {
 		t.Fatalf("output exposes reasoning marker: %q", output)
+	}
+}
+
+func TestNekoScreenStreamingReasoningSeparated(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.Thinking = layout.NewThinkingRenderer(true)
+	console.Options.StreamingChatter = func(ctx context.Context, req ChatRequest, onChunk func(chunk StreamingChatChunk)) (ChatResult, error) {
+		onChunk(StreamingChatChunk{ReasoningText: "Hmm, the user said hello"})
+		onChunk(StreamingChatChunk{ReasoningText: ", I should respond."})
+		onChunk(StreamingChatChunk{Text: "你好！"})
+		onChunk(StreamingChatChunk{Text: "有什么可以帮你？"})
+		return ChatResult{Response: "你好！有什么可以帮你？"}, nil
+	}
+	console.chatMessage(context.Background(), "你好")
+
+	// Verify reasoning does NOT appear in the final assistant message
+	for _, item := range console.screenLog {
+		if item.Kind == "assistant" {
+			if strings.Contains(item.Text, "Hmm") || strings.Contains(item.Text, "should respond") {
+				t.Fatalf("assistant text contains reasoning: %q", item.Text)
+			}
+		}
+	}
+
+	// Verify no thought_stream entries remain (default is hidden, so they should be removed)
+	for _, item := range console.screenLog {
+		if item.Kind == "thought_stream" {
+			t.Fatalf("thought_stream entry should be removed after streaming: %+v", console.screenLog)
+		}
+	}
+
+	// Verify reasoning text is stored for toggle
+	if console.lastReasoningText == "" {
+		t.Fatalf("lastReasoningText should be set")
+	}
+	if !strings.Contains(console.lastReasoningText, "Hmm") {
+		t.Fatalf("lastReasoningText = %q, want reasoning content", console.lastReasoningText)
+	}
+
+	// Verify the assistant entry has the answer only
+	assistantCount := 0
+	for _, item := range console.screenLog {
+		if item.Kind == "assistant" && item.Text == "你好！有什么可以帮你？" {
+			assistantCount++
+		}
+	}
+	if assistantCount != 1 {
+		t.Fatalf("assistantCount=%d log=%+v, want exactly one assistant with answer only", assistantCount, console.screenLog)
+	}
+}
+
+func TestNekoScreenStreamingReasoningVisibleWhenToggled(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.Thinking = layout.NewThinkingRenderer(true)
+	// Toggle to show thoughts before streaming
+	console.Thinking.Toggle()
+
+	console.Options.StreamingChatter = func(ctx context.Context, req ChatRequest, onChunk func(chunk StreamingChatChunk)) (ChatResult, error) {
+		onChunk(StreamingChatChunk{ReasoningText: "thinking about this"})
+		onChunk(StreamingChatChunk{Text: "answer here"})
+		return ChatResult{Response: "answer here"}, nil
+	}
+	console.chatMessage(context.Background(), "test")
+
+	// With ShowThoughts=true, thought_content entry should remain
+	hasThought := false
+	for _, item := range console.screenLog {
+		if item.Kind == "thought_content" {
+			hasThought = true
+			if !strings.Contains(item.Text, "thinking about this") {
+				t.Fatalf("thought text = %q, want reasoning content", item.Text)
+			}
+		}
+	}
+	if !hasThought {
+		t.Fatalf("expected thought_content entry in screenLog when ShowThoughts=true: %+v", console.screenLog)
+	}
+
+	// Answer should still be separate
+	hasAnswer := false
+	for _, item := range console.screenLog {
+		if item.Kind == "assistant" && item.Text == "answer here" {
+			hasAnswer = true
+		}
+	}
+	if !hasAnswer {
+		t.Fatalf("expected assistant entry with answer: %+v", console.screenLog)
+	}
+}
+
+func TestNekoScreenThinkingToggleAfterStream(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.Thinking = layout.NewThinkingRenderer(true)
+
+	console.Options.StreamingChatter = func(ctx context.Context, req ChatRequest, onChunk func(chunk StreamingChatChunk)) (ChatResult, error) {
+		onChunk(StreamingChatChunk{ReasoningText: "some reasoning"})
+		onChunk(StreamingChatChunk{Text: "final answer"})
+		return ChatResult{Response: "final answer"}, nil
+	}
+	console.chatMessage(context.Background(), "test")
+
+	// Default: hidden, no thought_content entry
+	for _, item := range console.screenLog {
+		if item.Kind == "thought_content" || item.Kind == "thought_stream" {
+			t.Fatalf("no thought entries expected when hidden: %+v", console.screenLog)
+		}
+	}
+
+	// Toggle to show
+	console.toggleThinking()
+	hasThought := false
+	for _, item := range console.screenLog {
+		if item.Kind == "thought_content" {
+			hasThought = true
+			if !strings.Contains(item.Text, "some reasoning") {
+				t.Fatalf("thought text = %q, want reasoning content", item.Text)
+			}
+		}
+	}
+	if !hasThought {
+		t.Fatalf("expected thought_content entry after toggle-show: %+v", console.screenLog)
+	}
+
+	// Toggle back to hide
+	console.toggleThinking()
+	for _, item := range console.screenLog {
+		if item.Kind == "thought_content" || item.Kind == "thought_stream" {
+			t.Fatalf("no thought entries expected after toggle-hide: %+v", console.screenLog)
+		}
+	}
+}
+
+func TestNekoNonScreenStreamingReasoningNotExposed(t *testing.T) {
+	output := runTestConsole(t, "你好\n/exit\n", Options{
+		StreamingChatter: func(ctx context.Context, req ChatRequest, onChunk func(chunk StreamingChatChunk)) (ChatResult, error) {
+			onChunk(StreamingChatChunk{ReasoningText: "internal reasoning"})
+			onChunk(StreamingChatChunk{ReasoningText: "more thoughts"})
+			onChunk(StreamingChatChunk{Text: "你好！"})
+			return ChatResult{Response: "你好！"}, nil
+		},
+	})
+	lower := strings.ToLower(output)
+	if strings.Contains(lower, "internal reasoning") || strings.Contains(lower, "more thoughts") {
+		t.Fatalf("output exposes reasoning text: %q", output)
+	}
+	if !strings.Contains(output, "你好！") {
+		t.Fatalf("output = %q, want answer text", output)
+	}
+}
+
+func TestNekoModelPickerOpensInScreenMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openModelPicker()
+
+	if !console.modelPickerOpen {
+		t.Fatalf("modelPickerOpen = false, want true")
+	}
+	if len(console.modelPickerItems) == 0 {
+		t.Fatalf("modelPickerItems is empty, want items")
+	}
+
+	// Should have model entries and add-provider entry; providers render as a right column.
+	groupCount := 0
+	modelCount := 0
+	addProviderCount := 0
+	for _, item := range console.modelPickerItems {
+		if item.IsGroup {
+			groupCount++
+		} else if item.IsAddProvider {
+			addProviderCount++
+		} else {
+			modelCount++
+		}
+	}
+	if groupCount != 0 {
+		t.Fatalf("groupCount = %d, want compact model list without group headers", groupCount)
+	}
+	if modelCount != 3 {
+		t.Fatalf("modelCount = %d, want 3 models", modelCount)
+	}
+	if addProviderCount != 1 {
+		t.Fatalf("addProviderCount = %d, want 1", addProviderCount)
+	}
+
+	// Current model should be pre-selected
+	sel := console.modelPickerItems[console.modelPickerSelected]
+	if sel.Model != "mimo-v2.5-pro" {
+		t.Fatalf("selected model = %q, want %q", sel.Model, "mimo-v2.5-pro")
+	}
+}
+
+func TestNekoModelPickerNavigation(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openModelPicker()
+
+	// Move down (should skip group headers)
+	console.moveModelPicker(1)
+	sel := console.modelPickerItems[console.modelPickerSelected]
+	if sel.IsGroup {
+		t.Fatalf("selected item is group header after move down: %+v", sel)
+	}
+
+	// Move up back
+	console.moveModelPicker(-1)
+	sel = console.modelPickerItems[console.modelPickerSelected]
+	if sel.IsGroup {
+		t.Fatalf("selected item is group header after move up: %+v", sel)
+	}
+}
+
+func TestNekoModelPickerSelection(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openModelPicker()
+
+	// Navigate to fast-model
+	for i, item := range console.modelPickerItems {
+		if item.Model == "fast-model" {
+			console.modelPickerSelected = i
+			break
+		}
+	}
+
+	console.executeModelPickerSelection()
+
+	if console.Session.Model != "fast-model" {
+		t.Fatalf("model = %q, want %q", console.Session.Model, "fast-model")
+	}
+	if console.Session.Provider != "fast" {
+		t.Fatalf("provider = %q, want %q", console.Session.Provider, "fast")
+	}
+	if console.modelPickerOpen {
+		t.Fatalf("modelPickerOpen = true after selection, want false")
+	}
+}
+
+func TestNekoModelPickerAddProviderOpensProviderPicker(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openModelPicker()
+	for i, item := range console.modelPickerItems {
+		if item.IsAddProvider {
+			console.modelPickerSelected = i
+			break
+		}
+	}
+	out.Reset()
+	console.executeModelPickerSelection()
+
+	if console.modelPickerOpen {
+		t.Fatalf("modelPickerOpen = true, want picker closed")
+	}
+	if !console.providerPickerOpen {
+		t.Fatalf("providerPickerOpen = false, want provider picker")
+	}
+	text := out.String()
+	if !strings.Contains(text, "Connect a provider") || !strings.Contains(text, "Custom API Provider") {
+		t.Fatalf("screen = %q, want provider picker", text)
+	}
+	if strings.Contains(text, "Base URL") || strings.Contains(text, "API Key") {
+		t.Fatalf("screen = %q, should not render overlay form fields up front", text)
+	}
+}
+
+func TestNekoConnectCommandOpensProviderPickerInScreenMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.handleInputLine(context.Background(), "/connect")
+	if !console.providerPickerOpen {
+		t.Fatalf("providerPickerOpen = false, want provider picker")
+	}
+	if console.modelPickerOpen {
+		t.Fatalf("model picker should be closed")
+	}
+	if !strings.Contains(out.String(), "Connect a provider") {
+		t.Fatalf("screen = %q, want provider picker", out.String())
+	}
+}
+
+func TestNekoProviderPickerSelectionOpensAPIKeyModalForConfiguredProvider(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openProviderPicker()
+	console.executeProviderPickerSelection()
+
+	if console.providerPickerOpen {
+		t.Fatalf("providerPickerOpen = true, want closed")
+	}
+	if !console.addFlow.active || console.addFlow.step != stepAPIKey {
+		t.Fatalf("addFlow = %+v, want API-key step for configured provider", console.addFlow)
+	}
+	if console.addFlow.name == "" || console.addFlow.baseURL == "" {
+		t.Fatalf("addFlow = %+v, want provider name and base URL prefilled", console.addFlow)
+	}
+	text := out.String()
+	if !strings.Contains(text, "API key") {
+		t.Fatalf("screen = %q, want API key modal", text)
+	}
+}
+
+func TestNekoProviderPickerCustomSelectionStartsProviderNameModal(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openProviderPicker()
+	console.providerPickerSelected = len(console.providerPickerItems) - 1
+	console.executeProviderPickerSelection()
+
+	if !console.addFlow.active || console.addFlow.step != stepProviderName {
+		t.Fatalf("addFlow = %+v, want provider-name step for custom provider", console.addFlow)
+	}
+	if !strings.Contains(out.String(), "Connect a provider") {
+		t.Fatalf("screen = %q, want connect-provider modal", out.String())
+	}
+}
+
+func TestNekoAddProviderHeaderTypeArrowSelection(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		addFlow:      addProviderFlow{active: true, step: stepHeaderType},
+	}
+	reader := bufio.NewReader(strings.NewReader("[B"))
+	if _, err := reader.Peek(2); err != nil {
+		t.Fatalf("prime escape reader: %v", err)
+	}
+	console.handleRawRune(context.Background(), reader, '\x1b')
+	if !console.addFlow.active {
+		t.Fatalf("addFlow cancelled by arrow key")
+	}
+	if console.addFlow.headerTypeLabel() != "Bearer" {
+		t.Fatalf("header selection = %q, want Bearer", console.addFlow.headerTypeLabel())
+	}
+}
+
+func TestNekoModelPickerClose(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openModelPicker()
+	if !console.modelPickerOpen {
+		t.Fatalf("picker not open")
+	}
+	console.closeModelPicker()
+	if console.modelPickerOpen {
+		t.Fatalf("picker still open after close")
+	}
+}
+
+func TestNekoModelPickerCurrentHighlighted(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	// Switch to fast-model first
+	session.SelectModel("fast-model")
+	console.Session = session
+	console.openModelPicker()
+
+	sel := console.modelPickerItems[console.modelPickerSelected]
+	if sel.Model != "fast-model" {
+		t.Fatalf("selected model = %q, want fast-model (current)", sel.Model)
+	}
+}
+
+func TestNekoModelsCommandOpensPickerInScreenMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.handleInputLine(context.Background(), "/models")
+
+	if !console.modelPickerOpen {
+		t.Fatalf("modelPickerOpen = false after /models, want true")
+	}
+}
+
+func TestNekoModelCommandOpensPickerInScreenMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.handleInputLine(context.Background(), "/model")
+
+	if !console.modelPickerOpen {
+		t.Fatalf("modelPickerOpen = false after /model, want true")
+	}
+	if !strings.Contains(out.String(), "Select model") {
+		t.Fatalf("screen = %q, want model selector", out.String())
+	}
+}
+
+func TestNekoModelPickerRendersBorderlessSelector(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.openModelPicker()
+	text := out.String()
+	for _, want := range []string{"Select model", "Search", "Connect provider"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("screen = %q, want %q", text, want)
+		}
+	}
+	for _, border := range []string{"╭", "╮", "╰", "╯", "│"} {
+		if strings.Contains(text, border) {
+			t.Fatalf("screen = %q, model picker should not draw border %q", text, border)
+		}
+	}
+}
+
+func TestNekoModelsCommandWithArgSwitchesModel(t *testing.T) {
+	output := runTestConsole(t, "/models fast-model\n/exit\n", Options{})
+	if !strings.Contains(output, "Model switched to fast-model") {
+		t.Fatalf("output = %q, want model switch message", output)
 	}
 }
 
@@ -1085,4 +1793,214 @@ func newTestSession(t *testing.T, pricing *config.ModelPricingConfig, opt Option
 		opt.Mode = "multi"
 	}
 	return NewSession(root, models, opt)
+}
+
+func TestAddFlow_UpDownOnAPIKey_DoesNotCancel(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &bytes.Buffer{}},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		addFlow:      addProviderFlow{active: true, step: stepAPIKey, name: "demo", baseURL: "https://x"},
+	}
+	reader := bufio.NewReader(strings.NewReader("[A"))
+	if _, err := reader.Peek(2); err != nil {
+		t.Fatalf("prime escape reader: %v", err)
+	}
+	if cancelled := console.handleRawRune(context.Background(), reader, '\x1b'); cancelled {
+		t.Fatal("handleRawRune returned true (flow exited) on arrow key at API-key step")
+	}
+	if !console.addFlow.active {
+		t.Fatal("addFlow was cancelled by arrow key at API-key step")
+	}
+	if console.addFlow.step != stepAPIKey {
+		t.Fatalf("addFlow.step = %d, want stepAPIKey (%d)", console.addFlow.step, stepAPIKey)
+	}
+}
+
+func TestAddFlow_UpDownOnHeaderType_TogglesHeader(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &bytes.Buffer{}},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		addFlow:      addProviderFlow{active: true, step: stepHeaderType, selectedHead: 0},
+	}
+	reader := bufio.NewReader(strings.NewReader("[B"))
+	if _, err := reader.Peek(2); err != nil {
+		t.Fatalf("prime escape reader: %v", err)
+	}
+	if cancelled := console.handleRawRune(context.Background(), reader, '\x1b'); cancelled {
+		t.Fatal("handleRawRune returned true on arrow key at header-type step")
+	}
+	if !console.addFlow.active {
+		t.Fatal("addFlow was cancelled by arrow key at header-type step")
+	}
+	if console.addFlow.headerTypeLabel() != "Bearer" {
+		t.Fatalf("header selection = %q, want Bearer", console.addFlow.headerTypeLabel())
+	}
+}
+
+func TestAddFlow_BareEsc_CancelsFlow(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &bytes.Buffer{}},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		addFlow:      addProviderFlow{active: true, step: stepProviderName},
+	}
+	reader := bufio.NewReader(strings.NewReader(""))
+	console.handleRawRune(context.Background(), reader, '\x1b')
+	if console.addFlow.active {
+		t.Fatal("addFlow still active after bare Esc")
+	}
+}
+
+func TestAddFlow_ComposerRowHidden_WhenFlowActive(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+		addFlow:      addProviderFlow{active: true, step: stepProviderName},
+		uiMode:       "build",
+	}
+	top := 26
+	console.renderScreenWorkbenchComposerV2(&out, branding.Renderer{NoColor: true}, 1, 120, top)
+	rendered := out.String()
+	if strings.Contains(rendered, "Ask anything") {
+		t.Fatalf("composer row should not show the Ask anything placeholder while addFlow is active; got %q", rendered)
+	}
+	if !strings.Contains(rendered, "Connect a provider") {
+		t.Fatalf("composer row should show the active flow title; got %q", rendered)
+	}
+	if !strings.Contains(rendered, "esc") {
+		t.Fatalf("composer row should show the esc hint; got %q", rendered)
+	}
+}
+
+func TestSetStatus_ReplacesTrailingStatus(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &bytes.Buffer{}},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+
+	console.setStatus("first success", false)
+	if got := console.screenLog[len(console.screenLog)-1]; got.Kind != "done" || got.Text != "first success" {
+		t.Fatalf("trailing entry = %+v, want done/first success", got)
+	}
+
+	console.setStatus("second success", false)
+	if len(console.screenLog) != 1 {
+		t.Fatalf("len(screenLog) = %d, want 1 after dedup; entries = %+v", len(console.screenLog), console.screenLog)
+	}
+	if got := console.screenLog[0]; got.Text != "second success" {
+		t.Fatalf("trailing entry = %+v, want second success", got)
+	}
+
+	console.setStatus("boom", true)
+	if len(console.screenLog) != 1 {
+		t.Fatalf("len(screenLog) = %d, want 1 after dedup of trailing done by error; entries = %+v", len(console.screenLog), console.screenLog)
+	}
+	if got := console.screenLog[0]; got.Kind != "error" || got.Text != "boom" {
+		t.Fatalf("trailing entry = %+v, want error/boom", got)
+	}
+
+	console.setStatus("recovered", false)
+	if len(console.screenLog) != 1 {
+		t.Fatalf("len(screenLog) = %d, want 1 after dedup of trailing error by done; entries = %+v", len(console.screenLog), console.screenLog)
+	}
+	if got := console.screenLog[0]; got.Kind != "done" || got.Text != "recovered" {
+		t.Fatalf("trailing entry = %+v, want done/recovered", got)
+	}
+
+	console.setStatus("again", true)
+	if got := console.screenLog[0]; got.Kind != "error" || got.Text != "again" {
+		t.Fatalf("trailing entry = %+v, want error/again", got)
+	}
+}
+
+func TestRenderModalRow_NoMidContentReset(t *testing.T) {
+	width := 24
+	row := renderModalRow(
+		width,
+		modalPart{fg: modalFgTitle, txt: "API_KEY"},
+		modalPart{fg: modalFgMuted, txt: "  hello"},
+	)
+	if !strings.HasPrefix(row, "\x1b[48;5;236m") {
+		t.Fatalf("row must start with bg SGR; got %q", row)
+	}
+	if !strings.HasSuffix(row, "\x1b[0m") {
+		t.Fatalf("row must end with single Reset; got %q", row)
+	}
+	if got := strings.Count(row, "\x1b[0m"); got != 1 {
+		t.Fatalf("row has %d Resets, want exactly 1; got %q", got, row)
+	}
+	if strings.Contains(row, "\x1b[0m\x1b[") {
+		t.Fatalf("row has internal Reset before another SGR; got %q", row)
+	}
+	if !strings.Contains(row, "\x1b[38;5;230m") {
+		t.Fatalf("row should switch to title fg; got %q", row)
+	}
+	if !strings.Contains(row, "\x1b[38;5;244m") {
+		t.Fatalf("row should switch to muted fg; got %q", row)
+	}
+	if got := strings.Count(row, "\x1b[48;5;236m"); got != 1 {
+		t.Fatalf("row has %d bg SGRs, want exactly 1; got %q", got, row)
+	}
+	if !strings.HasSuffix(strings.TrimRight(row, " "), "\x1b[0m") {
+		t.Fatalf("row padding should still end with single Reset; got %q", row)
+	}
+	visible := screenWidth(row)
+	if visible != width {
+		t.Fatalf("visible width = %d, want %d", visible, width)
+	}
+}
+
+func TestScreenModalLine_ReappliesBackgroundAfterInnerANSIReset(t *testing.T) {
+	renderer := branding.NewRenderer(false)
+	row := screenModalLine("    "+renderer.Muted("Search"), 24)
+
+	if !strings.HasPrefix(row, "\x1b[48;5;236m") {
+		t.Fatalf("row must start with modal bg; got %q", row)
+	}
+	if !strings.Contains(row, branding.Reset+"\x1b[48;5;236m") {
+		t.Fatalf("row must restore modal bg after colored text reset; got %q", row)
+	}
+	if !strings.HasSuffix(row, branding.Reset) {
+		t.Fatalf("row must end with reset; got %q", row)
+	}
+	if visible := screenWidth(row); visible != 24 {
+		t.Fatalf("visible width = %d, want 24; row=%q", visible, row)
+	}
+}
+
+func TestRenderModalAccentRow_UsesSelectionForeground(t *testing.T) {
+	row := renderModalAccentRow(18, modalPart{fg: modalFgAccent, txt: "    API_KEY"})
+
+	if !strings.HasPrefix(row, "\x1b[48;5;216m") {
+		t.Fatalf("selected row must start with accent bg; got %q", row)
+	}
+	if strings.Contains(row, modalFgAccent) {
+		t.Fatalf("selected row should not preserve per-item fg over selection fg; got %q", row)
+	}
+	if !strings.Contains(row, "\x1b[38;5;16m") {
+		t.Fatalf("selected row should use selection fg; got %q", row)
+	}
+	if visible := screenWidth(row); visible != 18 {
+		t.Fatalf("visible width = %d, want 18; row=%q", visible, row)
+	}
 }

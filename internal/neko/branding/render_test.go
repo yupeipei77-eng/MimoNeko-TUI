@@ -10,7 +10,7 @@ func TestBrandRendererMinimalCenteredLayout(t *testing.T) {
 	var out bytes.Buffer
 	NewRenderer(true).RenderStaticHeader(&out, sampleHeaderData())
 	text := out.String()
-	for _, want := range []string{"MIMO", "Neko"} {
+	for _, want := range []string{"Mimo", "Neko"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("header = %q, want %q", text, want)
 		}
@@ -31,7 +31,7 @@ func TestBrandRendererCentersTitle(t *testing.T) {
 	}
 	titleLine := ""
 	for _, line := range lines {
-		if strings.Contains(line, "MIMO") {
+		if strings.Contains(line, "MimoNeko") {
 			titleLine = line
 		}
 	}

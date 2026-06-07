@@ -186,9 +186,16 @@ func (s Session) LatencyLabel() string {
 
 func (s Session) ContextLabel() string {
 	if s.ContextUnknown || s.MaxContextTokens <= 0 {
-		return "unknown"
+		return "n/a"
 	}
-	return fmt.Sprintf("%s / %s", detailedTokens(s.ContextUsedTokens), detailedTokens(s.MaxContextTokens))
+	pct := 0
+	if s.MaxContextTokens > 0 {
+		pct = (s.ContextUsedTokens * 100) / s.MaxContextTokens
+	}
+	if pct < 1 {
+		return "<1%"
+	}
+	return fmt.Sprintf("%d%%", pct)
 }
 
 func (s Session) ReasoningLabel() string {
@@ -209,10 +216,7 @@ func (s Session) ReasoningStatusLabel() string {
 }
 
 func (s Session) CommandHint() string {
-	if s.ReasoningAvailable {
-		return "ctrl+p reasoning  / commands"
-	}
-	return "/ commands"
+	return "ctrl+p commands"
 }
 
 func (s *Session) SetMode(mode string) bool {
@@ -281,9 +285,17 @@ func (s *Session) ApplyActualUsage(usage Usage) {
 	if usage.TotalTokens == 0 && usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CachedTokens == 0 {
 		return
 	}
-	if !usage.Estimated && usage.InputTokens > 0 {
-		s.CacheHitKnown = true
-		s.CacheHitRate = float64(usage.CachedTokens) / float64(usage.InputTokens) * 100
+	if !usage.Estimated {
+		if usage.NativeCacheKnown {
+			denom := usage.CacheHitTokens + usage.CacheMissTokens
+			if denom > 0 {
+				s.CacheHitKnown = true
+				s.CacheHitRate = float64(usage.CacheHitTokens) / float64(denom) * 100
+			}
+		} else if usage.InputTokens > 0 {
+			s.CacheHitKnown = true
+			s.CacheHitRate = float64(usage.CachedTokens) / float64(usage.InputTokens) * 100
+		}
 	}
 	s.Usage = MergeUsage(s.Usage, usage)
 	if s.Usage.TotalTokens > s.ContextUsedTokens {

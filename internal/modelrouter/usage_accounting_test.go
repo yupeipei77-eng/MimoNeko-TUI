@@ -142,6 +142,33 @@ func TestUsageToObservationCachedTokensFromProvider(t *testing.T) {
 	}
 }
 
+func TestUsageToObservationMapsNativeCacheMetrics(t *testing.T) {
+	usage := Usage{
+		InputTokens:      1000,
+		OutputTokens:     50,
+		TotalTokens:      1050,
+		CachedTokens:     900,
+		CacheHitTokens:   900,
+		CacheMissTokens:  100,
+		NativeCacheKnown: true,
+		Estimated:        false,
+	}
+
+	bundle := contextengine.Bundle{
+		CacheFingerprint: prefix.Fingerprint{SHA256: "mimo-native", Version: 1},
+		Report:           contextengine.ContextReport{TotalTokens: 1000},
+	}
+
+	obs := UsageToObservation(usage, bundle, "mimo", "mimo-v2.5-pro", "req-native")
+
+	if !obs.NativeCacheKnown {
+		t.Fatal("NativeCacheKnown = false, want true")
+	}
+	if obs.CacheHitTokens != 900 || obs.CacheMissTokens != 100 {
+		t.Fatalf("native cache = hit %d miss %d, want 900/100", obs.CacheHitTokens, obs.CacheMissTokens)
+	}
+}
+
 func TestUsageToObservationTimestampIsRecent(t *testing.T) {
 	usage := Usage{InputTokens: 1, Estimated: true}
 	bundle := contextengine.Bundle{

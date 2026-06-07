@@ -103,7 +103,7 @@ func (c *RunCommand) Run(args []string, env Env) int {
 	}
 
 	ui := newCLIUI()
-	ui.PrintHeader(env.Stdout, "MioNeko Run")
+	ui.PrintHeader(env.Stdout, "MimoNeko Run")
 	fmt.Fprintln(env.Stdout, "Goal:")
 	fmt.Fprintln(env.Stdout, *goal)
 	fmt.Fprintln(env.Stdout)

@@ -69,13 +69,9 @@ func (r *ThinkingRenderer) RenderThinking(w io.Writer) {
 
 // renderThoughtsShown renders the thinking area with full text.
 func (r *ThinkingRenderer) renderThoughtsShown(w io.Writer, indent string) {
-	// Header with toggle hint
-	header := paintMuted("(思考中... 按 Ctrl+Shift+T 隐藏思考过程)", r.NoColor)
-	fmt.Fprintf(w, "%s%s\n", indent, header)
-
 	// Thought lines
 	if len(r.state.ThoughtText) == 0 {
-		fmt.Fprintf(w, "%s%s\n", indent, paintDim("› 等待思考内容...", r.NoColor))
+		fmt.Fprintf(w, "%s%s\n", indent, paintMuted("thinking...", r.NoColor))
 	} else {
 		for _, line := range r.state.ThoughtText {
 			fmt.Fprintf(w, "%s%s\n", indent, paintDim("› "+line, r.NoColor))
@@ -89,7 +85,7 @@ func (r *ThinkingRenderer) renderThoughtsShown(w io.Writer, indent string) {
 // renderThoughtsHidden renders the thinking area with dot animation.
 func (r *ThinkingRenderer) renderThoughtsHidden(w io.Writer, indent string) {
 	dots := r.state.Animator.Dots()
-	status := paintMuted(fmt.Sprintf("(思考中...) %s", dots), r.NoColor)
+	status := paintMuted(fmt.Sprintf("thinking%s", dots), r.NoColor)
 	fmt.Fprintf(w, "%s%s\r", indent, status)
 }
 

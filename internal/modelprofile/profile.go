@@ -113,8 +113,12 @@ type ChatResult struct {
 	Provider          string
 	Model             string
 	Response          string
+	Reasoning         string // reasoning/thinking content, kept separate from Response
 	PromptTokens      int
 	CachedTokens      int
+	CacheHitTokens    int
+	CacheMissTokens   int
+	NativeCacheKnown  bool
 	CachedTokensKnown bool
 	CompletionTokens  int
 	TotalTokens       int
@@ -151,12 +155,16 @@ type chatAPIChoice struct {
 }
 
 type chatAPIUsage struct {
-	PromptTokens        int `json:"prompt_tokens"`
-	CompletionTokens    int `json:"completion_tokens"`
-	TotalTokens         int `json:"total_tokens"`
-	PromptTokensDetails *struct {
-		CachedTokens int `json:"cached_tokens"`
-	} `json:"prompt_tokens_details,omitempty"`
+	PromptTokens          int                      `json:"prompt_tokens"`
+	CompletionTokens      int                      `json:"completion_tokens"`
+	TotalTokens           int                      `json:"total_tokens"`
+	PromptCacheHitTokens  *int                     `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens *int                     `json:"prompt_cache_miss_tokens,omitempty"`
+	PromptTokensDetails   *chatPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type chatPromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 type chatAPIResponse struct {
@@ -653,25 +661,45 @@ func Chat(ctx context.Context, root string, opt ChatOptions) (ChatResult, error)
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	return ChatResult{
-		Provider:          providerName,
-		Model:             modelName,
-		Response:          response,
-		PromptTokens:      parsed.Usage.PromptTokens,
-		CachedTokens:      cachedTokensFromDetails(parsed.Usage.PromptTokensDetails),
-		CachedTokensKnown: parsed.Usage.PromptTokensDetails != nil,
-		CompletionTokens:  parsed.Usage.CompletionTokens,
-		TotalTokens:       parsed.Usage.TotalTokens,
-	}, nil
+	result := ChatResult{
+		Provider: providerName,
+		Model:    modelName,
+		Response: response,
+	}
+	applyChatUsage(&result, parsed.Usage, providerType)
+	return result, nil
 }
 
-func cachedTokensFromDetails(details *struct {
-	CachedTokens int `json:"cached_tokens"`
-}) int {
+func cachedTokensFromDetails(details *chatPromptTokensDetails) int {
 	if details == nil {
 		return 0
 	}
 	return details.CachedTokens
+}
+
+func applyChatUsage(result *ChatResult, usage chatAPIUsage, providerType string) {
+	result.PromptTokens = usage.PromptTokens
+	result.CompletionTokens = usage.CompletionTokens
+	result.TotalTokens = usage.TotalTokens
+	if providerType == providerTypeMimo && (usage.PromptCacheHitTokens != nil || usage.PromptCacheMissTokens != nil) {
+		result.CacheHitTokens = intPtrValue(usage.PromptCacheHitTokens)
+		result.CacheMissTokens = intPtrValue(usage.PromptCacheMissTokens)
+		result.CachedTokens = result.CacheHitTokens
+		result.CachedTokensKnown = true
+		result.NativeCacheKnown = true
+		return
+	}
+	if usage.PromptTokensDetails != nil {
+		result.CachedTokens = cachedTokensFromDetails(usage.PromptTokensDetails)
+		result.CachedTokensKnown = true
+	}
+}
+
+func intPtrValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // ChatStream creates a streaming chat function that sends chunks via callback.
@@ -759,6 +787,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 		var fullText strings.Builder
+		var fullReasoning strings.Builder
 		var usage ChatResult
 		usage.Provider = providerName
 		usage.Model = modelName
@@ -786,14 +815,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 					} `json:"delta"`
 					FinishReason string `json:"finish_reason"`
 				} `json:"choices"`
-				Usage *struct {
-					PromptTokens        int `json:"prompt_tokens"`
-					CompletionTokens    int `json:"completion_tokens"`
-					TotalTokens         int `json:"total_tokens"`
-					PromptTokensDetails *struct {
-						CachedTokens int `json:"cached_tokens"`
-					} `json:"prompt_tokens_details,omitempty"`
-				} `json:"usage,omitempty"`
+				Usage *chatAPIUsage `json:"usage,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				continue
@@ -807,7 +829,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 				text := chunk.Choices[0].Delta.Content
 				reasoning := chunk.Choices[0].Delta.ReasoningContent
 				if reasoning != "" {
-					fullText.WriteString(reasoning)
+					fullReasoning.WriteString(reasoning)
 				}
 				if text != "" {
 					fullText.WriteString(text)
@@ -817,13 +839,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 				}
 				if chunk.Choices[0].FinishReason != "" {
 					if chunk.Usage != nil {
-						usage.PromptTokens = chunk.Usage.PromptTokens
-						if chunk.Usage.PromptTokensDetails != nil {
-							usage.CachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
-							usage.CachedTokensKnown = true
-						}
-						usage.CompletionTokens = chunk.Usage.CompletionTokens
-						usage.TotalTokens = chunk.Usage.TotalTokens
+						applyChatUsage(&usage, *chunk.Usage, providerType)
 					}
 					onChunk(ChatStreamChunk{Done: true})
 					break
@@ -831,13 +847,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 			}
 
 			if chunk.Usage != nil && len(chunk.Choices) == 0 {
-				usage.PromptTokens = chunk.Usage.PromptTokens
-				if chunk.Usage.PromptTokensDetails != nil {
-					usage.CachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
-					usage.CachedTokensKnown = true
-				}
-				usage.CompletionTokens = chunk.Usage.CompletionTokens
-				usage.TotalTokens = chunk.Usage.TotalTokens
+				applyChatUsage(&usage, *chunk.Usage, providerType)
 				onChunk(ChatStreamChunk{Done: true})
 				break
 			}
@@ -848,6 +858,7 @@ func ChatStream(root string, opt ChatOptions) (ChatStreamFunc, error) {
 			response = "(empty response)"
 		}
 		usage.Response = SanitizeText(response, apiKey)
+		usage.Reasoning = SanitizeText(fullReasoning.String(), apiKey)
 		return usage, nil
 	}, nil
 }

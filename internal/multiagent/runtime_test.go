@@ -623,7 +623,7 @@ func TestMultiAgentRuntime_FinalCheckpointFailureMarksFailed(t *testing.T) {
 }
 
 func TestMultiAgentRuntime_CoderFailedCheckpointFailureMarksFailed(t *testing.T) {
-	// Coder fails �?coder_failed checkpoint also fails.
+	// Coder fails; coder_failed checkpoint also fails.
 	// The result must be failed with "checkpoint failed" in Error.
 	deps := buildTestDependenciesWithReviewMgr(&fixedReviewMgr{
 		report: review.PatchReviewReport{
@@ -657,7 +657,7 @@ func TestMultiAgentRuntime_CoderFailedCheckpointFailureMarksFailed(t *testing.T)
 }
 
 func TestMultiAgentRuntime_CancelledCheckpointFailureMarksFailed(t *testing.T) {
-	// Context cancelled �?cancelled checkpoint also fails.
+	// Context cancelled; cancelled checkpoint also fails.
 	// The result must be failed with "checkpoint failed" in Error.
 	deps := buildTestDependencies(review.RecommendationApprove)
 	deps.CheckpointStore = &selectiveFailingCheckpointStore{

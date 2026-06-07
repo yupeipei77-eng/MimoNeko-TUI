@@ -9,7 +9,7 @@ import (
 
 func printUsage(w io.Writer) {
 	ui := newCLIUI()
-	ui.PrintHeader(w, "MioNeko CLI")
+	ui.PrintHeader(w, "MimoNeko CLI")
 	fmt.Fprintln(w, "Usage: mimoneko <command>")
 	fmt.Fprintln(w, "       mimoneko \"your goal\"")
 	fmt.Fprintln(w)
@@ -49,17 +49,18 @@ func printUsage(w io.Writer) {
 		case "serve":
 			fmt.Fprintln(w, "  serve        Start local Web Dashboard")
 		case "neko":
-			fmt.Fprintln(w, "  neko         Start MimoNeko terminal console")
+			fmt.Fprintln(w, "  neko         Start MimoNeko terminal console (advanced)")
 		}
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "%s Run a task:\n", ui.Icon("cat"))
-	fmt.Fprintln(w, "  mimoneko \"修改 README\"")
-	fmt.Fprintln(w, "  mimoneko run \"Reply OK\"")
+	fmt.Fprintf(w, "%s Quick start:\n", ui.Icon("cat"))
+	fmt.Fprintln(w, "  mimoneko                          # Enter interactive chat")
+	fmt.Fprintln(w, "  mimoneko \"your goal\"               # Run a task directly")
+	fmt.Fprintln(w, "  mimoneko run \"your goal\"           # Run a task explicitly")
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "%s Setup:\n", ui.Icon("secret"))
-	fmt.Fprintln(w, "  mimoneko auth login")
-	fmt.Fprintln(w, "  mimoneko model test")
+	fmt.Fprintln(w, "  mimoneko auth login              # Configure model provider")
+	fmt.Fprintln(w, "  mimoneko model test              # Test model connection")
 }
 
 func printNekoUsage(w io.Writer) {
@@ -75,7 +76,7 @@ func printNekoUsage(w io.Writer) {
 	fmt.Fprintln(w, "MimoNeko is a local terminal console powered by MimoNeko.")
 	fmt.Fprintln(w, "Defaults: mode=multi dry-run=true worktree=true for multi-agent runs.")
 	fmt.Fprintln(w, "Workflow commands are read-only in this phase: status, diff, and plan do not call the model or write files.")
-	fmt.Fprintln(w, "Inside MimoNeko: type / for commands, /reasoning to cycle levels, /new for a fresh session.")
+	fmt.Fprintln(w, "Inside MimoNeko: type / for commands, Tab to switch agents, /new for a fresh session.")
 }
 
 func printInitNextSteps(w io.Writer) {

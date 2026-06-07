@@ -1,6 +1,6 @@
 # review
 
-Patch review pipeline for NekoMIMO.
+Patch review pipeline for MimoNeko.
 
 ## Responsibilities
 

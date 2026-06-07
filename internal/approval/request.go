@@ -1,4 +1,4 @@
-// Package approval provides the Approval Request data model for MioNeko.
+// Package approval provides the Approval Request data model for MimoNeko.
 //
 // This package implements the data model only. It does NOT:
 //   - Implement interactive approval workflows

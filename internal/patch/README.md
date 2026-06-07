@@ -1,6 +1,6 @@
-# patch â€?Patch Preview, Apply & Discard
+# patch - Patch Preview, Apply & Discard
 
-This package implements the patch approval workflow for NekoMIMO. After an
+This package implements the patch approval workflow for MimoNeko. After an
 agent finishes modifying files inside an isolated worktree, the patch manager
 produces a diff summary, checks for policy violations, and provides
 apply/discard operations.
@@ -16,12 +16,12 @@ apply/discard operations.
 
 ## Workflow
 
-1. **Preview** â€?Generates a diff between the worktree and its base ref,
+1. **Preview** - Generates a diff between the worktree and its base ref,
    lists changed files, checks for violations, and assesses risk.
-2. **Apply** â€?Copies approved changes into the main workspace via
+2. **Apply** - Copies approved changes into the main workspace via
    `git apply`. Supports `DryRun` mode. Refuses if violations exist or the
    main workspace is dirty (`.nekonomimo/` paths are ignored).
-3. **Discard** â€?Removes the worktree entirely; the main workspace is
+3. **Discard** - Removes the worktree entirely; the main workspace is
    unaffected.
 
 ## Violation Checks
@@ -36,7 +36,7 @@ apply/discard operations.
 
 | Level | Condition |
 |-------|-----------|
-| Low | No violations, text-only, â‰?5 files, â‰?200 lines changed |
+| Low | No violations, text-only, <= 5 files, <= 200 lines changed |
 | Medium | No violations but exceeds low thresholds |
 | High | Any violation detected |
 

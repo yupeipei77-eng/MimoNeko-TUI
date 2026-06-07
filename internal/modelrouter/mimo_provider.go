@@ -209,7 +209,7 @@ func (p *MimoProvider) Complete(ctx context.Context, req CompletionRequest) (Com
 		return CompletionResponse{}, fmt.Errorf("parse response: %w", err)
 	}
 
-	usage := parseUsage(apiResp.Usage, req.Bundle.Report.TotalTokens)
+	usage := parseMimoUsage(apiResp.Usage, req.Bundle.Report.TotalTokens)
 
 	return CompletionResponse{
 		Provider:  p.name,
@@ -400,7 +400,7 @@ func (p *MimoProvider) readMimoSSEStream(ctx context.Context, body io.ReadCloser
 			if chunk.Choices[0].FinishReason != "" {
 				var usage *Usage
 				if chunk.Usage != nil {
-					u := parseUsage(*chunk.Usage, 0)
+					u := parseMimoUsage(*chunk.Usage, 0)
 					usage = &u
 				}
 				chunks <- StreamChunk{
@@ -413,7 +413,7 @@ func (p *MimoProvider) readMimoSSEStream(ctx context.Context, body io.ReadCloser
 		}
 
 		if chunk.Usage != nil && len(chunk.Choices) == 0 {
-			u := parseUsage(*chunk.Usage, 0)
+			u := parseMimoUsage(*chunk.Usage, 0)
 			chunks <- StreamChunk{
 				Done:      true,
 				Usage:     &u,

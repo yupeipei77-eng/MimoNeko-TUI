@@ -55,9 +55,12 @@ type CompletionResponse struct {
 
 // Usage tracks token consumption from a model call.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
-	CachedTokens int
-	Estimated    bool
+	InputTokens      int
+	OutputTokens     int
+	TotalTokens      int
+	CachedTokens     int
+	CacheHitTokens   int
+	CacheMissTokens  int
+	NativeCacheKnown bool
+	Estimated        bool
 }

@@ -8,7 +8,7 @@
 ## Boundaries
 
 - This package is a thin compatibility layer over `internal/tools`.
-- New code should import `github.com/NekoMIMO/NekoMIMO/internal/tools` directly.
+- New code should import `github.com/mimoneko/mimoneko/internal/tools` directly.
 
 ## Forbidden
 

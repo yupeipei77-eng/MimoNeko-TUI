@@ -54,6 +54,27 @@ func TestModelChatParsesCachedTokens(t *testing.T) {
 	}
 }
 
+func TestModelChatOpenAICompatibleIgnoresMimoNativeCacheTokens(t *testing.T) {
+	root := setupChatRoot(t)
+	t.Setenv("CHAT_API_KEY", "sk-chat-cache")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"model":"chat-model","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1000,"completion_tokens":5,"total_tokens":1005,"prompt_cache_hit_tokens":900,"prompt_cache_miss_tokens":100,"prompt_tokens_details":{"cached_tokens":40}}}`)
+	}))
+	defer server.Close()
+	saveChatModel(t, root, server.URL)
+
+	result, err := Chat(context.Background(), root, ChatOptions{Provider: "chat", Model: "chat-model", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NativeCacheKnown {
+		t.Fatalf("result = %+v, want native cache disabled for non-MIMO", result)
+	}
+	if result.CachedTokens != 40 || !result.CachedTokensKnown {
+		t.Fatalf("result = %+v, want fallback cached token details", result)
+	}
+}
+
 func TestModelChatDoesNotLeakAPIKey(t *testing.T) {
 	root := setupChatRoot(t)
 	secret := "sk-chat-secret"
@@ -109,6 +130,31 @@ func TestModelChatMimoUsesAPIKeyHeaderAndDeltaContent(t *testing.T) {
 	}
 	if result.Response != "mimo ok" || result.TotalTokens != 5 {
 		t.Fatalf("result = %+v, want delta response and usage", result)
+	}
+}
+
+func TestModelChatMimoParsesNativeCacheHitMissTokens(t *testing.T) {
+	root := setupChatRoot(t)
+	t.Setenv("MIMO_CHAT_API_KEY", "sk-mimo-native-cache")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"model":"mimo-v2.5-pro","choices":[{"delta":{"content":"ok"}}],"usage":{"prompt_tokens":1000,"completion_tokens":5,"total_tokens":1005,"prompt_cache_hit_tokens":900,"prompt_cache_miss_tokens":100,"prompt_tokens_details":{"cached_tokens":12}}}`)
+	}))
+	defer server.Close()
+	saveMimoChatModel(t, root, server.URL)
+
+	result, err := Chat(context.Background(), root, ChatOptions{Provider: "mimo", Model: "mimo-v2.5-pro", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.NativeCacheKnown || !result.CachedTokensKnown {
+		t.Fatalf("result = %+v, want native cache known", result)
+	}
+	if result.CacheHitTokens != 900 || result.CacheMissTokens != 100 {
+		t.Fatalf("native cache = hit %d miss %d, want 900/100", result.CacheHitTokens, result.CacheMissTokens)
+	}
+	if result.CachedTokens != 900 {
+		t.Fatalf("CachedTokens = %d, want native hit tokens 900", result.CachedTokens)
 	}
 }
 

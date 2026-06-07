@@ -27,8 +27,8 @@ func Run(args []string, env Env) int {
 		if !hasSavedUserModelConfig() {
 			return runFirstTimeSetup(env)
 		}
-		printReadyLanding(env.Stdout)
-		return 0
+		// Route to neko command (TUI/chat)
+		return commands.Dispatch([]string{"neko"}, env)
 	}
 
 	if shouldTreatAsGoal(args) {
@@ -72,20 +72,25 @@ func shouldTreatAsGoal(args []string) bool {
 	if commands.Has(firstArg) {
 		return false
 	}
-	if len(args) > 1 {
-		return true
-	}
-	return strings.ContainsAny(firstArg, " \t\r\n")
+	// If it's not a known command, treat it as a goal
+	// This handles: "analyze this project", "分析当前项目", multi-word goals
+	return true
 }
 
 func printReadyLanding(w io.Writer) {
 	ui := newCLIUI()
-	ui.PrintHeader(w, "MioNeko Ready")
+	ui.PrintHeader(w, "MimoNeko Ready")
 	_, _ = io.WriteString(w, "Your model configuration is ready.\n\n")
-	_, _ = io.WriteString(w, "Try:\n")
-	_, _ = io.WriteString(w, "  mimoneko \"修改 README\"\n")
-	_, _ = io.WriteString(w, "  mimoneko run \"修改 README\"\n")
-	_, _ = io.WriteString(w, "  mimoneko neko\n")
+	_, _ = io.WriteString(w, "Quick start:\n")
+	_, _ = io.WriteString(w, "  mimoneko                          # Enter interactive chat\n")
+	_, _ = io.WriteString(w, "  mimoneko \"your goal\"               # Run a task directly\n")
+	_, _ = io.WriteString(w, "  mimoneko run \"your goal\"           # Run a task explicitly\n")
+	_, _ = io.WriteString(w, "  mimoneko agents run --goal \"...\" --dry-run  # Agent dry-run\n")
+	_, _ = io.WriteString(w, "  mimoneko --help                   # Show all commands\n")
+	_, _ = io.WriteString(w, "\n")
+	_, _ = io.WriteString(w, "Developer mode:\n")
+	_, _ = io.WriteString(w, "  go run ./cmd/mimoneko\n")
+	_, _ = io.WriteString(w, "  go run ./cmd/mimoneko \"your goal\"\n")
 }
 
 func hasSavedUserModelConfig() bool {

@@ -1,4 +1,4 @@
-// Package security provides security enforcement for MioNeko.
+// Package security provides security enforcement for MimoNeko.
 //
 // This file implements configurable security enforcement policies.
 // Default mode is 'warn' - detection with warnings, no blocking.
