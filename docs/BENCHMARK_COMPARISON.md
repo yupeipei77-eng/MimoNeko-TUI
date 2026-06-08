@@ -11,7 +11,7 @@ and cache visibility.
 
 | Tool | Version | Notes | Install |
 |------|---------|-------|---------|
-| MimoNeko | v0.1.4-beta | MIMO-first local terminal coding workbench | `go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest` |
+| MimoNeko | v0.1.4-beta | MIMO-first local terminal coding workbench | `go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main` |
 | OpenCode | latest tested | Terminal coding agent reference | package manager |
 | Aider | latest tested | Pair-programming CLI reference | package manager |
 

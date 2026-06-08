@@ -13,10 +13,10 @@ mode, patch preview, and explicit approval.
 
 ## Quick Start
 
-Install from the public module path:
+Install from the current public source path:
 
 ```bash
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 ```
 
 After installing, open a new terminal and run:

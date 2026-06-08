@@ -156,7 +156,7 @@ mimoneko
 ### 安装
 
 ```bash
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 ```
 
 ### 首次配置
@@ -315,7 +315,7 @@ dist/
 ### Step 1: 安装 (1分钟)
 
 ```bash
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 ```
 
 **检查点**:
@@ -477,7 +477,7 @@ done
 
 ```powershell
 # 1. 安装 (30秒)
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 
 # 2. 配置 (1分钟)
 mimoneko auth login
@@ -619,7 +619,7 @@ mimoneko run "修改 README 增加项目说明"
 
 ```powershell
 # 新用户流程
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 mimoneko auth login
 mimoneko run "Reply with OK"
 

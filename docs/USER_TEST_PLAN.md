@@ -23,7 +23,7 @@ go build -o neko ./cmd/neko
 Module install path:
 
 ```sh
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 ```
 
 Checks:
@@ -112,8 +112,9 @@ powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 v0.1.4-beta
 ## Known Release Note
 
 The public `go install` path is aligned with the GitHub repository path and the
-`go.mod` module path:
+`go.mod` module path on `main`. Until a newer semver tag is published, use
+`@main`; older tags still point at the pre-rename module path.
 
 ```sh
-go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@main
 ```
