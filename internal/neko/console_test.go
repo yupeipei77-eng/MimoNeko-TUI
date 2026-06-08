@@ -74,10 +74,11 @@ func TestNekoAcceptsGoal(t *testing.T) {
 	}
 }
 
-func TestNekoBareInputUsesChatNotAgent(t *testing.T) {
+func TestNekoSingleBareInputUsesChatNotAgent(t *testing.T) {
 	agentCalled := false
 	chatCalled := false
 	output := runTestConsole(t, "你好\n/exit\n", Options{
+		Mode: "single",
 		Runner: func(ctx context.Context, req RunRequest) (RunResult, error) {
 			agentCalled = true
 			return RunResult{}, nil
@@ -101,8 +102,36 @@ func TestNekoBareInputUsesChatNotAgent(t *testing.T) {
 	}
 }
 
+func TestNekoBuildBareInputUsesAgentRuntime(t *testing.T) {
+	agentCalled := false
+	chatCalled := false
+	output := runTestConsole(t, "inspect project files\n/exit\n", Options{
+		Runner: func(ctx context.Context, req RunRequest) (RunResult, error) {
+			agentCalled = true
+			if req.Goal != "inspect project files" {
+				t.Fatalf("agent goal = %q, want inspect project files", req.Goal)
+			}
+			return RunResult{RunID: "run_build_input", State: "succeeded", Output: "checked project files"}, nil
+		},
+		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
+			chatCalled = true
+			return ChatResult{Response: "should not call chat"}, nil
+		},
+	})
+	if !agentCalled {
+		t.Fatal("Build bare input should execute agent runtime")
+	}
+	if chatCalled {
+		t.Fatal("Build bare input should not call chat")
+	}
+	if !strings.Contains(output, "Run completed:") || !strings.Contains(output, "checked project files") {
+		t.Fatalf("output = %q, want agent runtime result", output)
+	}
+}
+
 func TestNekoRuntimeEventStreamForChat(t *testing.T) {
 	output := runTestConsole(t, "hello\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "Ready."}, nil
 		},
@@ -400,6 +429,7 @@ func TestNekoIntroScreenShowsLargePromptBeforeWorkspace(t *testing.T) {
 
 func TestNekoContextUsageGrowsWithConversation(t *testing.T) {
 	output := runTestConsole(t, "hello world\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "Ready."}, nil
 		},
@@ -411,6 +441,7 @@ func TestNekoContextUsageGrowsWithConversation(t *testing.T) {
 
 func TestNekoNewResetsConversationState(t *testing.T) {
 	output := runTestConsole(t, "hello\n/new\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "Ready."}, nil
 		},
@@ -440,6 +471,7 @@ func TestNekoCacheCommandReportsUnsupported(t *testing.T) {
 
 func TestNekoCacheCommandReportsNativeMimoHitRate(t *testing.T) {
 	output := runTestConsole(t, "hello\n/cache\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{
 				Response: "Ready.",
@@ -726,6 +758,7 @@ func TestNekoRunShowsExecutionRuntimeEvents(t *testing.T) {
 
 func TestNekoChatFailureReturnsFriendlyText(t *testing.T) {
 	output := runTestConsole(t, "hello\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{}, errors.New("planner failed: invalid plan output")
 		},
@@ -740,6 +773,7 @@ func TestNekoChatFailureReturnsFriendlyText(t *testing.T) {
 
 func TestNekoChatFailurePreservesAPIKeyEnvVarName(t *testing.T) {
 	output := runTestConsole(t, "hello\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{}, errors.New("API key not found in environment variable MIMO_API_KEY")
 		},
@@ -754,6 +788,7 @@ func TestNekoChatFailurePreservesAPIKeyEnvVarName(t *testing.T) {
 
 func TestNekoChatFailureUsesRedANSIWhenColorEnabled(t *testing.T) {
 	output := runTestConsoleWithColor(t, "hello\n/exit\n", Options{
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{}, errors.New("API key not found in environment variable MIMO_API_KEY")
 		},
@@ -771,6 +806,7 @@ func TestNekoAutoSavesChatCodeBlockToDefaultProjectDir(t *testing.T) {
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我生成一个bat批处理文件并保存到默认项目目录\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "```bat\n@echo off\necho OK\n```"}, nil
 		},
@@ -789,6 +825,7 @@ func TestNekoAutoSaveBlockedByDefaultPermission(t *testing.T) {
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我生成一个bat批处理文件并保存到默认项目目录\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "```bat\n@echo off\necho blocked\n```"}, nil
 		},
@@ -806,6 +843,7 @@ func TestNekoAutoSaveSuppressesGeneratedBodyOutput(t *testing.T) {
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我写一个bat脚本保存到默认项目目录\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "## 脚本功能\n```bat\necho hidden body\n```"}, nil
 		},
@@ -834,6 +872,7 @@ func TestNekoLocalFastPathWritesDesktopMigrationWithoutModel(t *testing.T) {
 	modelCalled := false
 	output := runTestConsole(t, "写一个把桌面目录迁移到D盘的脚本保存到默认项目目录\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			modelCalled = true
 			return ChatResult{Response: "should not call model"}, nil
@@ -866,6 +905,7 @@ func TestNekoStreamingAutoSaveSuppressesGeneratedBodyOutput(t *testing.T) {
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我写一个bat脚本保存到默认项目目录\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		StreamingChatter: func(ctx context.Context, req ChatRequest, onChunk func(chunk StreamingChatChunk)) (ChatResult, error) {
 			for _, chunk := range []string{"## 说明\n", "```bat\n", "echo hidden stream\n", "```"} {
 				onChunk(StreamingChatChunk{Text: chunk})
@@ -897,6 +937,7 @@ func TestNekoAutoSavesChatCodeBlockToSpecifiedDirectory(t *testing.T) {
 	targetDir := filepath.Join(root, "out")
 	output := runTestConsole(t, "帮我写个bat文件，存放位置在"+targetDir+"\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "```bat\necho saved\n```"}, nil
 		},
@@ -992,6 +1033,7 @@ func TestNekoAutoSavesChatResponseToExplicitFileName(t *testing.T) {
 	root := t.TempDir()
 	output := runTestConsole(t, "写入到hello.txt\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "hello file"}, nil
 		},
@@ -1011,6 +1053,7 @@ func TestNekoAutoSavesBatScriptWithoutExplicitSaveIntent(t *testing.T) {
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我写一个bat批处理内容\n/exit\n", Options{
 		Root: root,
+		Mode: "single",
 		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
 			return ChatResult{Response: "```bat\necho auto save works\n```"}, nil
 		},
@@ -1486,6 +1529,7 @@ func TestNekoScreenThinkingToggleAfterStream(t *testing.T) {
 
 func TestNekoNonScreenStreamingReasoningNotExposed(t *testing.T) {
 	output := runTestConsole(t, "你好\n/exit\n", Options{
+		Mode: "single",
 		StreamingChatter: func(ctx context.Context, req ChatRequest, onChunk func(chunk StreamingChatChunk)) (ChatResult, error) {
 			onChunk(StreamingChatChunk{ReasoningText: "internal reasoning"})
 			onChunk(StreamingChatChunk{ReasoningText: "more thoughts"})

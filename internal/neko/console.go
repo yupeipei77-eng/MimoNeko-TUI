@@ -321,9 +321,17 @@ func (c *Console) handleInputLine(ctx context.Context, rawLine string) bool {
 		c.renderPrompt()
 		return false
 	}
-	c.chatMessage(ctx, line)
+	if c.shouldRunBareInputAsAgent() {
+		c.runGoal(ctx, line)
+	} else {
+		c.chatMessage(ctx, line)
+	}
 	c.renderPrompt()
 	return false
+}
+
+func (c *Console) shouldRunBareInputAsAgent() bool {
+	return strings.ToLower(strings.TrimSpace(c.Session.Mode)) != "single"
 }
 
 func (c *Console) handleControlInput(ctx context.Context, rawLine string) bool {
