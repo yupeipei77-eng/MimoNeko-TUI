@@ -5,13 +5,13 @@ Status: beta
 
 ## Summary
 
-MioNeko v0.1.3-beta focuses on CLI Modern UX for first-run onboarding. It does not change Agent Runtime, model protocol, or cache behavior.
+MimoNeko v0.1.3-beta focuses on CLI Modern UX for first-run onboarding. It does not change Agent Runtime, model protocol, or cache behavior.
 
 ## Changes
 
 - Fixed `mimoneko` with no arguments showing `Usage` instead of a first-run entry point.
 - When no user-level model configuration exists, `mimoneko` now opens the welcome page and setup wizard.
-- When configuration already exists, `mimoneko` now shows a friendly `MioNeko Ready` entry page.
+- When configuration already exists, `mimoneko` now shows a friendly `MimoNeko Ready` entry page.
 - In real TTY terminals, first-run setup uses `survey/v2` arrow-key menus.
 - API Key input is hidden in the interactive setup flow.
 - Model selection uses an arrow-key menu with the default model first.

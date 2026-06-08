@@ -8,7 +8,7 @@
 
 ## Boundaries
 
-- The CLI may create local config files under `.nekonomimo/`.
+- The CLI may create local config files under `.mimoneko/`.
 - The CLI may validate configuration shape and safety constraints.
 - Runtime execution belongs in `internal/agent`.
 

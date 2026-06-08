@@ -1,10 +1,11 @@
-﻿# MioNeko user-scope installer for Windows.
+﻿# MimoNeko user-scope installer for Windows.
 # Run from the extracted release folder. Administrator permission is not required.
 
 $ErrorActionPreference = "Stop"
 
-$InstallDir = Join-Path $env:LOCALAPPDATA "MioNeko\bin"
+$InstallDir = Join-Path $env:LOCALAPPDATA "MimoNeko\bin"
 $TargetExe = Join-Path $InstallDir "mimoneko.exe"
+$TargetAliasExe = Join-Path $InstallDir "neko.exe"
 
 function Normalize-PathForCompare {
     param([string]$Value)
@@ -20,14 +21,14 @@ function Normalize-PathForCompare {
     }
 }
 
-Write-Host "MioNeko Windows installer" -ForegroundColor Cyan
+Write-Host "MimoNeko Windows installer" -ForegroundColor Cyan
 Write-Host ""
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceCandidates = @(
     (Join-Path $scriptDir "mimoneko.exe"),
-    (Join-Path $scriptDir "MioNeko.exe"),
-    (Join-Path $scriptDir "MimoNeko.exe")
+    (Join-Path $scriptDir "MimoNeko.exe"),
+    (Join-Path $scriptDir "MioNeko.exe")
 )
 
 $sourceExe = $null
@@ -53,6 +54,13 @@ if (-not $sourceExe) {
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -LiteralPath $sourceExe -Destination $TargetExe -Force
 $TargetExe = (Resolve-Path -LiteralPath $TargetExe).Path
+
+$sourceAliasExe = Join-Path $scriptDir "neko.exe"
+if (Test-Path $sourceAliasExe) {
+    Copy-Item -LiteralPath $sourceAliasExe -Destination $TargetAliasExe -Force
+} else {
+    Copy-Item -LiteralPath $sourceExe -Destination $TargetAliasExe -Force
+}
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($null -eq $userPath) {
@@ -116,6 +124,7 @@ try {
 Write-Host ""
 Write-Host "Installation complete." -ForegroundColor Green
 Write-Host "当前安装路径：$TargetExe" -ForegroundColor White
+Write-Host "兼容入口路径：$TargetAliasExe" -ForegroundColor White
 if ($pathUpdated) {
     Write-Host "PATH 是否已更新：是，已加入用户 PATH" -ForegroundColor Green
 } else {

@@ -64,7 +64,6 @@ Result:
 
 ```gitignore
 .mimoneko/
-.nekonomimo/
 logs/
 cache/
 /dist/
@@ -81,7 +80,7 @@ This means future local runtime files should stay untracked.
 | Logs / events | `.mimoneko/logs/`, `.mimoneko/events/run_events.jsonl` | `.mimoneko/logs/` or `.mimoneko/runtime/logs/` | None | `.mimoneko/`, `logs/` |
 | Cache | `.mimoneko/cache/` | `.mimoneko/cache/` or OS cache dir | None | `.mimoneko/`, `cache/` |
 | Checkpoints | `.mimoneko/checkpoints/`, `.mimoneko/logs/checkpoints.jsonl` | `.mimoneko/checkpoints/` or `.mimoneko/runtime/checkpoints/` | None | `.mimoneko/` |
-| Worktree runtime state | `.mimoneko/worktrees/` | `.nekonomimo/worktrees/` or `.mimoneko/worktrees/` as local-only state | None | `.mimoneko/`, `.nekonomimo/` |
+| Worktree runtime state | `.mimoneko/worktrees/` | `.mimoneko/worktrees/` as local-only state | None | `.mimoneko/` |
 
 If sanitized config examples are useful, add them under a non-runtime path such
 as:

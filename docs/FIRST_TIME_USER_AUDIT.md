@@ -1,8 +1,8 @@
-# MioNeko 首次用户体验审计报告
+# MimoNeko 首次用户体验审计报告
 
 **审计日期**: 2026-05-31
 **审计版本**: v0.1.0-alpha
-**审计视角**: 第一次接触 MioNeko 的用户
+**审计视角**: 第一次接触 MimoNeko 的用户
 **审计环境**: 全新 Windows / macOS / Linux
 
 ---
@@ -27,8 +27,8 @@
 **用户视角**:
 ```
 我看到 README 说：
-1. git clone https://github.com/yupeipei77-eng/MioNeko.git
-2. cd MioNeko
+1. git clone <repository-url>
+2. cd MimoNeko
 3. go build -o mimoneko.exe ./cmd/mimoneko
 
 问题：

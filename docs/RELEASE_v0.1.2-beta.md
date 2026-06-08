@@ -5,7 +5,7 @@
 
 ## 概述
 
-MioNeko v0.1.2-beta 聚焦 CLI/TUI 终端体验与真实 MiMo API benchmark 记录。本版本不新增 Agent Runtime 能力，不修改模型调用协议，也不修改缓存算法。
+MimoNeko v0.1.2-beta 聚焦 CLI/TUI 终端体验与真实 MiMo API benchmark 记录。本版本不新增 Agent Runtime 能力，不修改模型调用协议，也不修改缓存算法。
 
 ## 重点更新
 
@@ -127,7 +127,7 @@ $env:NO_COLOR = "1"
 
 - `go test ./...`
 - 项目目录密钥扫描
-- 确认 `.mimoneko/`、`.nekonomimo/`、`dist/`、`logs/` 未进入本次提交范围
+- 确认 `.mimoneko/`、`.mimoneko/`、`dist/`、`logs/` 未进入本次提交范围
 
 ## 兼容性说明
 

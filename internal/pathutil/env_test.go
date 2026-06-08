@@ -159,24 +159,24 @@ func TestSanitizeEnvValue(t *testing.T) {
 
 func TestDefaultEnvVarNames(t *testing.T) {
 	names := DefaultEnvVarNames()
-	if names.NekoRoot != "MimoNeko_NEKO_ROOT" {
-		t.Errorf("NekoRoot = %q, want %q", names.NekoRoot, "MimoNeko_NEKO_ROOT")
+	if names.NekoRoot != "MIMONEKO_NEKO_ROOT" {
+		t.Errorf("NekoRoot = %q, want %q", names.NekoRoot, "MIMONEKO_NEKO_ROOT")
 	}
-	if names.NekoDefaultRootFile != "MimoNeko_NEKO_DEFAULT_ROOT_FILE" {
-		t.Errorf("NekoDefaultRootFile = %q, want %q", names.NekoDefaultRootFile, "MimoNeko_NEKO_DEFAULT_ROOT_FILE")
+	if names.NekoDefaultRootFile != "MIMONEKO_NEKO_DEFAULT_ROOT_FILE" {
+		t.Errorf("NekoDefaultRootFile = %q, want %q", names.NekoDefaultRootFile, "MIMONEKO_NEKO_DEFAULT_ROOT_FILE")
 	}
 }
 
 func TestNekoRootFromEnv(t *testing.T) {
 	// Test with set env var
-	t.Setenv("MimoNeko_NEKO_ROOT", "/test/root")
+	t.Setenv("MIMONEKO_NEKO_ROOT", "/test/root")
 	result := NekoRootFromEnv()
 	if result != "/test/root" {
 		t.Errorf("NekoRootFromEnv() = %q, want %q", result, "/test/root")
 	}
 
 	// Test without env var (need to unset it)
-	os.Unsetenv("MimoNeko_NEKO_ROOT")
+	os.Unsetenv("MIMONEKO_NEKO_ROOT")
 	result = NekoRootFromEnv()
 	if result != "" {
 		t.Errorf("NekoRootFromEnv() = %q, want empty", result)
@@ -185,14 +185,14 @@ func TestNekoRootFromEnv(t *testing.T) {
 
 func TestNekoDefaultRootFilePath(t *testing.T) {
 	// Test with custom env var
-	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", "/custom/path.txt")
+	t.Setenv("MIMONEKO_NEKO_DEFAULT_ROOT_FILE", "/custom/path.txt")
 	result := NekoDefaultRootFilePath()
 	if result != "/custom/path.txt" {
 		t.Errorf("NekoDefaultRootFilePath() = %q, want %q", result, "/custom/path.txt")
 	}
 
 	// Test default path (unset custom)
-	os.Unsetenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE")
+	os.Unsetenv("MIMONEKO_NEKO_DEFAULT_ROOT_FILE")
 	result = NekoDefaultRootFilePath()
 	configDir, err := os.UserConfigDir()
 	if err == nil {

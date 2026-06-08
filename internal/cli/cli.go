@@ -37,7 +37,7 @@ func Run(args []string, env Env) int {
 
 	if args[0] == "run" || args[0] == "multi-run" || args[0] == "neko" || args[0] == "model" {
 		if err := auth.ApplyUserConfigToEnv(); err != nil {
-			PrintErrorDetails(env.Stderr, "Configuration failed", "加载用户配置失败。", "运行: mimoneko auth login", err.Error())
+			PrintErrorDetails(env.Stderr, "Configuration failed", "Unable to load user model configuration.", "Run: mimoneko auth login", err.Error())
 			return 1
 		}
 	}
@@ -48,7 +48,7 @@ func Run(args []string, env Env) int {
 			return result
 		}
 		if err := auth.ApplyUserConfigToEnv(); err != nil {
-			PrintErrorDetails(env.Stderr, "Configuration failed", "加载用户配置失败。", "运行: mimoneko auth login", err.Error())
+			PrintErrorDetails(env.Stderr, "Configuration failed", "Unable to load user model configuration.", "Run: mimoneko auth login", err.Error())
 			return 1
 		}
 	}
@@ -73,7 +73,7 @@ func shouldTreatAsGoal(args []string) bool {
 		return false
 	}
 	// If it's not a known command, treat it as a goal
-	// This handles: "analyze this project", "分析当前项目", multi-word goals
+	// This handles multi-word natural language goals.
 	return true
 }
 

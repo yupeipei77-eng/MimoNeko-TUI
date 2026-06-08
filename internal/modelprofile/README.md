@@ -4,7 +4,7 @@
 
 Responsibilities:
 
-- Read and write only `.nekonomimo/models.yaml`.
+- Read and write only `.mimoneko/models.yaml`.
 - Provide safe presets for OpenAI-compatible providers.
 - Add, update, use, and remove provider/model entries.
 - Query `/models` and smoke-test `/chat/completions`.

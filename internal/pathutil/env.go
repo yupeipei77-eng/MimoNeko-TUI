@@ -105,19 +105,25 @@ type EnvVarNames struct {
 // DefaultEnvVarNames returns the standard environment variable names.
 func DefaultEnvVarNames() EnvVarNames {
 	return EnvVarNames{
-		NekoRoot:            "MimoNeko_NEKO_ROOT",
-		NekoDefaultRootFile: "MimoNeko_NEKO_DEFAULT_ROOT_FILE",
+		NekoRoot:            "MIMONEKO_NEKO_ROOT",
+		NekoDefaultRootFile: "MIMONEKO_NEKO_DEFAULT_ROOT_FILE",
 	}
 }
 
 // NekoRootFromEnv returns the MimoNeko project root from environment variable.
 func NekoRootFromEnv() string {
-	return GetEnvTrimmed(DefaultEnvVarNames().NekoRoot)
+	if root := GetEnvTrimmed(DefaultEnvVarNames().NekoRoot); root != "" {
+		return root
+	}
+	return GetEnvTrimmed("MimoNeko_NEKO_ROOT")
 }
 
 // NekoDefaultRootFilePath returns the path to the default root file.
 func NekoDefaultRootFilePath() string {
 	envPath := GetEnvTrimmed(DefaultEnvVarNames().NekoDefaultRootFile)
+	if envPath == "" {
+		envPath = GetEnvTrimmed("MimoNeko_NEKO_DEFAULT_ROOT_FILE")
+	}
 	if envPath != "" {
 		return envPath
 	}

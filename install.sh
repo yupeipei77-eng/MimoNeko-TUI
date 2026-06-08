@@ -1,14 +1,15 @@
 #!/usr/bin/env sh
 set -eu
 
-# MioNeko user-scope installer for macOS/Linux.
+# MimoNeko user-scope installer for macOS/Linux.
 # Run from the extracted release folder. sudo is not required.
 
 INSTALL_DIR="$HOME/.local/bin"
 TARGET="$INSTALL_DIR/mimoneko"
+ALIAS_TARGET="$INSTALL_DIR/neko"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-echo "MioNeko macOS/Linux installer"
+echo "MimoNeko macOS/Linux installer"
 echo
 
 SOURCE=""
@@ -31,7 +32,14 @@ fi
 mkdir -p "$INSTALL_DIR"
 cp "$SOURCE" "$TARGET"
 chmod 755 "$TARGET"
+if [ -f "$SCRIPT_DIR/neko" ]; then
+  cp "$SCRIPT_DIR/neko" "$ALIAS_TARGET"
+else
+  cp "$SOURCE" "$ALIAS_TARGET"
+fi
+chmod 755 "$ALIAS_TARGET"
 echo "Installed: $TARGET"
+echo "Alias installed: $ALIAS_TARGET"
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*)

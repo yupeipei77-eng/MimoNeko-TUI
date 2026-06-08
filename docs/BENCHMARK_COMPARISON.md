@@ -1,7 +1,7 @@
-# MioNeko Benchmark 对比方案
+# MimoNeko Benchmark 对比方案
 
 **版本**: v0.1.0-alpha
-**目标**: 客观对比 MioNeko 与其他 AI 编程工具
+**目标**: 客观对比 MimoNeko 与其他 AI 编程工具
 
 ---
 
@@ -9,7 +9,7 @@
 
 | 工具 | 版本 | 说明 | 安装方式 |
 |------|------|------|----------|
-| MioNeko | v0.1.0-alpha | 本项目 | go install |
+| MimoNeko | v0.1.0-alpha | 本项目 | go install |
 | OpenCode | latest | 开源 AI 编程工具 | npm install |
 | Aider | latest | AI 结对编程 | pip install |
 
@@ -243,13 +243,13 @@ cat benchmark-results.csv
 
 | 工具 | 任务 | 输入 Token | 输出 Token | 总 Token | 说明 |
 |------|------|------------|------------|----------|------|
-| MioNeko | 修改 README | | | | |
+| MimoNeko | 修改 README | | | | |
 | OpenCode | 修改 README | | | | |
 | Aider | 修改 README | | | | |
-| MioNeko | 修复 Bug | | | | |
+| MimoNeko | 修复 Bug | | | | |
 | OpenCode | 修复 Bug | | | | |
 | Aider | 修复 Bug | | | | |
-| MioNeko | 新增配置 | | | | |
+| MimoNeko | 新增配置 | | | | |
 | OpenCode | 新增配置 | | | | |
 | Aider | 新增配置 | | | | |
 
@@ -257,13 +257,13 @@ cat benchmark-results.csv
 
 | 工具 | 任务 | 响应时间 (ms) | 说明 |
 |------|------|---------------|------|
-| MioNeko | 修改 README | | |
+| MimoNeko | 修改 README | | |
 | OpenCode | 修改 README | | |
 | Aider | 修改 README | | |
-| MioNeko | 修复 Bug | | |
+| MimoNeko | 修复 Bug | | |
 | OpenCode | 修复 Bug | | |
 | Aider | 修复 Bug | | |
-| MioNeko | 新增配置 | | |
+| MimoNeko | 新增配置 | | |
 | OpenCode | 新增配置 | | |
 | Aider | 新增配置 | | |
 
@@ -271,13 +271,13 @@ cat benchmark-results.csv
 
 | 工具 | 任务 | Cached Tokens | Total Tokens | Hit Rate | 说明 |
 |------|------|---------------|--------------|----------|------|
-| MioNeko | 修改 README | | | | |
+| MimoNeko | 修改 README | | | | |
 | OpenCode | 修改 README | | | | |
 | Aider | 修改 README | | | | |
-| MioNeko | 修复 Bug | | | | |
+| MimoNeko | 修复 Bug | | | | |
 | OpenCode | 修复 Bug | | | | |
 | Aider | 修复 Bug | | | | |
-| MioNeko | 新增配置 | | | | |
+| MimoNeko | 新增配置 | | | | |
 | OpenCode | 新增配置 | | | | |
 | Aider | 新增配置 | | | | |
 
@@ -285,13 +285,13 @@ cat benchmark-results.csv
 
 | 工具 | 任务 | 成功 | 失败 | 成功率 | 说明 |
 |------|------|------|------|--------|------|
-| MioNeko | 修改 README | | | | |
+| MimoNeko | 修改 README | | | | |
 | OpenCode | 修改 README | | | | |
 | Aider | 修改 README | | | | |
-| MioNeko | 修复 Bug | | | | |
+| MimoNeko | 修复 Bug | | | | |
 | OpenCode | 修复 Bug | | | | |
 | Aider | 修复 Bug | | | | |
-| MioNeko | 新增配置 | | | | |
+| MimoNeko | 新增配置 | | | | |
 | OpenCode | 新增配置 | | | | |
 | Aider | 新增配置 | | | | |
 
@@ -303,13 +303,13 @@ cat benchmark-results.csv
 
 | 工具 | Token 效率 | 响应速度 | 缓存命中 | 成功率 | 总分 |
 |------|------------|----------|----------|--------|------|
-| MioNeko | /5 | /5 | /5 | /5 | /20 |
+| MimoNeko | /5 | /5 | /5 | /5 | /20 |
 | OpenCode | /5 | /5 | /5 | /5 | /20 |
 | Aider | /5 | /5 | /5 | /5 | /20 |
 
 ### 优势分析
 
-**MioNeko 优势**:
+**MimoNeko 优势**:
 - 
 - 
 - 
@@ -326,7 +326,7 @@ cat benchmark-results.csv
 
 ### 改进建议
 
-**MioNeko 改进方向**:
+**MimoNeko 改进方向**:
 - 
 - 
 - 

@@ -1,4 +1,4 @@
-# ADR 0002: Phase 1 Context Engine + Cache Engine Implementation
+# ADR 0002: Context Engine and Cache Engine Implementation
 
 ## Status
 
@@ -6,37 +6,35 @@ Accepted
 
 ## Context
 
-NekoMIMO has an interface-only skeleton for context assembly and cache management. Phase 1 must fill in concrete implementations that establish byte-stable prefix construction, append-only logging, volatile scratchpad, cache statistics, and token budget enforcement.
+MimoNeko needs deterministic context assembly and cache reporting for
+MIMO-first usage. Prefix cache behavior is sensitive to byte-level changes, so
+the reusable prefix must be stable and observable.
 
 ## Decision
 
-1. **Canonicalization as foundation**: Pure functions in `internal/prefix/canonical.go` provide NormalizeLineEndings, CanonicalText, CanonicalJSON, CanonicalTools, StableHash, and EstimateTokens. All other modules depend on these for determinism.
-
-2. **JSONL storage format**: Both ConversationLog and CacheRegistry use JSONL files for local-first storage. One file per conversation for logs; one file for all cache observations. Append-only writes with fsync for durability.
-
-3. **Token estimation heuristic**: `len(data) / 4` (~4 chars/token) as the project-wide heuristic. No external tokenizer dependency in Phase 1.
-
-4. **In-memory scratchpad**: VolatileScratchpad stores items only in process memory. This matches the "volatile" semantic â€?items may be lost on restart. No disk persistence.
-
-5. **Cache report by prefix_hash**: CacheReport groups observations by fingerprint SHA-256, computing per-hash hit rates, reuse counts, and miss reasons. GlobalSummary provides an aggregate view.
-
-6. **Budget config in prefix.yaml**: Token budget thresholds (warn_ratio, block_ratio) are configured alongside other prefix settings, validated at config load time.
-
-7. **CurrentInput on BuildRequest**: Added `CurrentInput []byte` to `BuildRequest` rather than requiring it to go through ConversationLog. CurrentInput is the current turn's input; it gets appended to ConversationLog only after a successful model call.
-
-8. **Report method on concrete type**: CacheReport is generated via `JSONLCacheRegistry.Report()` (concrete type), not added to the `CacheRegistry` interface, to avoid changing interface signatures.
+1. Use canonical prefix helpers for line endings, JSON, tool ordering, hashing,
+   and token estimation.
+2. Store conversation logs and cache observations as append-only JSONL.
+3. Use a simple token heuristic in this phase instead of adding a tokenizer
+   dependency.
+4. Keep scratchpad items in process memory only.
+5. Generate cache reports by grouping observations by prefix fingerprint.
+6. Configure budget thresholds in `prefix.yaml`.
+7. Carry the current user input on `BuildRequest` so it remains separate from
+   persisted conversation history until a model call succeeds.
 
 ## Consequences
 
 Positive:
-- Byte-stable prefix guarantees enable reliable prefix cache behavior
-- Append-only log prevents accidental history corruption
-- Priority-based scratchpad eviction keeps high-value context
-- Token budget guard provides configurable safety net
-- All implementations satisfy existing interface contracts
 
-Negative:
-- JSONL storage has no indexing â€?queries scan entire files
-- Scratchpad items are lost on process restart
-- Token estimation is approximate, not model-specific
-- No compaction mechanism for conversation logs yet
+- Stable prefix bytes improve cache reuse.
+- Append-only storage reduces accidental history corruption.
+- Cache reports expose hit rate and possible miss reasons.
+- The design stays local-first and easy to test.
+
+Tradeoffs:
+
+- JSONL scans are simple but not indexed.
+- Scratchpad items are lost on restart.
+- Token estimation is approximate.
+- Conversation compaction is deferred.

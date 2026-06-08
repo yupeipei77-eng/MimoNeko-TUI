@@ -170,9 +170,12 @@ type modelPickerItem struct {
 }
 
 type agentPickerItem struct {
-	Name string
-	Mode string
-	Help string
+	Name        string
+	Mode        string
+	Description string
+	Tools       []string
+	Permission  string
+	Worktree    bool
 }
 
 type providerPickerItem struct {
@@ -350,9 +353,9 @@ func (c *Console) toggleThinking() {
 		if c.screenActive {
 			c.refreshScreenThinking()
 		} else if c.Thinking.ShowThoughts() {
-			c.emitInfo("Thought shown · Ctrl+T to hide")
+			c.emitInfo("Thought shown | Ctrl+T to hide")
 		} else {
-			c.emitInfo("Thought hidden · Ctrl+T to show")
+			c.emitInfo("Thought hidden | Ctrl+T to show")
 		}
 	}
 }
@@ -433,6 +436,8 @@ func (c *Console) handleSlash(ctx context.Context, line string) bool {
 		return true
 	case "/help":
 		c.showRendered(func(w io.Writer) { RenderHelp(w, c.Session.NoColor) })
+	case "/cache":
+		c.showRendered(func(w io.Writer) { RenderCache(w, c.Session) })
 	case "/new":
 		c.Messages.Reset()
 		c.screenLog = nil
@@ -451,13 +456,13 @@ func (c *Console) handleSlash(ctx context.Context, line string) bool {
 			return false
 		}
 		if !c.Session.SetMode(arg) {
-			c.emitInfo("usage: /agents single|multi")
+			c.emitInfo("usage: /agents " + agentModeUsage())
 			return false
 		}
 		c.emitInfo(fmt.Sprintf("agent=%s worktree=%v", c.Session.Mode, c.Session.Worktree))
 	case "/mode":
 		if len(fields) != 2 || !c.Session.SetMode(fields[1]) {
-			c.emitInfo("usage: /mode single|multi")
+			c.emitInfo("usage: /mode " + agentModeUsage())
 			return false
 		}
 		c.emitInfo(fmt.Sprintf("mode=%s worktree=%v", c.Session.Mode, c.Session.Worktree))
@@ -490,7 +495,7 @@ func (c *Console) handleSlash(ctx context.Context, line string) bool {
 			return false
 		}
 		c.refreshInput()
-		c.setStatus(fmt.Sprintf("Model switched to %s · provider %s", c.Session.Model, c.Session.Provider), false)
+		c.setStatus(fmt.Sprintf("Model switched to %s | provider %s", c.Session.Model, c.Session.Provider), false)
 	case "/runs":
 		c.callSimple(ctx, c.Options.RunsLister, "recent runs unavailable")
 	case "/preview":
@@ -581,15 +586,15 @@ func (c *Console) emitError(text string) {
 }
 
 // setStatus replaces the trailing status line in screenLog with a single new entry.
-// Successes use kind="done" (rendered as green ✓), failures use kind="error" (red !).
-// Trailing "done" / "error" / ✓-prefixed "info" entries are dropped so callers
+// Successes use kind="done" (rendered as OK), failures use kind="error" (red !).
+// Trailing "done" / "error" / OK-prefixed "info" entries are dropped so callers
 // can call setStatus repeatedly without stacking status lines.
 func (c *Console) setStatus(text string, isError bool) {
 	if !c.screenActive {
 		if isError {
 			fmt.Fprintln(c.Options.Out, "! "+text)
 		} else {
-			fmt.Fprintln(c.Options.Out, "✓ "+text)
+			fmt.Fprintln(c.Options.Out, "OK "+text)
 		}
 		return
 	}
@@ -599,7 +604,7 @@ func (c *Console) setStatus(text string, isError bool) {
 			c.screenLog = c.screenLog[:len(c.screenLog)-1]
 			continue
 		}
-		if last.Kind == "info" && strings.HasPrefix(strings.TrimSpace(last.Text), "✓") {
+		if last.Kind == "info" && strings.HasPrefix(strings.TrimSpace(last.Text), "OK ") {
 			c.screenLog = c.screenLog[:len(c.screenLog)-1]
 			continue
 		}

@@ -82,6 +82,9 @@ func TestIsWriteDenied(t *testing.T) {
 		denied bool
 	}{
 		{".env", true},
+		{".env.local", true},
+		{"nested/.env.production", true},
+		{"secrets.json", true},
 		{".git", true},
 		{".mimoneko", true},
 		{"server.pem", true},
@@ -111,6 +114,9 @@ func TestIsReadDenied(t *testing.T) {
 		denied bool
 	}{
 		{".env", true},
+		{".env.local", true},
+		{"nested/.env.production", true},
+		{"secrets.json", true},
 		{"server.pem", true},
 		{"private.key", true},
 		{"id_rsa", true},
@@ -137,6 +143,8 @@ func TestIsSensitiveFilePath(t *testing.T) {
 	}{
 		{".env", true},
 		{"config/.env", true},
+		{".env.local", true},
+		{"secrets.json", true},
 		{"id_rsa", true},
 		{"id_ed25519", true},
 		{"cert.pem", true},
@@ -156,7 +164,7 @@ func TestIsSensitiveFilePath(t *testing.T) {
 
 func TestIsUnderProtectedDir(t *testing.T) {
 	tests := []struct {
-		path     string
+		path      string
 		protected bool
 	}{
 		{".git/config", true},

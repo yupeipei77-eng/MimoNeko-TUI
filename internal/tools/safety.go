@@ -139,12 +139,16 @@ func matchesAnyGlob(rel string, patterns []string) bool {
 func DefaultDenyWritePaths() []string {
 	return []string{
 		".git",
+		".git/*",
 		config.DirName(),
+		config.DirName() + "/*",
 		".env",
+		".env.*",
 		"*.pem",
 		"*.key",
 		"id_rsa",
 		"id_ed25519",
+		"secrets.*",
 	}
 }
 
@@ -152,12 +156,16 @@ func DefaultDenyWritePaths() []string {
 func DefaultDenyReadPaths() []string {
 	return []string{
 		".git",
+		".git/*",
 		config.DirName(),
+		config.DirName() + "/*",
 		".env",
+		".env.*",
 		"*.pem",
 		"*.key",
 		"id_rsa",
 		"id_ed25519",
+		"secrets.*",
 	}
 }
 
@@ -181,6 +189,9 @@ func IsSensitiveFilePath(rel string) bool {
 		if strings.HasSuffix(base, ext) {
 			return true
 		}
+	}
+	if strings.HasPrefix(base, ".env.") || strings.HasPrefix(base, "secrets.") {
+		return true
 	}
 	return false
 }

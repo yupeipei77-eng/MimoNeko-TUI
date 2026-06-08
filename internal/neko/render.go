@@ -64,6 +64,7 @@ func commandPaletteItems() []commandPaletteItem {
 	return []commandPaletteItem{
 		{Command: "/agents", Help: "Switch agent", Section: "Suggested"},
 		{Command: "/models", Help: "Switch model", Section: "Suggested"},
+		{Command: "/cache", Help: "Show cache stats", Section: "Suggested"},
 		{Command: "/connect", Help: "Connect provider", Section: "Suggested"},
 		{Command: "/diff", Help: "Open diff viewer", Section: "Workspace"},
 		{Command: "/editor", Help: "Open editor", Section: "Workspace"},
@@ -93,22 +94,24 @@ func filterCommandPaletteItems(filter string) []commandPaletteItem {
 func RenderAgents(w io.Writer, session Session) {
 	renderer := branding.NewRenderer(session.NoColor)
 	fmt.Fprintln(w, renderer.Title("Agents"))
-	agents := []struct {
-		Name string
-		Mode string
-		Help string
-	}{
-		{"Build", "multi", "multi-agent worktree build"},
-		{"Single", "single", "single-agent direct chat"},
-	}
-	for _, agent := range agents {
+	for _, agent := range defaultAgentModes() {
 		selected := ""
-		if agent.Mode == session.Mode {
+		if agent.ID() == session.Mode {
 			selected = "* "
 		} else {
 			selected = "  "
 		}
-		fmt.Fprintf(w, "%s%-10s %s\n", renderer.Accent(selected), agent.Name, renderer.Muted(agent.Help))
+		fmt.Fprintf(w, "%s%-10s %s\n", renderer.Accent(selected), agent.Name(), renderer.Muted(agent.Description()))
+		fmt.Fprintf(w, "  %-10s tools=%s permission=%s worktree=%v\n", "", renderer.Muted(strings.Join(agent.AllowedTools(), ",")), renderer.Muted(string(agent.WritePermission())), agent.UseWorktree())
+	}
+	fmt.Fprintln(w)
+}
+
+func RenderCache(w io.Writer, session Session) {
+	renderer := branding.NewRenderer(session.NoColor)
+	fmt.Fprintln(w, renderer.Title("Cache"))
+	for _, line := range session.CacheReport() {
+		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintln(w)
 }
@@ -137,10 +140,10 @@ func RenderModels(w io.Writer, session Session) {
 }
 
 func displayMode(mode string) string {
-	if mode == "single" {
-		return "Single Run"
+	if selectedMode, ok := agentModeByID(mode); ok {
+		return selectedMode.Name()
 	}
-	return "Multi-Agent"
+	return "Build"
 }
 
 func emptyAsUnknown(value string) string {

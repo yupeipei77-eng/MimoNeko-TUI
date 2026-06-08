@@ -30,7 +30,6 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -46,7 +45,7 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -coverprofile=coverage.out ./...
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
@@ -71,10 +70,28 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+  race:
+    name: Race
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      - name: Run race tests
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./...
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, vet]
+    needs: [test, vet, race]
     strategy:
       matrix:
         goos: [linux, windows, darwin]
@@ -93,13 +110,24 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -o reasonforge-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/reasonforge/
+        shell: bash
+        run: |
+          artifact="mimoneko-${{ matrix.goos }}-${{ matrix.goarch }}"
+          alias="neko-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            artifact="${artifact}.exe"
+            alias="${alias}.exe"
+          fi
+          go build -o "${artifact}" ./cmd/mimoneko
+          go build -o "${alias}" ./cmd/neko
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: reasonforge-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: reasonforge-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: mimoneko-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            mimoneko-${{ matrix.goos }}-${{ matrix.goarch }}*
+            neko-${{ matrix.goos }}-${{ matrix.goarch }}*
 
   security:
     name: Security Scan

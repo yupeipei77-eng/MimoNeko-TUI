@@ -5,7 +5,7 @@
 
 ## 概述
 
-MioNeko v0.1.0-beta 是首个公开测试版本，重点优化了用户体验，让普通用户无需安装 Go 也能下载运行。
+MimoNeko v0.1.0-beta 是首个公开测试版本，重点优化了用户体验，让普通用户无需安装 Go 也能下载运行。
 
 ## 新增功能
 
@@ -49,7 +49,7 @@ mimoneko auth logout  # 清除配置
 
 ### 方式一：下载发行版（推荐）
 
-1. 访问 [Releases](https://github.com/yupeipei77-eng/MioNeko/releases)
+1. 访问 [Releases](<release-page-url>)
 2. 下载对应平台的压缩包
 3. 解压并运行
 
@@ -66,8 +66,8 @@ mimoneko.exe auth login
 ### 方式二：从源码构建
 
 ```bash
-git clone https://github.com/yupeipei77-eng/MioNeko.git
-cd MioNeko
+git clone <repository-url>
+cd MimoNeko
 go build -o mimoneko ./cmd/mimoneko
 ```
 
@@ -132,7 +132,7 @@ sha256sum -c SHA256SUMS
 
 ## 贡献者
 
-- MioNeko Team
+- MimoNeko Team
 
 ## 许可证
 

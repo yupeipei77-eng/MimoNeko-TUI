@@ -12,6 +12,7 @@ import (
 
 	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/security"
 	"github.com/mimoneko/mimoneko/internal/task"
 	"github.com/mimoneko/mimoneko/internal/tools"
 	"github.com/mimoneko/mimoneko/internal/worktree"
@@ -23,10 +24,12 @@ var deniedPatchPaths = []string{
 	".git",
 	config.DirName(),
 	".env",
+	".env.*",
 	"*.pem",
 	"*.key",
 	"id_rsa",
 	"id_ed25519",
+	"secrets.*",
 }
 
 // GitPatchManager implements PatchManager using git commands.
@@ -214,6 +217,14 @@ func (m *GitPatchManager) Apply(ctx context.Context, req PatchApplyRequest) (Pat
 			FilesChanged: preview.FilesChanged,
 			Summary:      preview.Summary,
 		}, nil
+	}
+
+	mode := req.PermissionMode
+	if mode == "" {
+		mode = security.GetPermissionMode()
+	}
+	if !mode.AllowsPatchApply(req.Approved) {
+		return PatchApplyResult{}, fmt.Errorf("patch: permission mode %q blocks apply; run preview first and use explicit approval", mode)
 	}
 
 	// 6. Apply the diff using git apply

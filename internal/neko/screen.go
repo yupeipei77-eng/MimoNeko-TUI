@@ -152,7 +152,7 @@ func (c *Console) repaintScreen() {
 	if addTop > 0 {
 		cursorRow, cursorCol = c.renderAddProviderModal(&out, renderer, left, width, addTop, addBottom)
 	} else if agentTop > 0 {
-		cursorRow, cursorCol = agentTop+2, left+(width-screenModalWidth(width, 72, 48))/2+4
+		cursorRow, cursorCol = agentTop+2, left+(width-screenModalWidth(width, 92, 58))/2+4
 	} else if providerTop > 0 {
 		cursorRow, cursorCol = providerTop+2, left+(width-screenModalWidth(width, 76, 58))/2+4
 	} else if pickerTop > 0 {
@@ -296,7 +296,7 @@ func (c *Console) renderScreenWorkbenchComposerV2(w io.Writer, renderer branding
 	if reasoning := strings.TrimSpace(c.Session.ReasoningStatusLabel()); reasoning != "" {
 		statusParts = append(statusParts, renderer.Accent(reasoning))
 	}
-	status := screenJoinStyled(statusParts, renderer.Muted(" · "))
+	status := screenJoinStyled(statusParts, renderer.Muted(" | "))
 
 	promptLabel := "> "
 	inputWidth := contentWidth - screenWidth(promptLabel)
@@ -772,24 +772,33 @@ func (c *Console) executeAgentPickerSelection() {
 	if c.Session.SetMode(item.Mode) {
 		c.refreshInput()
 		c.agentPickerOpen = false
-		c.setStatus(fmt.Sprintf("Agent switched to %s · mode %s", item.Name, c.Session.Mode), false)
+		c.setStatus(fmt.Sprintf("Agent switched to %s | mode %s", item.Name, c.Session.Mode), false)
 		return
 	}
 	c.closeAgentPicker()
 }
 
 func (c *Console) buildAgentPickerItems() []agentPickerItem {
-	return []agentPickerItem{
-		{Name: "Build", Mode: "multi", Help: "multi-agent worktree build"},
-		{Name: "Single", Mode: "single", Help: "single-agent direct chat"},
+	modes := defaultAgentModes()
+	items := make([]agentPickerItem, 0, len(modes))
+	for _, mode := range modes {
+		items = append(items, agentPickerItem{
+			Name:        mode.Name(),
+			Mode:        mode.ID(),
+			Description: mode.Description(),
+			Tools:       mode.AllowedTools(),
+			Permission:  string(mode.WritePermission()),
+			Worktree:    mode.UseWorktree(),
+		})
 	}
+	return items
 }
 
 func (c *Console) agentPickerBounds(composerTop int) (int, int) {
 	if !c.agentPickerOpen {
 		return 0, 0
 	}
-	height := len(c.agentPickerItems) + 5
+	height := len(c.agentPickerItems)*2 + 5
 	if height < 7 {
 		height = 7
 	}
@@ -808,7 +817,7 @@ func (c *Console) agentPickerBounds(composerTop int) (int, int) {
 }
 
 func (c *Console) renderAgentPicker(w io.Writer, renderer branding.Renderer, left, width, top, bottom int) {
-	pickerWidth := screenModalWidth(width, 72, 48)
+	pickerWidth := screenModalWidth(width, 92, 58)
 	pickerLeft := left + (width-pickerWidth)/2
 	if pickerLeft < 1 {
 		pickerLeft = 1
@@ -831,16 +840,41 @@ func (c *Console) renderAgentPicker(w io.Writer, renderer branding.Renderer, lef
 		if item.Mode == c.Session.Mode {
 			leftText = "  * " + item.Name
 		}
-		line := screenTwoColumn(leftText, renderer.Muted(item.Help)+"    ", pickerWidth)
+		line := screenTwoColumn(leftText, renderer.Muted(item.Description)+"    ", pickerWidth)
 		if idx == c.agentPickerSelected {
-			selectedLine := screenTwoColumn("    "+item.Name, item.Help+"    ", pickerWidth)
+			selectedLine := screenTwoColumn("    "+item.Name, item.Description+"    ", pickerWidth)
 			fmt.Fprintf(w, "\x1b[%d;%dH%s", row, pickerLeft, screenSelected(screenPadRight(selectedLine, pickerWidth), false))
 		} else {
 			fmt.Fprintf(w, "\x1b[%d;%dH%s", row, pickerLeft, screenModalLine(line, pickerWidth))
 		}
 		row++
+		if row > bottom {
+			break
+		}
+		meta := fmt.Sprintf("tools=%s  permission=%s  worktree=%v", strings.Join(agentPickerToolLabels(item.Tools), ","), item.Permission, item.Worktree)
+		fmt.Fprintf(w, "\x1b[%d;%dH%s", row, pickerLeft, screenModalLine("      "+renderer.Muted(meta), pickerWidth))
+		row++
 	}
 	fillScreenModal(w, pickerLeft, pickerWidth, row, bottom)
+}
+
+func agentPickerToolLabels(tools []string) []string {
+	labels := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		switch tool {
+		case "file_read":
+			labels = append(labels, "read")
+		case "git_diff":
+			labels = append(labels, "diff")
+		case "test_run":
+			labels = append(labels, "test")
+		case "patch_preview":
+			labels = append(labels, "patch")
+		default:
+			labels = append(labels, tool)
+		}
+	}
+	return labels
 }
 
 func renderAssistantScreenText(renderer branding.Renderer, text string, isError bool, width int) []string {
@@ -1468,7 +1502,7 @@ func (c *Console) executeModelPickerSelection() {
 	}
 	if c.Session.SelectModel(item.Model) {
 		c.refreshInput()
-		c.setStatus(fmt.Sprintf("Model switched to %s · provider %s", c.Session.Model, c.Session.Provider), false)
+		c.setStatus(fmt.Sprintf("Model switched to %s | provider %s", c.Session.Model, c.Session.Provider), false)
 	}
 	c.closeModelPicker()
 }

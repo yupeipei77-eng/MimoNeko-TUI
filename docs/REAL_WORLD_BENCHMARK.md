@@ -1,6 +1,6 @@
-# MioNeko Real World Benchmark
+# MimoNeko Real World Benchmark
 
-This document records a real MiMo API validation run for MioNeko. It is not a
+This document records a real MiMo API validation run for MimoNeko. It is not a
 mock benchmark and does not use simulated token data.
 
 ## Environment
@@ -69,7 +69,7 @@ Rounded to two decimal places:
 
 ## Test Steps
 
-1. Install or build MioNeko.
+1. Install or build MimoNeko.
 2. Configure MiMo authentication with a real API Key:
 
    ```powershell

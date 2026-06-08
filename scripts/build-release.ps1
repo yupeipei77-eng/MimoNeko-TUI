@@ -1,12 +1,18 @@
-# MioNeko Release Build Script (Windows)
+﻿# MimoNeko Release Build Script (Windows)
 param(
-    [string]$Version = "v0.1.1-beta"
+    [string]$Version = "v0.1.4-beta"
 )
 
 $ErrorActionPreference = "Stop"
 $OutputDir = "dist"
+if ($Version.StartsWith("v")) {
+    $VersionName = $Version.Substring(1)
+} else {
+    $VersionName = $Version
+}
+$Ldflags = "-X github.com/mimoneko/mimoneko/internal/version.Version=$VersionName"
 
-Write-Host "Building MioNeko $Version..." -ForegroundColor Cyan
+Write-Host "Building MimoNeko $Version..." -ForegroundColor Cyan
 
 # Create output directory
 if (Test-Path $OutputDir) {
@@ -32,8 +38,10 @@ foreach ($platform in $platforms) {
     New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
     $binaryName = "mimoneko"
+    $aliasName = "neko"
     if ($os -eq "windows") {
         $binaryName = "mimoneko.exe"
+        $aliasName = "neko.exe"
     }
 
     Write-Host "Building ${packageName}..." -ForegroundColor Yellow
@@ -41,7 +49,13 @@ foreach ($platform in $platforms) {
     $env:GOOS = $os
     $env:GOARCH = $arch
     
-    go build -o (Join-Path $packageDir $binaryName) .\cmd\mimoneko
+    go build -ldflags $Ldflags -o (Join-Path $packageDir $binaryName) .\cmd\mimoneko
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to build ${packageName}"
+        exit 1
+    }
+
+    go build -ldflags $Ldflags -o (Join-Path $packageDir $aliasName) .\cmd\neko
     
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to build ${packageName}"

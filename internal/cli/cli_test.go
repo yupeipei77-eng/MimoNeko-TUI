@@ -55,7 +55,7 @@ func TestVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(version) code = %d", code)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.3-beta" {
+	if got := strings.TrimSpace(stdout.String()); got != "MimoNeko 0.1.4-beta" {
 		t.Fatalf("version output = %q", got)
 	}
 }
@@ -703,25 +703,25 @@ func TestModelsCommand(t *testing.T) {
 	if !strings.Contains(output, "MimoNeko Models") {
 		t.Fatalf("models output = %q, want MimoNeko Models header", output)
 	}
-	if !strings.Contains(output, "default_model=local-coder") {
+	if !strings.Contains(output, "default_model=mimo-v2.5-pro") {
 		t.Fatalf("models output = %q, want default_model line", output)
 	}
-	if !strings.Contains(output, "provider=local-openai-compatible") {
+	if !strings.Contains(output, "provider=mimo") {
 		t.Fatalf("models output = %q, want provider line", output)
 	}
-	if !strings.Contains(output, "type=openai-compatible") {
+	if !strings.Contains(output, "type=mimo") {
 		t.Fatalf("models output = %q, want type line", output)
 	}
-	if !strings.Contains(output, "base_url=http://127.0.0.1:11434/v1") {
+	if !strings.Contains(output, "base_url=https://token-plan-cn.xiaomimimo.com/v1") {
 		t.Fatalf("models output = %q, want base_url line", output)
 	}
-	if !strings.Contains(output, "api_key_env=MimoNeko_API_KEY") {
+	if !strings.Contains(output, "api_key_env=MIMO_API_KEY") {
 		t.Fatalf("models output = %q, want api_key_env line", output)
 	}
 	if !strings.Contains(output, "api_key_status=") {
 		t.Fatalf("models output = %q, want api_key_status line", output)
 	}
-	if !strings.Contains(output, "models=local-coder") {
+	if !strings.Contains(output, "models=mimo-v2.5-pro") {
 		t.Fatalf("models output = %q, want models line", output)
 	}
 	if !strings.Contains(output, "fallback_chain:") {
@@ -890,6 +890,7 @@ func TestModelListShowsConfiguredMissing(t *testing.T) {
 	t.Setenv("MIMO_API_KEY", "sk-configured-for-status")
 	t.Setenv("MimoNeko_API_KEY", "")
 	runModelSetupForTest(t, root, "--preset", "mimo", "--provider", "mimo", "--model", "mimo-v2.5-pro")
+	runModelSetupForTest(t, root, "--preset", "custom-openai-compatible", "--provider", "missing-provider", "--base-url", "https://example.invalid/v1", "--api-key-env", "MISSING_PROVIDER_API_KEY", "--model", "missing-model")
 	var stdout bytes.Buffer
 	code := Run([]string{"model", "list", "--dir", root}, Env{Stdout: &stdout})
 	if code != 0 {
@@ -1296,7 +1297,7 @@ func TestNekoUsesDefaultProjectRootOutsideProject(t *testing.T) {
 	if err := os.WriteFile(defaultFile, []byte(root), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", defaultFile)
+	t.Setenv("MIMONEKO_NEKO_DEFAULT_ROOT_FILE", defaultFile)
 	home := t.TempDir()
 	var stdout bytes.Buffer
 	code := Run([]string{"neko", "--no-color"}, Env{
@@ -1318,7 +1319,7 @@ func TestNekoDefaultProjectRootFileAllowsUTF8BOM(t *testing.T) {
 	if err := os.WriteFile(defaultFile, []byte("\ufeff"+root), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", defaultFile)
+	t.Setenv("MIMONEKO_NEKO_DEFAULT_ROOT_FILE", defaultFile)
 	home := t.TempDir()
 	var stdout bytes.Buffer
 	code := Run([]string{"neko", "--no-color"}, Env{
@@ -1336,8 +1337,8 @@ func TestNekoDefaultProjectRootFileAllowsUTF8BOM(t *testing.T) {
 
 func TestNekoMissingProjectShowsFriendlyHint(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("MimoNeko_NEKO_ROOT", "")
-	t.Setenv("MimoNeko_NEKO_DEFAULT_ROOT_FILE", filepath.Join(t.TempDir(), "missing-default-root.txt"))
+	t.Setenv("MIMONEKO_NEKO_ROOT", "")
+	t.Setenv("MIMONEKO_NEKO_DEFAULT_ROOT_FILE", filepath.Join(t.TempDir(), "missing-default-root.txt"))
 	var stderr bytes.Buffer
 	code := Run([]string{"neko", "--no-color"}, Env{
 		Stderr: &stderr,
@@ -1548,7 +1549,7 @@ func TestModelRemoveProvider(t *testing.T) {
 func TestModelRemoveRejectsDefaultModel(t *testing.T) {
 	root := setupModelCommandRoot(t)
 	var stderr bytes.Buffer
-	code := Run([]string{"model", "remove", "--dir", root, "--model", "local-coder"}, Env{Stderr: &stderr})
+	code := Run([]string{"model", "remove", "--dir", root, "--model", "mimo-v2.5-pro"}, Env{Stderr: &stderr})
 	if code != 1 {
 		t.Fatalf("model remove code = %d, want 1", code)
 	}
@@ -2441,6 +2442,11 @@ func TestCLIDoesNotLeakAPIKey(t *testing.T) {
 
 	if strings.Contains(stdout.String(), "sk-super-secret-key-12345") {
 		t.Fatal("CLI output should not contain API key")
+	}
+	for _, fragment := range []string{"sk-s", "12345", "secret-key"} {
+		if strings.Contains(stdout.String(), fragment) {
+			t.Fatalf("CLI output should not contain API key fragment %q: %q", fragment, stdout.String())
+		}
 	}
 }
 

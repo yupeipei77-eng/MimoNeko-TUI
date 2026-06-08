@@ -16,7 +16,14 @@ import (
 	"github.com/mimoneko/mimoneko/internal/config"
 	"github.com/mimoneko/mimoneko/internal/neko/branding"
 	"github.com/mimoneko/mimoneko/internal/neko/layout"
+	"github.com/mimoneko/mimoneko/internal/security"
 )
+
+func allowAutoSaveForTest(t *testing.T) {
+	t.Helper()
+	t.Setenv(security.PermissionModeEnvVar, string(security.PermissionApplyWithApproval))
+	t.Setenv("MIMONEKO_AUTO_SAVE_APPROVED", "true")
+}
 
 func TestNekoNoColor(t *testing.T) {
 	session := newTestSession(t, nil, Options{NoColor: true, DryRun: true, DryRunSet: true})
@@ -173,6 +180,24 @@ func TestNekoAgentsCommandSwitchesMode(t *testing.T) {
 	}
 }
 
+func TestNekoAgentsCommandShowsModeMetadata(t *testing.T) {
+	output := runTestConsole(t, "/agents\n/exit\n", Options{})
+	for _, want := range []string{
+		"Agents",
+		"Build",
+		"multi-agent worktree build",
+		"tools=file_read,git_diff,test_run,patch_preview",
+		"permission=patch-preview",
+		"worktree=true",
+		"Reviewer",
+		"permission=read-only",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output = %q, want %q", output, want)
+		}
+	}
+}
+
 func TestNekoAgentsCommandOpensPickerInScreenMode(t *testing.T) {
 	session := newTestSession(t, nil, Options{})
 	var out bytes.Buffer
@@ -189,7 +214,7 @@ func TestNekoAgentsCommandOpensPickerInScreenMode(t *testing.T) {
 		t.Fatal("agentPickerOpen = false after /agents, want true")
 	}
 	text := out.String()
-	for _, want := range []string{"Switch agent", "Build", "Single"} {
+	for _, want := range []string{"Switch agent", "Build", "Single", "tools=read,diff,test,patch", "permission=patch-preview", "worktree=true"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("screen = %q, want %q", text, want)
 		}
@@ -258,6 +283,68 @@ func TestNekoScreenComposerUsesNativeCursorForCJKDraft(t *testing.T) {
 	wantCursor := fmt.Sprintf("\x1b[%d;%dH", composerTop+1, left+2+runewidth.StringWidth("> ")+runewidth.StringWidth("你好"))
 	if !strings.Contains(text, wantCursor) {
 		t.Fatalf("screen = %q, want cursor move %q", text, wantCursor)
+	}
+}
+
+func TestNekoScreenComposerUsesNativeCursorForEmojiDraft(t *testing.T) {
+	session := newTestSession(t, nil, Options{DryRun: true, DryRunSet: true})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   96,
+		screenRows:   24,
+		draft:        "猫🙂",
+	}
+	console.repaintScreen()
+	text := out.String()
+	if !strings.Contains(text, "> 猫🙂") {
+		t.Fatalf("screen = %q, want emoji draft text", text)
+	}
+	for _, forbidden := range []string{"|猫", "猫|", "🙂|", "\x1b[7m"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("screen = %q, contains fake cursor %q", text, forbidden)
+		}
+	}
+	width := console.composerWidth()
+	left := (console.screenCols - width) / 2
+	if left < 1 {
+		left = 1
+	}
+	composerTop := console.screenRows - 4
+	wantCursor := fmt.Sprintf("\x1b[%d;%dH", composerTop+1, left+2+runewidth.StringWidth("> ")+runewidth.StringWidth("猫🙂"))
+	if !strings.Contains(text, wantCursor) {
+		t.Fatalf("screen = %q, want cursor move %q", text, wantCursor)
+	}
+}
+
+func TestNekoScreenComposerCursorTracksResize(t *testing.T) {
+	session := newTestSession(t, nil, Options{DryRun: true, DryRunSet: true})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   100,
+		screenRows:   28,
+		draft:        "你好",
+	}
+	console.repaintScreen()
+	out.Reset()
+	console.screenCols = 82
+	console.screenRows = 22
+	console.repaintScreen()
+	text := out.String()
+	width := console.composerWidth()
+	left := (console.screenCols - width) / 2
+	if left < 1 {
+		left = 1
+	}
+	composerTop := console.screenRows - 4
+	wantCursor := fmt.Sprintf("\x1b[%d;%dH", composerTop+1, left+2+runewidth.StringWidth("> ")+runewidth.StringWidth("你好"))
+	if !strings.Contains(text, wantCursor) {
+		t.Fatalf("resized screen = %q, want cursor move %q", text, wantCursor)
 	}
 }
 
@@ -335,9 +422,39 @@ func TestNekoNewResetsConversationState(t *testing.T) {
 
 func TestNekoStatusBarRendersRuntimeContext(t *testing.T) {
 	output := runTestConsole(t, "/exit\n", Options{})
-	for _, want := range []string{"ctx <1%", "tools 0", "model mimo-v2.5-pro"} {
+	for _, want := range []string{"ctx <1%", "cache unsupported", "tools 0", "model mimo-v2.5-pro"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want status item %q", output, want)
+		}
+	}
+}
+
+func TestNekoCacheCommandReportsUnsupported(t *testing.T) {
+	output := runTestConsole(t, "/cache\n/exit\n", Options{})
+	for _, want := range []string{"Cache", "context=<1%", "input_tokens=0", "cached_tokens=0", "cache_hit_rate=unsupported"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output = %q, want cache item %q", output, want)
+		}
+	}
+}
+
+func TestNekoCacheCommandReportsNativeMimoHitRate(t *testing.T) {
+	output := runTestConsole(t, "hello\n/cache\n/exit\n", Options{
+		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
+			return ChatResult{
+				Response: "Ready.",
+				Usage: Usage{
+					CacheHitTokens:   30,
+					CacheMissTokens:  70,
+					OutputTokens:     8,
+					NativeCacheKnown: true,
+				},
+			}, nil
+		},
+	})
+	for _, want := range []string{"input_tokens=102", "cached_tokens=30", "cache_hit_rate=30.0%"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output = %q, want cache item %q", output, want)
 		}
 	}
 }
@@ -650,6 +767,7 @@ func TestNekoChatFailureUsesRedANSIWhenColorEnabled(t *testing.T) {
 }
 
 func TestNekoAutoSavesChatCodeBlockToDefaultProjectDir(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我生成一个bat批处理文件并保存到默认项目目录\n/exit\n", Options{
 		Root: root,
@@ -667,7 +785,24 @@ func TestNekoAutoSavesChatCodeBlockToDefaultProjectDir(t *testing.T) {
 	}
 }
 
+func TestNekoAutoSaveBlockedByDefaultPermission(t *testing.T) {
+	root := t.TempDir()
+	output := runTestConsole(t, "帮我生成一个bat批处理文件并保存到默认项目目录\n/exit\n", Options{
+		Root: root,
+		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
+			return ChatResult{Response: "```bat\n@echo off\necho blocked\n```"}, nil
+		},
+	})
+	if !strings.Contains(output, "auto_save_failed=") || !strings.Contains(output, "permission mode") {
+		t.Fatalf("output=%q, want auto-save permission failure", output)
+	}
+	if _, err := os.Stat(filepath.Join(root, "batch_script.bat")); !os.IsNotExist(err) {
+		t.Fatalf("batch_script.bat should not be written by default, stat err=%v", err)
+	}
+}
+
 func TestNekoAutoSaveSuppressesGeneratedBodyOutput(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我写一个bat脚本保存到默认项目目录\n/exit\n", Options{
 		Root: root,
@@ -694,6 +829,7 @@ func TestNekoAutoSaveSuppressesGeneratedBodyOutput(t *testing.T) {
 }
 
 func TestNekoLocalFastPathWritesDesktopMigrationWithoutModel(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	modelCalled := false
 	output := runTestConsole(t, "写一个把桌面目录迁移到D盘的脚本保存到默认项目目录\n/exit\n", Options{
@@ -726,6 +862,7 @@ func TestNekoLocalFastPathWritesDesktopMigrationWithoutModel(t *testing.T) {
 }
 
 func TestNekoStreamingAutoSaveSuppressesGeneratedBodyOutput(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我写一个bat脚本保存到默认项目目录\n/exit\n", Options{
 		Root: root,
@@ -755,6 +892,7 @@ func TestNekoStreamingAutoSaveSuppressesGeneratedBodyOutput(t *testing.T) {
 }
 
 func TestNekoAutoSavesChatCodeBlockToSpecifiedDirectory(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	targetDir := filepath.Join(root, "out")
 	output := runTestConsole(t, "帮我写个bat文件，存放位置在"+targetDir+"\n/exit\n", Options{
@@ -850,6 +988,7 @@ func TestNekoResolveAutoSavePathSupportsDriveRootPhrase(t *testing.T) {
 }
 
 func TestNekoAutoSavesChatResponseToExplicitFileName(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	output := runTestConsole(t, "写入到hello.txt\n/exit\n", Options{
 		Root: root,
@@ -868,6 +1007,7 @@ func TestNekoAutoSavesChatResponseToExplicitFileName(t *testing.T) {
 }
 
 func TestNekoAutoSavesBatScriptWithoutExplicitSaveIntent(t *testing.T) {
+	allowAutoSaveForTest(t)
 	root := t.TempDir()
 	output := runTestConsole(t, "帮我写一个bat批处理内容\n/exit\n", Options{
 		Root: root,

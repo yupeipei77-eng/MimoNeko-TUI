@@ -1,8 +1,8 @@
-# MioNeko Security
+# MimoNeko Security
 
 ## 概述
 
-MioNeko 实现了多层安全机制来保护用户数据和代码安全。
+MimoNeko 实现了多层安全机制来保护用户数据和代码安全。
 
 ## 安全层级
 
@@ -203,7 +203,7 @@ neko events tools
 **重要说明**:
 - 默认模式是 `warn` - 检测并警告，不阻断
 - 需要显式设置 `MIMONEKO_SECURITY_MODE=enforce` 才会阻断
-- 不会让 MioNeko 自己被误伤锁死
+- 不会让 MimoNeko 自己被误伤锁死
 
 **三种模式**:
 

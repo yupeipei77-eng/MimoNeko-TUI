@@ -1,4 +1,4 @@
-# MioNeko v0.1.x Roadmap
+# MimoNeko v0.1.x Roadmap
 
 **目标**: 从"工程原型"进入"真实用户验证"
 **原则**: 不新增大功能，专注用户体验
@@ -108,7 +108,7 @@ mimoneko
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║                    MioNeko v0.1.0-alpha                      ║
+║                    MimoNeko v0.1.0-alpha                      ║
 ║            专为 MiMo 大模型而生的 Agent AI 编程工具           ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -156,7 +156,7 @@ mimoneko
 ### 安装
 
 ```bash
-go install github.com/yupeipei77-eng/MioNeko/cmd/mimoneko@latest
+go install github.com/mimoneko/mimoneko/cmd/mimoneko@latest
 ```
 
 ### 首次配置
@@ -298,7 +298,7 @@ dist/
 **文件**: `docs/USER_TEST_PLAN.md`
 
 ```markdown
-# MioNeko 用户测试计划
+# MimoNeko 用户测试计划
 
 ## 测试目标
 
@@ -315,7 +315,7 @@ dist/
 ### Step 1: 安装 (1分钟)
 
 ```bash
-go install github.com/yupeipei77-eng/MioNeko/cmd/mimoneko@latest
+go install github.com/mimoneko/mimoneko/cmd/mimoneko@latest
 ```
 
 **检查点**:
@@ -395,13 +395,13 @@ mimoneko cache-report
 **文件**: `docs/BENCHMARK_COMPARISON.md`
 
 ```markdown
-# MioNeko Benchmark 对比
+# MimoNeko Benchmark 对比
 
 ## 对比工具
 
 | 工具 | 版本 | 说明 |
 |------|------|------|
-| MioNeko | v0.1.0-alpha | 本项目 |
+| MimoNeko | v0.1.0-alpha | 本项目 |
 | OpenCode | latest | 开源 AI 编程工具 |
 | Aider | latest | AI 结对编程 |
 
@@ -462,7 +462,7 @@ done
 
 | 工具 | 任务 | Token | 时间 | Cache | 成功 |
 |------|------|-------|------|-------|------|
-| MioNeko | 修改 README | | | | |
+| MimoNeko | 修改 README | | | | |
 | OpenCode | 修改 README | | | | |
 | Aider | 修改 README | | | | |
 ```
@@ -477,7 +477,7 @@ done
 
 ```powershell
 # 1. 安装 (30秒)
-go install github.com/yupeipei77-eng/MioNeko/cmd/mimoneko@latest
+go install github.com/mimoneko/mimoneko/cmd/mimoneko@latest
 
 # 2. 配置 (1分钟)
 mimoneko auth login
@@ -619,7 +619,7 @@ mimoneko run "修改 README 增加项目说明"
 
 ```powershell
 # 新用户流程
-go install github.com/yupeipei77-eng/MioNeko/cmd/mimoneko@latest
+go install github.com/mimoneko/mimoneko/cmd/mimoneko@latest
 mimoneko auth login
 mimoneko run "Reply with OK"
 

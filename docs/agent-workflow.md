@@ -1,6 +1,6 @@
 # Agent Workflow
 
-MioNeko keeps the workflow safe by default: inspect first, plan second, then apply only after explicit review. This phase adds read-only CLI entry points that mirror the review loop used by modern coding agents.
+MimoNeko keeps the workflow safe by default: inspect first, plan second, then apply only after explicit review. This phase adds read-only CLI entry points that mirror the review loop used by modern coding agents.
 
 ## Current Commands
 
@@ -531,7 +531,7 @@ mimoneko agents patch-preview --report <workflow_id> --json
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║              MioNeko Agent Dry Run Report                   ║
+║              MimoNeko Agent Dry Run Report                   ║
 ╚══════════════════════════════════════════════════════════════╝
 
 Goal: 优化 README

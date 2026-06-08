@@ -20,14 +20,14 @@ apply/discard operations.
    lists changed files, checks for violations, and assesses risk.
 2. **Apply** - Copies approved changes into the main workspace via
    `git apply`. Supports `DryRun` mode. Refuses if violations exist or the
-   main workspace is dirty (`.nekonomimo/` paths are ignored).
+   main workspace is dirty (`.mimoneko/` paths are ignored).
 3. **Discard** - Removes the worktree entirely; the main workspace is
    unaffected.
 
 ## Violation Checks
 
 - **TaskContract**: `AllowedPaths` / `DeniedPaths` from the agent's contract.
-- **Hard-coded deny**: `.git`, `.nekonomimo`, `.env`, `*.pem`, `*.key`.
+- **Hard-coded deny**: `.git`, `.mimoneko`, `.env`, `*.pem`, `*.key`.
 - **Sensitive files**: `credentials`, `secrets`, `token`, `password`.
 - **Protected directories**: `.github/workflows`, `.ci`, `deploy`.
 - **Binary files**: Rejected by default (`AllowBinary: false`).

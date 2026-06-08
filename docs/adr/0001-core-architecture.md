@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-NekoMIMO needs a stable foundation for a local-first AI coding agent runtime. The runtime must keep token costs low through prefix cache awareness, remain observable, support future Git worktree isolation, and avoid mixing dynamic context into byte-stable prompt material.
+MimoNeko needs a stable foundation for a local-first AI coding agent runtime. The runtime must keep token costs low through prefix cache awareness, remain observable, support future Git worktree isolation, and avoid mixing dynamic context into byte-stable prompt material.
 
-Agent systems often become difficult to reason about when model calls, tool execution, memory retrieval, and prompt construction are coupled. NekoMIMO starts by separating these surfaces into explicit interfaces.
+Agent systems often become difficult to reason about when model calls, tool execution, memory retrieval, and prompt construction are coupled. MimoNeko starts by separating these surfaces into explicit interfaces.
 
 ## Decision
 
-NekoMIMO will use a modular Go architecture with these core contracts:
+MimoNeko will use a modular Go architecture with these core contracts:
 
 - `ContextEngine`
 - `PrefixBuilder`
@@ -30,14 +30,14 @@ All model calls must go through `ModelRouter`, which represents OpenAI-compatibl
 
 Immutable prefix configuration uses a strict source-kind allowlist instead of filename substring heuristics. The MVP permits only `static_file` and `generated_schema` as immutable source kinds, so static files can safely describe memory or retrieval rules without being misclassified as dynamic content.
 
-Local configuration lives under `.nekonomimo/` and is split across:
+Local configuration lives under `.mimoneko/` and is split across:
 
 - `models.yaml`
 - `tools.yaml`
 - `security.yaml`
 - `prefix.yaml`
 
-The MVP provides only `NekoMIMO version`, `NekoMIMO init`, and `NekoMIMO doctor`.
+The MVP provides only `MimoNeko version`, `MimoNeko init`, and `MimoNeko doctor`.
 
 ## Consequences
 

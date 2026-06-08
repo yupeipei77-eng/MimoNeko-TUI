@@ -12,6 +12,7 @@ import (
 	"github.com/mimoneko/mimoneko/internal/modelrouter"
 	"github.com/mimoneko/mimoneko/internal/patch"
 	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/mimoneko/mimoneko/internal/security"
 	"github.com/mimoneko/mimoneko/internal/task"
 	"github.com/mimoneko/mimoneko/internal/tools"
 	"github.com/mimoneko/mimoneko/internal/validation"
@@ -65,14 +66,14 @@ func (c *PatchCommand) runList(args []string, env Env) int {
 
 	mgr, cleanup, err := buildWorktreeManager(root)
 	if err != nil {
-		PrintErrorDetails(env.Stderr, "Patch list failed", "无法加载 worktree 管理器。", "运行: mimoneko doctor", err.Error())
+		PrintErrorDetails(env.Stderr, "Patch list failed", "Unable to load the worktree manager.", "Run: mimoneko doctor", err.Error())
 		return 1
 	}
 	defer cleanup()
 
 	worktrees, err := mgr.List(context.Background())
 	if err != nil {
-		PrintErrorDetails(env.Stderr, "Patch list failed", "无法读取 patch/worktree 列表。", "检查 .mimoneko/worktrees 状态。", err.Error())
+		PrintErrorDetails(env.Stderr, "Patch list failed", "Unable to read patch/worktree state.", "Check .mimoneko/worktrees, then run: mimoneko doctor", err.Error())
 		return 1
 	}
 
@@ -202,6 +203,7 @@ func (c *PatchCommand) runApply(args []string, env Env) int {
 	fs.SetOutput(env.Stderr)
 	dir := fs.String("dir", "", "project root")
 	dryRun := fs.Bool("dry-run", false, "dry run: show what would be applied without modifying files")
+	approve := fs.Bool("approve", false, "confirm patch application after preview")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -237,11 +239,13 @@ func (c *PatchCommand) runApply(args []string, env Env) int {
 	contract := task.DefaultContract(root, "patch apply")
 
 	result, err := patchMgr.Apply(context.Background(), patch.PatchApplyRequest{
-		RepoRoot:     root,
-		WorktreeID:   wtID,
-		Contract:     contract,
-		DryRun:       *dryRun,
-		MaxDiffBytes: cfg.Patch.MaxDiffBytes,
+		RepoRoot:       root,
+		WorktreeID:     wtID,
+		Contract:       contract,
+		DryRun:         *dryRun,
+		MaxDiffBytes:   cfg.Patch.MaxDiffBytes,
+		PermissionMode: security.GetPermissionMode(),
+		Approved:       *approve,
 	})
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "patch apply failed: %v\n", err)

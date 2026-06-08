@@ -34,10 +34,10 @@ type WorktreeManager interface {
 **Implementation:** `internal/worktree/git_manager.go` - GitWorktreeManager
 
 Key behaviors:
-- Worktrees are created under `.nekonomimo/worktrees/<task_id>/<worktree_id>`
-- Branch naming: `NekoMIMO/<sanitized_task_id>/<short_id>`
+- Worktrees are created under `.mimoneko/worktrees/<task_id>/<worktree_id>`
+- Branch naming: `MimoNeko/<sanitized_task_id>/<short_id>`
 - Uses `git worktree add -b` to create isolated directories
-- Registry stored as append-only JSONL at `.nekonomimo/worktrees/registry.jsonl`
+- Registry stored as append-only JSONL at `.mimoneko/worktrees/registry.jsonl`
 - Registry directory: 0700, file: 0600
 - No API keys recorded in registry
 
@@ -58,7 +58,7 @@ type PatchManager interface {
 Key behaviors:
 - Preview generates `git diff` and parses changed files
 - Preview checks TaskContract AllowedPaths/DeniedPaths
-- Preview checks hard-coded deny list (.git, .nekonomimo, .env, *.pem, *.key)
+- Preview checks hard-coded deny list (.git, .mimoneko, .env, *.pem, *.key)
 - Apply refuses if violations exist
 - Apply refuses if main workspace is dirty
 - Apply uses `git apply` to apply changes (no auto-commit)
@@ -86,13 +86,13 @@ When UseWorktree=true:
 ## Security Boundaries
 
 1. Worktree path cannot be specified by the model
-2. Worktree path must be under `.nekonomimo/worktrees`
+2. Worktree path must be under `.mimoneko/worktrees`
 3. Worktree ID uses crypto/rand (16 bytes)
 4. task_id is sanitized (no path traversal, no special characters)
 5. Branch names are sanitized
 6. Remove only removes worktrees in the registry
 7. Patch apply checks changed files against TaskContract
-8. Patch apply refuses to modify .git, .nekonomimo, .env, *.pem, *.key
+8. Patch apply refuses to modify .git, .mimoneko, .env, *.pem, *.key
 9. Patch apply requires clean main workspace (configurable)
 10. Binary file patches are denied by default
 11. Registry does not record API keys
@@ -104,8 +104,8 @@ When UseWorktree=true:
 
 ```yaml
 enabled: true
-root: .nekonomimo/worktrees
-branch_prefix: NekoMIMO
+root: .mimoneko/worktrees
+branch_prefix: MimoNeko
 keep_failed: true
 keep_cancelled: true
 max_active: 10
@@ -119,25 +119,25 @@ require_clean_main: true
 allow_binary: false
 ```
 
-Both files are optional. Missing files use safe defaults. `NekoMIMO init` creates them with default values.
+Both files are optional. Missing files use safe defaults. `MimoNeko init` creates them with default values.
 
 ## CLI Usage
 
 ### Run with worktree isolation
 
 ```sh
-NekoMIMO run --goal "fix typo in README" --worktree
+MimoNeko run --goal "fix typo in README" --worktree
 ```
 
 This creates a worktree, runs the agent inside it, and outputs:
 - `worktree_id=wt_xxxx`
 - `patch_preview:` with files_changed, additions/deletions, risk_level
-- `review with: NekoMIMO patch preview wt_xxxx`
+- `review with: MimoNeko patch preview wt_xxxx`
 
 ### List worktrees
 
 ```sh
-NekoMIMO patch list
+MimoNeko patch list
 ```
 
 Output: worktree id, task id, state, path, created_at
@@ -145,7 +145,7 @@ Output: worktree id, task id, state, path, created_at
 ### Preview a patch
 
 ```sh
-NekoMIMO patch preview wt_xxxx
+MimoNeko patch preview wt_xxxx
 ```
 
 Output: files changed, additions/deletions, violations, risk level, diff
@@ -153,13 +153,13 @@ Output: files changed, additions/deletions, violations, risk level, diff
 ### Apply a patch
 
 ```sh
-NekoMIMO patch apply wt_xxxx
+MimoNeko patch apply wt_xxxx
 ```
 
 Behavior: checks violations, verifies clean main, applies diff (no commit)
 
 ```sh
-NekoMIMO patch apply wt_xxxx --dry-run
+MimoNeko patch apply wt_xxxx --dry-run
 ```
 
 Behavior: shows what would be applied without modifying files
@@ -167,7 +167,7 @@ Behavior: shows what would be applied without modifying files
 ### Discard a worktree
 
 ```sh
-NekoMIMO patch discard wt_xxxx
+MimoNeko patch discard wt_xxxx
 ```
 
 Behavior: deletes worktree, marks state=discarded, no effect on main workspace

@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestDirNameUsesCanonicalEnv(t *testing.T) {
+	t.Setenv("MIMONEKO_CONFIG_DIR", ".mimo-canonical")
+	if got := DirName(); got != ".mimo-canonical" {
+		t.Fatalf("DirName() = %q, want canonical env value", got)
+	}
+}
+
+func TestDirNameAcceptsLegacyAlias(t *testing.T) {
+	t.Setenv("MIMONEKO_CONFIG_DIR", "")
+	t.Setenv("MimoNeko_CONFIG_DIR", ".mimo-legacy")
+	if got := DirName(); got != ".mimo-legacy" {
+		t.Fatalf("DirName() = %q, want legacy alias value", got)
+	}
+}
+
 func TestInitAndLoadDefaultConfig(t *testing.T) {
 	root := t.TempDir()
 
@@ -24,7 +39,7 @@ func TestInitAndLoadDefaultConfig(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Models.Routing.DefaultModel != "local-coder" {
+	if cfg.Models.Routing.DefaultModel != "mimo-v2.5-pro" {
 		t.Fatalf("default model = %q", cfg.Models.Routing.DefaultModel)
 	}
 	if len(cfg.Prefix.ImmutableSources) != 3 {
@@ -261,7 +276,7 @@ func TestLoadRejectsMissingDefaultModel(t *testing.T) {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 
-	updated := strings.Replace(string(content), "default_model: local-coder", "default_model: missing-model", 1)
+	updated := strings.Replace(string(content), "default_model: mimo-v2.5-pro", "default_model: missing-model", 1)
 	if err := os.WriteFile(modelsPath, []byte(updated), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -533,7 +548,7 @@ routing:
 	}
 }
 
-func TestLoadDefaultConfigWithoutFallbackChain(t *testing.T) {
+func TestLoadDefaultConfigUsesMimoFallbackChain(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Init(root); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -544,8 +559,10 @@ func TestLoadDefaultConfigWithoutFallbackChain(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	// Default config has no fallback_chain, which is valid
-	if len(cfg.Models.Routing.FallbackChain) != 0 {
-		t.Errorf("FallbackChain length = %d, want 0 (not configured)", len(cfg.Models.Routing.FallbackChain))
+	if len(cfg.Models.Routing.FallbackChain) != 1 {
+		t.Fatalf("FallbackChain length = %d, want 1", len(cfg.Models.Routing.FallbackChain))
+	}
+	if got := cfg.Models.Routing.FallbackChain[0]; got.Provider != "mimo" || got.Model != "mimo-v2.5-pro" {
+		t.Fatalf("FallbackChain[0] = %+v, want mimo/mimo-v2.5-pro", got)
 	}
 }

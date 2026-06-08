@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/security"
 )
 
 func TestRuntimeUnknownTool(t *testing.T) {
@@ -126,6 +127,50 @@ func TestRuntimeFileReadSuccess(t *testing.T) {
 	}
 	if resp.AuditID == "" {
 		t.Fatal("AuditID should be set")
+	}
+}
+
+func TestRuntimeBlocksDirectWriteByDefaultPermission(t *testing.T) {
+	root := t.TempDir()
+	rt := newTestRuntime(t, root)
+	t.Setenv(security.PermissionModeEnvVar, string(security.PermissionPatchPreview))
+
+	_, err := rt.Run(context.Background(), ToolRequest{
+		ToolName: "file_write",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "out.txt", "content": "hello"},
+	})
+	if err == nil {
+		t.Fatal("file_write should be blocked without explicit approval")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "out.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("out.txt should not be written, stat err=%v", statErr)
+	}
+}
+
+func TestRuntimeAllowsDirectWriteWithApproval(t *testing.T) {
+	root := t.TempDir()
+	rt := newTestRuntime(t, root)
+	t.Setenv(security.PermissionModeEnvVar, string(security.PermissionApplyWithApproval))
+
+	resp, err := rt.Run(context.Background(), ToolRequest{
+		ToolName: "file_write",
+		RepoRoot: root,
+		Args:     map[string]string{"path": "out.txt", "content": "hello"},
+		Metadata: map[string]string{"approved": "true"},
+	})
+	if err != nil {
+		t.Fatalf("Run(file_write) error = %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("Run(file_write) success = false: %s", resp.Error)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("out.txt = %q, want hello", string(data))
 	}
 }
 

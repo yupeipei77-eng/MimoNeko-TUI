@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mimoneko/mimoneko/internal/security"
 )
 
 type autoSaveResult struct {
@@ -31,6 +33,14 @@ func maybeAutoSaveChatResponse(root, message, response string) (autoSaveResult, 
 	target := resolveAutoSavePath(root, message, language)
 	if strings.TrimSpace(content) == "" {
 		return autoSaveResult{}, true, fmt.Errorf("generated content is empty")
+	}
+	if err := security.CheckProjectWritePath(root, target); err != nil {
+		return autoSaveResult{Path: target}, true, fmt.Errorf("auto-save blocked: %w", err)
+	}
+	mode := security.GetPermissionMode()
+	approved := strings.EqualFold(strings.TrimSpace(os.Getenv("MIMONEKO_AUTO_SAVE_APPROVED")), "true")
+	if !mode.AllowsDirectWrite(approved) {
+		return autoSaveResult{Path: target}, true, fmt.Errorf("auto-save blocked by permission mode %q; use patch preview or explicit approval", mode)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return autoSaveResult{}, true, err

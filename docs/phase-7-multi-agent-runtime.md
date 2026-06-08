@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 7 implements NekoMIMO's minimal multi-agent collaboration runtime. It orchestrates three specialized agents in an iteration loop:
+Phase 7 implements MimoNeko's minimal multi-agent collaboration runtime. It orchestrates three specialized agents in an iteration loop:
 
 ```
 Planner Agent -> Coder Agent -> Reviewer Agent -> (iterate or stop)
@@ -136,7 +136,7 @@ Safety guarantees:
 
 ## Checkpoint Store
 
-Path: `.nekonomimo/checkpoints/multi_agent_runs.jsonl`
+Path: `.mimoneko/checkpoints/multi_agent_runs.jsonl`
 
 Properties:
 - JSONL append-only
@@ -149,7 +149,7 @@ Properties:
 ## CLI
 
 ```sh
-NekoMIMO multi-run "fix typo in README" [flags]
+MimoNeko multi-run "fix typo in README" [flags]
 ```
 
 Flags:
@@ -166,7 +166,7 @@ Behavior:
 - Does NOT auto-apply
 - Does NOT auto-commit
 - Does NOT auto-push
-- If approved, suggests: `NekoMIMO patch apply <worktree_id>`
+- If approved, suggests: `MimoNeko patch apply <worktree_id>`
 
 ## Configuration
 

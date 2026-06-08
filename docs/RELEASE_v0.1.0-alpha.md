@@ -5,7 +5,7 @@
 
 ## 概述
 
-MioNeko v0.1.0-alpha 是首个公开发布版本，专为 MiMo 大模型设计的 Agent AI 编程工具。
+MimoNeko v0.1.0-alpha 是首个公开发布版本，专为 MiMo 大模型设计的 Agent AI 编程工具。
 
 本版本实现了完整的本地 AI 编码代理工作流，包括模型接入、任务执行、补丁管理和缓存优化。
 
@@ -129,7 +129,7 @@ mimoneko cache-report
 id_rsa
 id_ed25519
 
-# MioNeko local state
+# MimoNeko local state
 .mimoneko/
 .neko/
 logs/
@@ -181,7 +181,7 @@ cache/
 
 ## 贡献者
 
-- MioNeko Team
+- MimoNeko Team
 
 ## 许可证
 

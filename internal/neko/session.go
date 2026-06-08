@@ -42,8 +42,10 @@ func NewSession(root string, models config.ModelsConfig, opt Options) Session {
 	if mode == "" {
 		mode = "multi"
 	}
-	if mode != "single" && mode != "multi" {
+	selectedMode, ok := agentModeByID(mode)
+	if !ok {
 		mode = "multi"
+		selectedMode, _ = agentModeByID(mode)
 	}
 	dryRun := true
 	if opt.DryRunSet {
@@ -52,9 +54,9 @@ func NewSession(root string, models config.ModelsConfig, opt Options) Session {
 	session := Session{
 		Root:      root,
 		Models:    models,
-		Mode:      mode,
+		Mode:      selectedMode.ID(),
 		DryRun:    dryRun,
-		Worktree:  mode == "multi",
+		Worktree:  selectedMode.UseWorktree(),
 		NoColor:   opt.NoColor,
 		Usage:     Usage{Estimated: true},
 		StartedAt: time.Now(),
@@ -220,12 +222,12 @@ func (s Session) CommandHint() string {
 }
 
 func (s *Session) SetMode(mode string) bool {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode != "single" && mode != "multi" {
+	selectedMode, ok := agentModeByID(mode)
+	if !ok {
 		return false
 	}
-	s.Mode = mode
-	s.Worktree = mode == "multi"
+	s.Mode = selectedMode.ID()
+	s.Worktree = selectedMode.UseWorktree()
 	return true
 }
 
@@ -323,9 +325,23 @@ func (s *Session) ResetConversation() {
 
 func (s Session) CacheLabel() string {
 	if !s.CacheHitKnown {
-		return "n/a"
+		return "unsupported"
 	}
 	return fmt.Sprintf("%.1f%%", s.CacheHitRate)
+}
+
+func (s Session) CacheReport() []string {
+	usage := NormalizeUsage(s.Usage)
+	cachedTokens := usage.CachedTokens
+	if usage.NativeCacheKnown {
+		cachedTokens = usage.CacheHitTokens
+	}
+	return []string{
+		fmt.Sprintf("context=%s", s.ContextLabel()),
+		fmt.Sprintf("input_tokens=%d", usage.InputTokens),
+		fmt.Sprintf("cached_tokens=%d", cachedTokens),
+		fmt.Sprintf("cache_hit_rate=%s", s.CacheLabel()),
+	}
 }
 
 func selectModel(models config.ModelsConfig, override string) (config.ProviderConfig, config.ModelConfig) {

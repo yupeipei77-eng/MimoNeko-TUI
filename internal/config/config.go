@@ -14,9 +14,12 @@ import (
 const DefaultDirName = ".mimoneko"
 
 // DirName returns the configuration directory name.
-// It checks for MimoNeko_CONFIG_DIR environment variable first,
+// It checks MIMONEKO_CONFIG_DIR first, accepts the historical mixed-case alias,
 // then falls back to the default ".mimoneko".
 func DirName() string {
+	if envDir := os.Getenv("MIMONEKO_CONFIG_DIR"); envDir != "" {
+		return envDir
+	}
 	if envDir := os.Getenv("MimoNeko_CONFIG_DIR"); envDir != "" {
 		return envDir
 	}
@@ -737,17 +740,17 @@ Do not automatically commit, push, or apply patches.
 
 // DoctorReport contains the results of a configuration diagnostic check.
 type DoctorReport struct {
-	ConfigExists         bool
-	SystemPromptExists   bool
-	CodingRulesExists    bool
-	ToolsSchemaExists    bool
-	ModelsConfigured     bool
-	WorktreeConfigExists bool
-	PatchConfigExists    bool
-	EventsConfigExists   bool
-	ReviewConfigExists   bool
+	ConfigExists           bool
+	SystemPromptExists     bool
+	CodingRulesExists      bool
+	ToolsSchemaExists      bool
+	ModelsConfigured       bool
+	WorktreeConfigExists   bool
+	PatchConfigExists      bool
+	EventsConfigExists     bool
+	ReviewConfigExists     bool
 	ValidationConfigExists bool
-	DefaultAPIKeyEnv     string
+	DefaultAPIKeyEnv       string
 
 	WorktreeIsolation         bool `yaml:"worktree_isolation"`
 	PatchRequireCleanMain     bool `yaml:"patch_require_clean_main"`
@@ -759,8 +762,8 @@ type DoctorReport struct {
 	MultiAgentDefaultWorktree bool `yaml:"multiagent_default_worktree"`
 	MultiAgentDefaultDryRun   bool `yaml:"multiagent_default_dry_run"`
 
-	Errors               []string
-	Hints                []string
+	Errors []string
+	Hints  []string
 }
 
 // Doctor checks that the MimoNeko configuration is complete and returns a report.
@@ -873,25 +876,30 @@ func fileExists(path string) bool {
 func getDefaultConfigFiles() []defaultConfigFile {
 	dirName := DirName()
 	return []defaultConfigFile{
-	{
-		Name: "models.yaml",
-		Body: `providers:
-  - name: local-openai-compatible
-    type: openai-compatible
-    base_url: http://127.0.0.1:11434/v1
-    api_key_env: MimoNeko_API_KEY
+		{
+			Name: "models.yaml",
+			Body: `providers:
+  - name: mimo
+    type: mimo
+    base_url: https://token-plan-cn.xiaomimimo.com/v1
+    api_key_env: MIMO_API_KEY
     models:
-      - name: local-coder
+      - name: mimo-v2.5-pro
         purpose: coding
+        max_context_tokens: 1000000
         max_output_tokens: 4096
-        supports_prefix_cache: false
+        reasoning_level: high
+        supports_prefix_cache: true
 routing:
-  default_model: local-coder
+  default_model: mimo-v2.5-pro
+  fallback_chain:
+    - provider: mimo
+      model: mimo-v2.5-pro
 `,
-	},
-	{
-		Name: "tools.yaml",
-		Body: fmt.Sprintf(`tools:
+		},
+		{
+			Name: "tools.yaml",
+			Body: fmt.Sprintf(`tools:
   - name: file_read
     kind: builtin
     enabled: true
@@ -923,34 +931,39 @@ policy:
     - ".git"
     - "%s"
     - ".env"
+    - ".env.*"
     - "*.pem"
     - "*.key"
     - "id_rsa"
     - "id_ed25519"
+    - "secrets.*"
   deny_read_paths:
     - ".git"
     - "%s"
     - ".env"
+    - ".env.*"
     - "*.pem"
     - "*.key"
     - "id_rsa"
     - "id_ed25519"
+    - "secrets.*"
 `, dirName, dirName),
-	},
-	{
-		Name: "security.yaml",
-		Body: `sandbox:
+		},
+		{
+			Name: "security.yaml",
+			Body: `sandbox:
   default_mode: workspace-write
 network:
   enabled_by_default: false
 secrets:
   allow_env_prefixes:
-    - MimoNeko_
+    - MIMO_
+    - MIMONEKO_
 `,
-	},
-	{
-		Name: "prefix.yaml",
-		Body: fmt.Sprintf(`version: 1
+		},
+		{
+			Name: "prefix.yaml",
+			Body: fmt.Sprintf(`version: 1
 immutable_sources:
   - name: system_prompt
     kind: static_file
@@ -975,10 +988,10 @@ budget:
   warn_ratio: 0.8
   block_ratio: 1.0
 `, dirName),
-	},
-	{
-		Name: "worktree.yaml",
-		Body: fmt.Sprintf(`# Worktree isolation configuration
+		},
+		{
+			Name: "worktree.yaml",
+			Body: fmt.Sprintf(`# Worktree isolation configuration
 # Git worktrees provide isolated working directories for agent tasks.
 enabled: true
 root: %s/worktrees
@@ -987,19 +1000,19 @@ keep_failed: true
 keep_cancelled: true
 max_active: 10
 `, dirName),
-	},
-	{
-		Name: "patch.yaml",
-		Body: `# Patch manager configuration
+		},
+		{
+			Name: "patch.yaml",
+			Body: `# Patch manager configuration
 # Controls how diffs from worktrees are previewed and applied.
 max_diff_bytes: 131072
 require_clean_main: true
 allow_binary: false
 `,
-	},
-	{
-		Name: "review.yaml",
-		Body: `# Patch review configuration (Phase 6)
+		},
+		{
+			Name: "review.yaml",
+			Body: `# Patch review configuration (Phase 6)
 # Controls risk scoring and rule-based review thresholds.
 max_diff_bytes: 131072
 high_risk_file_count: 20
@@ -1009,20 +1022,20 @@ medium_risk_line_count: 100
 require_tests_for_code_changes: false
 strict_model_review: false
 `,
-	},
-	{
-		Name: "validation.yaml",
-		Body: `# Test validation configuration (Phase 6)
+		},
+		{
+			Name: "validation.yaml",
+			Body: `# Test validation configuration (Phase 6)
 # Controls how test validation is executed during patch review.
 default_test_commands:
   - go-test
 max_output_bytes: 65536
 timeout_seconds: 120
 `,
-	},
-	{
-		Name: "multiagent.yaml",
-		Body: `# Multi-agent runtime configuration (Phase 7)
+		},
+		{
+			Name: "multiagent.yaml",
+			Body: `# Multi-agent runtime configuration (Phase 7)
 # Controls how Planner->Coder->Reviewer iterations work.
 max_iterations: 2
 max_allowed_iterations: 5
@@ -1033,10 +1046,10 @@ coder_model: ""
 reviewer_model: ""
 reviewer_use_model_review: false
 `,
-	},
-	{
-		Name: "events.yaml",
-		Body: fmt.Sprintf(`# Event system configuration (Phase 8)
+		},
+		{
+			Name: "events.yaml",
+			Body: fmt.Sprintf(`# Event system configuration (Phase 8)
 # Controls structured event recording for run progress tracking.
 enabled: true
 store_path: %s/events/run_events.jsonl
@@ -1047,6 +1060,6 @@ emit_model_events: true
 emit_patch_events: true
 emit_validation_events: true
 `, dirName),
-	},
-}
+		},
+	}
 }

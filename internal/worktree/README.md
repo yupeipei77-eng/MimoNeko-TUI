@@ -23,7 +23,7 @@ explicitly approves a patch.
 - **Registry permissions**: Directory `0700`, file `0600` (Unix). Metadata
   keys are whitelisted; API keys are never persisted.
 - **Hard-coded deny**: Worktrees may never be placed under `.git`,
-  `.nekonomimo`, `.env`, `*.pem`, or `*.key` paths.
+  `.mimoneko`, `.env`, `*.pem`, or `*.key` paths.
 
 ## Configuration
 
@@ -31,7 +31,7 @@ Loaded from `worktree.yaml` (optional, missing file uses defaults):
 
 ```yaml
 enabled: true
-root: ".nekonomimo/worktrees"
+root: ".mimoneko/worktrees"
 branch_prefix: "MimoNeko"
 keep_failed: false
 keep_cancelled: false

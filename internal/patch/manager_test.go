@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/mimoneko/mimoneko/internal/security"
 	"github.com/mimoneko/mimoneko/internal/task"
 	"github.com/mimoneko/mimoneko/internal/worktree"
 )
@@ -402,6 +403,30 @@ func TestApplyDryRunNoModification(t *testing.T) {
 	}
 }
 
+func TestApplyWithoutApprovalRefuses(t *testing.T) {
+	root, patchMgr, wtID := setupPatchTest(t)
+
+	contract := task.TaskContract{
+		ID:        "tc_test",
+		Goal:      "test",
+		RepoRoot:  root,
+		MaxSteps:  5,
+		CreatedAt: timeNow(),
+	}
+
+	_, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
+		RepoRoot:   root,
+		WorktreeID: wtID,
+		Contract:   contract,
+	})
+	if err == nil {
+		t.Fatal("expected apply to require explicit approval")
+	}
+	if !strings.Contains(err.Error(), "permission mode") {
+		t.Fatalf("error = %q, want permission mode", err.Error())
+	}
+}
+
 func TestApplySuccessModifiesMain(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
@@ -447,9 +472,11 @@ func TestApplySuccessModifiesMain(t *testing.T) {
 	}
 
 	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
-		RepoRoot:   root,
-		WorktreeID: info.ID,
-		Contract:   contract,
+		RepoRoot:       root,
+		WorktreeID:     info.ID,
+		Contract:       contract,
+		PermissionMode: security.PermissionApplyWithApproval,
+		Approved:       true,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -748,9 +775,11 @@ func TestApplyNewUntrackedFileSuccess(t *testing.T) {
 
 	// Apply should create the file in main workspace
 	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
-		RepoRoot:   root,
-		WorktreeID: info.ID,
-		Contract:   contract,
+		RepoRoot:       root,
+		WorktreeID:     info.ID,
+		Contract:       contract,
+		PermissionMode: security.PermissionApplyWithApproval,
+		Approved:       true,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -1027,9 +1056,11 @@ func TestApplyStateUpdatedToApplied(t *testing.T) {
 	}
 
 	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
-		RepoRoot:   root,
-		WorktreeID: info.ID,
-		Contract:   contract,
+		RepoRoot:       root,
+		WorktreeID:     info.ID,
+		Contract:       contract,
+		PermissionMode: security.PermissionApplyWithApproval,
+		Approved:       true,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -1104,9 +1135,11 @@ func TestApplyStateUpdateFailureObservable(t *testing.T) {
 	}
 
 	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
-		RepoRoot:   root,
-		WorktreeID: info.ID,
-		Contract:   contract,
+		RepoRoot:       root,
+		WorktreeID:     info.ID,
+		Contract:       contract,
+		PermissionMode: security.PermissionApplyWithApproval,
+		Approved:       true,
 	})
 	if err != nil {
 		t.Fatalf("Apply should succeed even if state update fails: %v", err)
@@ -1313,9 +1346,11 @@ func TestApplySafeUntrackedFileStillWorks(t *testing.T) {
 
 	// Apply should succeed
 	result, err := patchMgr.Apply(context.Background(), PatchApplyRequest{
-		RepoRoot:   root,
-		WorktreeID: info.ID,
-		Contract:   contract,
+		RepoRoot:       root,
+		WorktreeID:     info.ID,
+		Contract:       contract,
+		PermissionMode: security.PermissionApplyWithApproval,
+		Approved:       true,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)

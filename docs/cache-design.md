@@ -1,10 +1,10 @@
 # Cache Design
 
-MioNeko is optimized for MiMo prefix-cache behavior. The cache strategy starts with keeping the reusable prefix stable and observable before introducing any write-capable automation.
+MimoNeko is optimized for MiMo prefix-cache behavior. The cache strategy starts with keeping the reusable prefix stable and observable before introducing any write-capable automation.
 
 ## Context Layers
 
-MioNeko treats context as three layers:
+MimoNeko treats context as three layers:
 
 - `immutable_prefix`: system prompt, tool schema, repo policy, and model profile.
 - `semi_stable_context`: repo index, dependency summary, and current task plan.

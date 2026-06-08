@@ -1,8 +1,8 @@
-# cmd/NekoMIMO
+# cmd/mimoneko
 
 ## Responsibilities
 
-- Provide the `NekoMIMO` executable entry point.
+- Provide the `mimoneko` executable entry point.
 - Delegate all command behavior to `internal/cli`.
 
 ## Boundaries

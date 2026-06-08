@@ -2,10 +2,10 @@
 
 ## Architecture
 
-The Tool Runtime is NekoMIMO's secure local tool execution layer. It provides a unified, safety-guarded pipeline for all tool operations:
+The Tool Runtime is MimoNeko's secure local tool execution layer. It provides a unified, safety-guarded pipeline for all tool operations:
 
 ```
-ToolRequest â†?SafetyGuard â†?ToolRuntime â†?Tool â†?ToolResponse â†?AuditLog
+ToolRequest -> SafetyGuard -> ToolRuntime -> Tool -> ToolResponse -> AuditLog
 ```
 
 No business code may call a Tool implementation directly. All invocations must go through `ToolRuntime.Run()`.
@@ -95,7 +95,7 @@ All file operations must stay within `RepoRoot`. The `safePath()` function:
 ### Sensitive Path Protection
 
 **Write denied** (default):
-- `.git`, `.nekonomimo`
+- `.git`, `.mimoneko`
 - `.env`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`
 
 **Read denied** (default):
@@ -135,7 +135,7 @@ Each tool has `TimeoutSeconds` (default: 30). Expired contexts are cancelled.
 **Args:** `path` (required), `content` (required), `create_dirs` (optional, default true)
 
 - Writes file within RepoRoot
-- Rejects .git, .nekonomimo, sensitive paths
+- Rejects .git, .mimoneko, sensitive paths
 - Supports DryRun (reports without writing)
 - Creates parent directories by default
 - File permissions: 0644
@@ -171,7 +171,7 @@ Each tool has `TimeoutSeconds` (default: 30). Expired contexts are cancelled.
 
 Every `ToolRuntime.Run()` writes two audit events (pre- and post-execution) as JSONL.
 
-**Default path:** `.nekonomimo/logs/tools.jsonl`
+**Default path:** `.mimoneko/logs/tools.jsonl`
 
 **Directory permissions:** 0700
 **File permissions:** 0600
@@ -197,8 +197,8 @@ Every `ToolRuntime.Run()` writes two audit events (pre- and post-execution) as J
 **Redaction:** The `content` argument is always replaced with `"<redacted>"`.
 
 **Failure policy:**
-- Audit start failure â†?tool execution is blocked (returns error)
-- Audit finish failure â†?tool result returned with error
+- Audit start failure -> tool execution is blocked (returns error)
+- Audit finish failure -> tool result is returned with an error
 
 ## Configuration (tools.yaml)
 
@@ -235,7 +235,7 @@ policy:
   default_timeout_seconds: 30
   deny_write_paths:
     - ".git"
-    - ".nekonomimo"
+    - ".mimoneko"
     - ".env"
     - "*.pem"
     - "*.key"
@@ -251,26 +251,26 @@ policy:
 
 ## CLI
 
-### NekoMIMO tools
+### MimoNeko tools
 
 Lists available tools, their enabled status, and risk levels.
 
-### NekoMIMO tool-run
+### MimoNeko tool-run
 
 Executes a tool with arguments. Subject to all safety policies.
 
 ```sh
-NekoMIMO tool-run file_read --path README.md
-NekoMIMO tool-run git_diff
-NekoMIMO tool-run test_run --command_name go-test
-NekoMIMO tool-run file_write --path output.txt --content "hello" --dry-run
+MimoNeko tool-run file_read --path README.md
+MimoNeko tool-run git_diff
+MimoNeko tool-run test_run --command_name go-test
+MimoNeko tool-run file_write --path output.txt --content "hello" --dry-run
 ```
 
 ## Phase 4 Integration: Agent Runtime
 
 The Tool Runtime is designed for Phase 4 Agent Runtime integration:
 
-1. **ToolResponse â†?Scratchpad:** `ToolResponseToScratchpadItem()` converts a ToolResponse to a scratchpad-compatible item. The Agent Runtime will inject this into the Volatile Scratchpad layer.
+1. **ToolResponse -> Scratchpad:** `ToolResponseToScratchpadItem()` converts a ToolResponse to a scratchpad-compatible item. The Agent Runtime will inject this into the Volatile Scratchpad layer.
 
 2. **Approval mechanism:** `ToolResponse` and `ToolAuditEvent` have fields (`RiskLevel`, `DryRun`) that support future human-approval workflows. The Agent Runtime can implement a `requires_approval` check based on risk level.
 

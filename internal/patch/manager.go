@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/mimoneko/mimoneko/internal/security"
 	"github.com/mimoneko/mimoneko/internal/task"
 )
 
@@ -98,6 +99,13 @@ type PatchApplyRequest struct {
 
 	// MaxDiffBytes caps the diff output size.
 	MaxDiffBytes int
+
+	// PermissionMode controls whether apply is allowed. Empty uses the current
+	// process permission mode.
+	PermissionMode security.PermissionMode
+
+	// Approved marks an explicit user approval for apply-with-approval mode.
+	Approved bool
 }
 
 // PatchApplyResult is the result of applying a patch.

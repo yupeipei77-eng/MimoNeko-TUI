@@ -267,7 +267,7 @@ func hasModelSetupFields(args []string) bool {
 
 func promptModelSetupOptions(env Env) (modelprofile.SetupOptions, error) {
 	scanner := bufio.NewScanner(env.Stdin)
-	presetOrder := []string{"openai", "deepseek", "glm", "mimo", "custom-openai-compatible"}
+	presetOrder := []string{"mimo", "openai", "glm", "custom-openai-compatible"}
 	fmt.Fprintln(env.Stdout, "Select provider preset:")
 	for i, name := range presetOrder {
 		fmt.Fprintf(env.Stdout, "%d. %s\n", i+1, name)

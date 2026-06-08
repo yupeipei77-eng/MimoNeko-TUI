@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mimoneko/mimoneko/internal/security"
 )
 
 func TestAuditLogWritesJSONL(t *testing.T) {
@@ -19,12 +21,12 @@ func TestAuditLogWritesJSONL(t *testing.T) {
 	}
 
 	event := ToolAuditEvent{
-		ID:          "test-123",
-		ToolName:    "file_read",
-		Success:     true,
-		ExitCode:    0,
-		DurationMs:  42,
-		RiskLevel:   "low",
+		ID:         "test-123",
+		ToolName:   "file_read",
+		Success:    true,
+		ExitCode:   0,
+		DurationMs: 42,
+		RiskLevel:  "low",
 	}
 	if err := audit.Record(event); err != nil {
 		t.Fatalf("Record() error = %v", err)
@@ -171,11 +173,13 @@ func TestRedactArgsFilePatchInAuditLog(t *testing.T) {
 	})
 
 	rt := NewDefaultToolRuntime(registry, guard, audit, map[string]bool{"file_patch": true})
+	t.Setenv(security.PermissionModeEnvVar, string(security.PermissionApplyWithApproval))
 
 	_, err = rt.Run(context.Background(), ToolRequest{
 		ToolName: "file_patch",
 		RepoRoot: root,
 		Args:     map[string]string{"path": "code.go", "old": "bar", "new": "BAR"},
+		Metadata: map[string]string{"approved": "true"},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -218,11 +222,13 @@ func TestRedactArgsFileWriteContentInAuditLog(t *testing.T) {
 	})
 
 	rt := NewDefaultToolRuntime(registry, guard, audit, map[string]bool{"file_write": true})
+	t.Setenv(security.PermissionModeEnvVar, string(security.PermissionApplyWithApproval))
 
 	_, err = rt.Run(context.Background(), ToolRequest{
 		ToolName: "file_write",
 		RepoRoot: root,
 		Args:     map[string]string{"path": "output.txt", "content": "secret payload"},
+		Metadata: map[string]string{"approved": "true"},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

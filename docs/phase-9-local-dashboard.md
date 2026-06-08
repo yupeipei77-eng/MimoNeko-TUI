@@ -1,10 +1,10 @@
 # Phase 9 Local Dashboard
 
-Phase 9 adds local, read-only dashboard surfaces for NekoMIMO run progress.
+Phase 9 adds local, read-only dashboard surfaces for MimoNeko run progress.
 
 ## Phase 9.1: Local TUI Dashboard
 
-`NekoMIMO dashboard` renders recent runs and run details in the terminal.
+`MimoNeko dashboard` renders recent runs and run details in the terminal.
 
 It reads from the EventStore and reuses:
 
@@ -14,21 +14,21 @@ It reads from the EventStore and reuses:
 
 ## Phase 9.2: Local Web Dashboard
 
-`NekoMIMO serve` starts a browser-friendly local dashboard.
+`MimoNeko serve` starts a browser-friendly local dashboard.
 
 Default address:
 
 ```sh
-NekoMIMO serve
+MimoNeko serve
 # http://127.0.0.1:8765
 ```
 
 Other examples:
 
 ```sh
-NekoMIMO serve --port 9000
-NekoMIMO serve --open
-NekoMIMO serve --poll-interval 5s
+MimoNeko serve --port 9000
+MimoNeko serve --open
+MimoNeko serve --poll-interval 5s
 ```
 
 The Web Dashboard provides:

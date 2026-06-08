@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mimoneko/mimoneko/internal/approval"
@@ -155,6 +156,13 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 		return ToolResponse{}, err
 	}
 
+	// 6.7. Coarse permission mode check. This is separate from risk metadata:
+	// the default runtime mode permits previews and dry-runs, but not direct
+	// file writes or shell execution without an explicit permission profile.
+	if err := rt.checkPermissionMode(req, tool); err != nil {
+		return ToolResponse{}, err
+	}
+
 	events.SafeEmit(rt.eventEmitter, ctx, events.RunEvent{
 		ID:               mustGenerateToolEventID(),
 		RunID:            rc.RunID,
@@ -290,6 +298,33 @@ func (rt *DefaultToolRuntime) Run(ctx context.Context, req ToolRequest) (ToolRes
 		return resp, toolErr
 	}
 	return resp, nil
+}
+
+func (rt *DefaultToolRuntime) checkPermissionMode(req ToolRequest, tool Tool) error {
+	mode := security.GetPermissionMode()
+	if req.ToolName == "test_run" && !mode.AllowsShell() {
+		return fmt.Errorf("permission mode %q does not allow shell execution", mode)
+	}
+	switch tool.Concurrency() {
+	case ConcurrencyWrite, ConcurrencyDestructive:
+		if req.DryRun {
+			return nil
+		}
+		if mode.AllowsDirectWrite(metadataApproved(req.Metadata)) {
+			return nil
+		}
+		return fmt.Errorf("permission mode %q blocks direct writes; use patch preview or explicit approval", mode)
+	default:
+		return nil
+	}
+}
+
+func metadataApproved(metadata map[string]string) bool {
+	if metadata == nil {
+		return false
+	}
+	value := strings.ToLower(strings.TrimSpace(metadata["approved"]))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 // mustGenerateToolEventID generates a unique event ID for tool events.
