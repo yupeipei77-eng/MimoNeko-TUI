@@ -42,9 +42,9 @@ func TestMessage(t *testing.T) {
 
 func TestRouteRequest(t *testing.T) {
 	req := RouteRequest{
-		TaskID:       "task-123",
-		Capability:   "coding",
-		TokenBudget:  4096,
+		TaskID:        "task-123",
+		Capability:    "coding",
+		TokenBudget:   4096,
 		RequiresCache: true,
 	}
 

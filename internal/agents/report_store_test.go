@@ -67,7 +67,7 @@ func TestReportStoreList(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		report := &AgentDryRunReport{
 			Goal:             "test goal",
-			WorkflowID:        "wf_" + string(rune('a'+i)),
+			WorkflowID:       "wf_" + string(rune('a'+i)),
 			RunID:            "run_test",
 			Provider:         "mimo",
 			Model:            "mimo-v2.5-pro",

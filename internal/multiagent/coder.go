@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/agent"
-	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/agent"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
 )
 
 // CoderAgent adapts SingleAgentRuntime for the multi-agent pipeline.

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/auth"
-	"github.com/mimoneko/mimoneko/internal/modelprofile"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/auth"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelprofile"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
 )
 
 func runFirstTimeSetup(env Env) int {

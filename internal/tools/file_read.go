@@ -11,9 +11,9 @@ import (
 // FileReadTool reads file contents within the workspace root.
 type FileReadTool struct{}
 
-func (t *FileReadTool) Name() string         { return "file_read" }
-func (t *FileReadTool) Description() string   { return "Read file contents within the workspace root" }
-func (t *FileReadTool) RiskLevel() string     { return "low" }
+func (t *FileReadTool) Name() string                  { return "file_read" }
+func (t *FileReadTool) Description() string           { return "Read file contents within the workspace root" }
+func (t *FileReadTool) RiskLevel() string             { return "low" }
 func (t *FileReadTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 
 func (t *FileReadTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
@@ -76,12 +76,12 @@ func (t *FileReadTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, 
 	hash := sha256.Sum256(data)
 
 	resp := ToolResponse{
-		ToolName:   "file_read",
-		Success:    true,
-		ExitCode:   0,
-		Stdout:     string(data),
+		ToolName:    "file_read",
+		Success:     true,
+		ExitCode:    0,
+		Stdout:      string(data),
 		OutputBytes: len(data),
-		Truncated:  truncated,
+		Truncated:   truncated,
 		Artifacts: []ToolArtifact{
 			{
 				Kind:        "file_read",

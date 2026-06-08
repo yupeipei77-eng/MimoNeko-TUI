@@ -1,4 +1,4 @@
-﻿# MimoNeko Release Build Script (Windows)
+# MimoNeko Release Build Script (Windows)
 param(
     [string]$Version = "v0.1.4-beta"
 )
@@ -10,7 +10,7 @@ if ($Version.StartsWith("v")) {
 } else {
     $VersionName = $Version
 }
-$Ldflags = "-X github.com/mimoneko/mimoneko/internal/version.Version=$VersionName"
+$Ldflags = "-X github.com/yupeipei77-eng/MimoNeko-TUI/internal/version.Version=$VersionName"
 
 Write-Host "Building MimoNeko $Version..." -ForegroundColor Cyan
 

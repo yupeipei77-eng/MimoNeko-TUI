@@ -8,7 +8,7 @@
 ## Boundaries
 
 - This package has no dependency on configuration, runtime state, or Git metadata.
-- Release builds may override `Version` with `go build -ldflags "-X github.com/mimoneko/mimoneko/internal/version.Version=vX.Y.Z"`.
+- Release builds may override `Version` with `go build -ldflags "-X github.com/yupeipei77-eng/MimoNeko-TUI/internal/version.Version=vX.Y.Z"`.
 
 ## Forbidden
 

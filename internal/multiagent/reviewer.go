@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/agent"
-	"github.com/mimoneko/mimoneko/internal/review"
-	"github.com/mimoneko/mimoneko/internal/task"
-	"github.com/mimoneko/mimoneko/internal/worktree"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/agent"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/worktree"
 )
 
 // ReviewerAgent adapts PatchReviewManager for the multi-agent pipeline.

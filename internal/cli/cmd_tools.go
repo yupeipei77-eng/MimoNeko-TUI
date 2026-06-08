@@ -4,8 +4,8 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
 )
 
 type ToolsCommand struct{}

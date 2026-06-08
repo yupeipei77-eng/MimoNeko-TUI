@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/prefix"
 )
 
 // JSONLCacheRegistry is a JSONL-backed implementation of CacheRegistry.

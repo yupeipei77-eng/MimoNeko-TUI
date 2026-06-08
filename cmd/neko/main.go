@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/mimoneko/mimoneko/internal/cli"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cli"
 )
 
 func main() {

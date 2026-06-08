@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/version"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/version"
 )
 
 type VersionCommand struct{}

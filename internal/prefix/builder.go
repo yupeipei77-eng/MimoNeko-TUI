@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // ImmutablePrefixBuilder builds byte-stable immutable prefixes from

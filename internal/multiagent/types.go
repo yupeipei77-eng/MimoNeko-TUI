@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/agent"
-	"github.com/mimoneko/mimoneko/internal/review"
-	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/agent"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
 )
 
 // MultiAgentState represents the lifecycle state of a multi-agent run.

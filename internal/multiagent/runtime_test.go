@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/agent"
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/patch"
-	"github.com/mimoneko/mimoneko/internal/prefix"
-	"github.com/mimoneko/mimoneko/internal/review"
-	"github.com/mimoneko/mimoneko/internal/task"
-	"github.com/mimoneko/mimoneko/internal/worktree"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/agent"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/patch"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/prefix"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/worktree"
 )
 
 // === Mock implementations ===

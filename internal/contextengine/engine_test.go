@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/conversation"
-	"github.com/mimoneko/mimoneko/internal/memory"
-	"github.com/mimoneko/mimoneko/internal/prefix"
-	"github.com/mimoneko/mimoneko/internal/scratchpad"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/conversation"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/memory"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/prefix"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/scratchpad"
 )
 
 // --- Stub implementations for testing ---

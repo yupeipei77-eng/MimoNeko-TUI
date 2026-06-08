@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/patch"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/patch"
 )
 
 func TestModelReviewer_UseModelReviewFalse(t *testing.T) {

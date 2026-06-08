@@ -22,9 +22,11 @@ type TestCommandDef struct {
 	TimeoutSeconds int
 }
 
-func (t *TestRunTool) Name() string         { return "test_run" }
-func (t *TestRunTool) Description() string   { return "Execute predefined test commands from configuration" }
-func (t *TestRunTool) RiskLevel() string     { return "medium" }
+func (t *TestRunTool) Name() string { return "test_run" }
+func (t *TestRunTool) Description() string {
+	return "Execute predefined test commands from configuration"
+}
+func (t *TestRunTool) RiskLevel() string             { return "medium" }
 func (t *TestRunTool) Concurrency() ConcurrencyClass { return ConcurrencyReadOnly }
 
 func (t *TestRunTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
@@ -78,11 +80,11 @@ func (t *TestRunTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, e
 	se := stderr.String()
 
 	resp := ToolResponse{
-		ToolName:   "test_run",
-		Success:    exitCode == 0,
-		ExitCode:   exitCode,
-		Stdout:     out,
-		Stderr:     se,
+		ToolName:    "test_run",
+		Success:     exitCode == 0,
+		ExitCode:    exitCode,
+		Stdout:      out,
+		Stderr:      se,
 		OutputBytes: len(out) + len(se),
 	}
 	if exitCode != 0 {

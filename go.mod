@@ -1,4 +1,4 @@
-module github.com/mimoneko/mimoneko
+module github.com/yupeipei77-eng/MimoNeko-TUI
 
 go 1.22
 

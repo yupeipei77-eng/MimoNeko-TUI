@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/review"
-	"github.com/mimoneko/mimoneko/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
 )
 
 // mockToolRuntime implements tools.ToolRuntime for testing.

@@ -20,10 +20,10 @@ go build -o mimoneko ./cmd/mimoneko
 go build -o neko ./cmd/neko
 ```
 
-Module install path, only after the public module path is available:
+Module install path:
 
 ```sh
-go install github.com/mimoneko/mimoneko/cmd/mimoneko@latest
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
 ```
 
 Checks:
@@ -111,5 +111,9 @@ powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 v0.1.4-beta
 
 ## Known Release Note
 
-The public `go install` command only works when the GitHub repository path and
-`go.mod` module path match. Until then, prefer release archives or source builds.
+The public `go install` path is aligned with the GitHub repository path and the
+`go.mod` module path:
+
+```sh
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+```

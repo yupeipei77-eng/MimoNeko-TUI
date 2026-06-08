@@ -27,8 +27,7 @@ Write-Host ""
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceCandidates = @(
     (Join-Path $scriptDir "mimoneko.exe"),
-    (Join-Path $scriptDir "MimoNeko.exe"),
-    (Join-Path $scriptDir "MioNeko.exe")
+    (Join-Path $scriptDir "MimoNeko.exe")
 )
 
 $sourceExe = $null

@@ -15,7 +15,7 @@ package modelrouter
 import (
 	"context"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
 )
 
 // Provider is the interface that model providers must implement.

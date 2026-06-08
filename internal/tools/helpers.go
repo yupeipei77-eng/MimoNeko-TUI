@@ -3,7 +3,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // toolError returns a ToolResponse indicating failure.
@@ -19,10 +19,10 @@ func toolError(toolName, msg string) ToolResponse {
 // safetyGuardFromRequest creates a SafetyGuard with default policy values.
 func safetyGuardFromRequest(req ToolRequest) *SafetyGuard {
 	return NewSafetyGuard(ToolPolicy{
-		MaxOutputBytes:      req.MaxOutputBytes,
+		MaxOutputBytes:        req.MaxOutputBytes,
 		DefaultTimeoutSeconds: req.TimeoutSeconds,
-		DenyWritePaths:      DefaultDenyWritePaths(),
-		DenyReadPaths:       DefaultDenyReadPaths(),
+		DenyWritePaths:        DefaultDenyWritePaths(),
+		DenyReadPaths:         DefaultDenyReadPaths(),
 	})
 }
 

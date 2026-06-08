@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 type InitCommand struct{}

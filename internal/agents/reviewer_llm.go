@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 // ReviewerLLM 调用 LLM 审查 Patch Intent

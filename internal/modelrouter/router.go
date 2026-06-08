@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // FallbackEntry is a single entry in the fallback chain configuration.
@@ -19,10 +19,10 @@ type FallbackEntry struct {
 // It resolves the target provider/model, iterates through the fallback chain
 // on error, records usage to CacheRegistry, and never exposes API keys.
 type DefaultModelRouter struct {
-	providers      map[string]Provider     // keyed by provider name
-	fallbackChain  []FallbackEntry
-	defaultModel   string
-	cacheRegistry  cache.CacheRegistry
+	providers     map[string]Provider // keyed by provider name
+	fallbackChain []FallbackEntry
+	defaultModel  string
+	cacheRegistry cache.CacheRegistry
 }
 
 // NewDefaultModelRouter creates a new router with the given providers and config.

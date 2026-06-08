@@ -1,4 +1,4 @@
-# MioNeko Repository Hygiene Cleanup Audit
+# MimoNeko Repository Hygiene Cleanup Audit
 
 Date: 2026-06-01
 

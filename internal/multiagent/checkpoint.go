@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // MultiAgentCheckpoint captures a snapshot of a multi-agent run at a point in time.

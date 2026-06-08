@@ -46,14 +46,14 @@ func TestPatchPreviewJSONSerialization(t *testing.T) {
 
 func TestGeneratePreviewFromIntent(t *testing.T) {
 	intent := &CoderPatchIntent{
-		Goal:                 "test goal",
-		PlanSummary:          "test summary",
-		ImplementationStatus: "intent_only",
-		FilesToChange:        []PatchIntentFile{{Path: "README.md", ChangeType: "edit", Reason: "update", RiskLevel: "low"}},
-		Changes:              []PatchIntentChange{{ID: "c1", FilePath: "README.md", Description: "update docs"}},
-		Risks:                []string{"minor risk"},
+		Goal:                  "test goal",
+		PlanSummary:           "test summary",
+		ImplementationStatus:  "intent_only",
+		FilesToChange:         []PatchIntentFile{{Path: "README.md", ChangeType: "edit", Reason: "update", RiskLevel: "low"}},
+		Changes:               []PatchIntentChange{{ID: "c1", FilePath: "README.md", Description: "update docs"}},
+		Risks:                 []string{"minor risk"},
 		ValidationSuggestions: []string{"run tests"},
-		NoFileWrites:         true,
+		NoFileWrites:          true,
 	}
 
 	preview, err := GeneratePreviewFromIntent(intent)

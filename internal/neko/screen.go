@@ -12,7 +12,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"github.com/mimoneko/mimoneko/internal/neko/branding"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/branding"
 )
 
 const (

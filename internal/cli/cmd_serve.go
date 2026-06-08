@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os/exec"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
-	webserver "github.com/mimoneko/mimoneko/internal/server"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
+	webserver "github.com/yupeipei77-eng/MimoNeko-TUI/internal/server"
 )
 
 var serveCommandRun = func(s *webserver.LocalServer) error {

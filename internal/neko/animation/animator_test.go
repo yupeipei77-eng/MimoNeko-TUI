@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/neko/branding"
-	"github.com/mimoneko/mimoneko/internal/neko/layout"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/branding"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/layout"
 )
 
 func TestMascotAnimationNoScreenFlicker(t *testing.T) {

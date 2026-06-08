@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/agents"
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/agents"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 type AgentsCommand struct{}

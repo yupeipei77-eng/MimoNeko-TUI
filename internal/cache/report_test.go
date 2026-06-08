@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/prefix"
 )
 
 func TestReportEmpty(t *testing.T) {

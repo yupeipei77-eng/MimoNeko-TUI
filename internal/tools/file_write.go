@@ -13,9 +13,9 @@ import (
 // FileWriteTool writes file contents within the workspace root.
 type FileWriteTool struct{}
 
-func (t *FileWriteTool) Name() string         { return "file_write" }
-func (t *FileWriteTool) Description() string   { return "Write file contents within the workspace root" }
-func (t *FileWriteTool) RiskLevel() string     { return "medium" }
+func (t *FileWriteTool) Name() string                  { return "file_write" }
+func (t *FileWriteTool) Description() string           { return "Write file contents within the workspace root" }
+func (t *FileWriteTool) RiskLevel() string             { return "medium" }
 func (t *FileWriteTool) Concurrency() ConcurrencyClass { return ConcurrencyWrite }
 
 func (t *FileWriteTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {
@@ -115,9 +115,11 @@ func (t *FileWriteTool) Run(ctx context.Context, req ToolRequest) (ToolResponse,
 // FilePatchTool applies a simple text replacement patch to a file.
 type FilePatchTool struct{}
 
-func (t *FilePatchTool) Name() string         { return "file_patch" }
-func (t *FilePatchTool) Description() string   { return "Apply a simple text replacement patch to a file" }
-func (t *FilePatchTool) RiskLevel() string     { return "medium" }
+func (t *FilePatchTool) Name() string { return "file_patch" }
+func (t *FilePatchTool) Description() string {
+	return "Apply a simple text replacement patch to a file"
+}
+func (t *FilePatchTool) RiskLevel() string             { return "medium" }
 func (t *FilePatchTool) Concurrency() ConcurrencyClass { return ConcurrencyWrite }
 
 func (t *FilePatchTool) Run(ctx context.Context, req ToolRequest) (ToolResponse, error) {

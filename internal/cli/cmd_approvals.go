@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/mimoneko/mimoneko/internal/approval"
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/approval"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 // approvalsStorePath returns the path to the approvals JSON file.

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
 )
 
 func runNekoWorkflowEvents(args []string, env Env) int {

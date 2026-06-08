@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/multiagent"
-	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/multiagent"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
 )
 
 type MultiRunCommand struct{}

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 func TestModelCapabilityPresetMatchesKnownModel(t *testing.T) {

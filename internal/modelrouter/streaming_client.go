@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
 )
 
 // StreamingClient wraps a ModelRouter and adds streaming support with event emission.
 // It falls back to non-streaming when the provider does not support streaming.
 type StreamingClient struct {
-	router   ModelRouter
-	emitter  events.EventEmitter
+	router  ModelRouter
+	emitter events.EventEmitter
 }
 
 // NewStreamingClient creates a new streaming client.

@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
 )
 
 type gitWorktreeCounts struct {

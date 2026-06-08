@@ -20,9 +20,9 @@ type Message struct {
 }
 
 type RouteRequest struct {
-	TaskID       string
-	Capability   string
-	TokenBudget  int
+	TaskID        string
+	Capability    string
+	TokenBudget   int
 	RequiresCache bool
 }
 
@@ -33,11 +33,11 @@ type Route struct {
 }
 
 type CompletionRequest struct {
-	TaskID          string
-	Route          Route
-	ImmutablePrefix []byte
+	TaskID           string
+	Route            Route
+	ImmutablePrefix  []byte
 	VolatileMessages []Message
-	MaxOutputTokens int
+	MaxOutputTokens  int
 }
 
 type CacheUsage struct {

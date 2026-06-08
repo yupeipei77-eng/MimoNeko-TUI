@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/modelprofile"
-	"github.com/mimoneko/mimoneko/internal/neko"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelprofile"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
 )
 
 type NekoCommand struct{}

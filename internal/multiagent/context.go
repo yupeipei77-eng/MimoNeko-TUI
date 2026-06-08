@@ -3,7 +3,7 @@ package multiagent
 import (
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
 )
 
 // SharedTaskContext carries structured information between agents in a multi-agent run.

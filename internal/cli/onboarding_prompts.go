@@ -8,7 +8,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	surveyterm "github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/mimoneko/mimoneko/internal/auth"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/auth"
 	"golang.org/x/term"
 )
 

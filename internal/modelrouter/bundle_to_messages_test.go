@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
 )
 
 func TestBundleToMessagesOrder(t *testing.T) {

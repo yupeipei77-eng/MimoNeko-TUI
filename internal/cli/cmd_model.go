@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/modelprofile"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelprofile"
 )
 
 type ModelCommand struct{}

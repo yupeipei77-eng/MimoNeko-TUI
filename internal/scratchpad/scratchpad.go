@@ -26,9 +26,9 @@ type Item struct {
 }
 
 type Scope struct {
-	TaskID     string
-	Kinds      []ItemKind
-	Limit      int
+	TaskID      string
+	Kinds       []ItemKind
+	Limit       int
 	TokenBudget int
 }
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 // WorkflowEventEmitter wraps an EventEmitter for agent workflow events.

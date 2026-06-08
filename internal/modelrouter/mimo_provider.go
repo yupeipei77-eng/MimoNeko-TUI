@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/auth"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/auth"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
 )
 
 // MimoProvider implements the Provider interface for the Mimo API.

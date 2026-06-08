@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
 )
 
 // PlannerAgent generates a TaskPlan from a user Goal.

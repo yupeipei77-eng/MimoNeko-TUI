@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 func TestRuntimeUnknownTool(t *testing.T) {

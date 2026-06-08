@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 // ImplementationStatusPreviewOnly 是 PatchPreview 的唯一允许状态
@@ -22,19 +22,19 @@ const (
 
 // PatchPreview 表示一个 patch 预览
 type PatchPreview struct {
-	ID                  string              `json:"id"`
-	WorkflowID          string              `json:"workflow_id"`
-	Goal                string              `json:"goal"`
-	Source              PatchPreviewSource  `json:"source"`
-	ImplementationStatus string             `json:"implementation_status"`
-	Files               []PatchPreviewFile  `json:"files"`
-	Changes             []PatchPreviewChange `json:"changes"`
-	Risks               []string            `json:"risks"`
-	ValidationSuggestions []string          `json:"validation_suggestions"`
-	NoFileWrites        bool                `json:"no_file_writes"`
-	NoPatchApplied      bool                `json:"no_patch_applied"`
-	NoToolsExecuted     bool                `json:"no_tools_executed"`
-	CreatedAt           time.Time           `json:"created_at"`
+	ID                    string               `json:"id"`
+	WorkflowID            string               `json:"workflow_id"`
+	Goal                  string               `json:"goal"`
+	Source                PatchPreviewSource   `json:"source"`
+	ImplementationStatus  string               `json:"implementation_status"`
+	Files                 []PatchPreviewFile   `json:"files"`
+	Changes               []PatchPreviewChange `json:"changes"`
+	Risks                 []string             `json:"risks"`
+	ValidationSuggestions []string             `json:"validation_suggestions"`
+	NoFileWrites          bool                 `json:"no_file_writes"`
+	NoPatchApplied        bool                 `json:"no_patch_applied"`
+	NoToolsExecuted       bool                 `json:"no_tools_executed"`
+	CreatedAt             time.Time            `json:"created_at"`
 }
 
 // PatchPreviewFile 表示 preview 中的一个文件

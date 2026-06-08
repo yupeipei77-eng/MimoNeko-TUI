@@ -10,24 +10,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // ToolAuditEvent represents a single audit log entry for a tool execution.
 type ToolAuditEvent struct {
-	ID         string            `json:"id"`
-	Timestamp  time.Time         `json:"timestamp"`
-	ToolName   string            `json:"tool_name"`
-	TaskID     string            `json:"task_id"`
-	RepoRoot   string            `json:"repo_root"`
+	ID           string            `json:"id"`
+	Timestamp    time.Time         `json:"timestamp"`
+	ToolName     string            `json:"tool_name"`
+	TaskID       string            `json:"task_id"`
+	RepoRoot     string            `json:"repo_root"`
 	ArgsRedacted map[string]string `json:"args_redacted"`
-	Success    bool              `json:"success"`
-	ExitCode   int               `json:"exit_code"`
-	OutputBytes int              `json:"output_bytes"`
-	Error      string            `json:"error,omitempty"`
-	DurationMs int64             `json:"duration_ms"`
-	RiskLevel  string            `json:"risk_level"`
-	DryRun     bool              `json:"dry_run"`
+	Success      bool              `json:"success"`
+	ExitCode     int               `json:"exit_code"`
+	OutputBytes  int               `json:"output_bytes"`
+	Error        string            `json:"error,omitempty"`
+	DurationMs   int64             `json:"duration_ms"`
+	RiskLevel    string            `json:"risk_level"`
+	DryRun       bool              `json:"dry_run"`
 }
 
 // AuditLog writes tool execution events as JSONL.

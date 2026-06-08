@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/patch"
-	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/patch"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
 )
 
 // mockPatchManager implements patch.PatchManager for testing.

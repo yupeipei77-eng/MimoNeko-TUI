@@ -13,6 +13,12 @@ mode, patch preview, and explicit approval.
 
 ## Quick Start
 
+Install from the public module path:
+
+```bash
+go install github.com/yupeipei77-eng/MimoNeko-TUI/cmd/mimoneko@latest
+```
+
 After installing, open a new terminal and run:
 
 ```bash

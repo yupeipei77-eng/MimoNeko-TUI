@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/security"
-	"github.com/mimoneko/mimoneko/internal/task"
-	"github.com/mimoneko/mimoneko/internal/tools"
-	"github.com/mimoneko/mimoneko/internal/worktree"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/worktree"
 )
 
 // deniedPatchPaths lists paths that must never be modified by a patch apply.

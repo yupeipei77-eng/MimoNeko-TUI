@@ -23,7 +23,7 @@ MimoNeko 实现了多层安全机制来保护用户数据和代码安全。
 
 **使用方式**:
 ```go
-import "github.com/mimoneko/mimoneko/internal/security"
+import "github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 
 // 脱敏文本
 safe := security.SanitizeText("Using key sk-abcdefghijklmnopqrstuvwxyz")
@@ -70,7 +70,7 @@ safeEvent := security.SanitizeEventMap(eventMap)
 
 **使用方式**:
 ```go
-import "github.com/mimoneko/mimoneko/internal/security"
+import "github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 
 // 检查路径
 violations := security.ValidatePath(".git/config")
@@ -344,7 +344,7 @@ pending → expired
 
 **API 示例**:
 ```go
-import "github.com/mimoneko/mimoneko/internal/approval"
+import "github.com/yupeipei77-eng/MimoNeko-TUI/internal/approval"
 
 // 创建请求
 req, err := approval.NewRequest(

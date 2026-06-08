@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/scratchpad"
-	"github.com/mimoneko/mimoneko/internal/task"
-	"github.com/mimoneko/mimoneko/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/scratchpad"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
 )
 
 // mockContextEngine implements contextengine.ContextEngine for testing.
@@ -105,9 +105,9 @@ type mockTool struct {
 	riskLevel string
 }
 
-func (m *mockTool) Name() string        { return m.name }
-func (m *mockTool) Description() string { return "mock tool" }
-func (m *mockTool) RiskLevel() string   { return m.riskLevel }
+func (m *mockTool) Name() string                        { return m.name }
+func (m *mockTool) Description() string                 { return "mock tool" }
+func (m *mockTool) RiskLevel() string                   { return m.riskLevel }
 func (m *mockTool) Concurrency() tools.ConcurrencyClass { return tools.ConcurrencyReadOnly }
 func (m *mockTool) Run(ctx context.Context, req tools.ToolRequest) (tools.ToolResponse, error) {
 	return tools.ToolResponse{ToolName: m.name, Success: true, Stdout: "mock"}, nil

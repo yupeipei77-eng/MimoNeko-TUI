@@ -1,11 +1,11 @@
 // Package toolruntime provides compatibility aliases for the tools package.
-// New code should import github.com/mimoneko/mimoneko/internal/tools directly.
+// New code should import github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools directly.
 package toolruntime
 
 import (
 	"context"
 
-	"github.com/mimoneko/mimoneko/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
 )
 
 // ToolRuntime is an alias for tools.ToolRuntime.

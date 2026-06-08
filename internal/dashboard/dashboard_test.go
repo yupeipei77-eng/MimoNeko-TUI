@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
 )
 
 // mockStore implements Store for testing.

@@ -58,10 +58,10 @@ func TestDefaultContract(t *testing.T) {
 
 func TestIsToolAllowed(t *testing.T) {
 	tests := []struct {
-		name      string
-		contract  TaskContract
-		toolName  string
-		want      bool
+		name     string
+		contract TaskContract
+		toolName string
+		want     bool
 	}{
 		{
 			name: "allowed tool in allowed list",
@@ -202,14 +202,14 @@ func TestRequiresApproval(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		contract TaskContract
-		wantErr bool
+		wantErr  bool
 	}{
 		{
 			name: "valid contract",
 			contract: TaskContract{
-				Goal:    "read files",
+				Goal:     "read files",
 				RepoRoot: "/repo",
 				MaxSteps: 5,
 			},
@@ -218,7 +218,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing goal",
 			contract: TaskContract{
-				Goal:    "",
+				Goal:     "",
 				RepoRoot: "/repo",
 				MaxSteps: 5,
 			},
@@ -227,7 +227,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing repo_root",
 			contract: TaskContract{
-				Goal:    "read files",
+				Goal:     "read files",
 				RepoRoot: "",
 				MaxSteps: 5,
 			},
@@ -236,7 +236,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "zero max_steps",
 			contract: TaskContract{
-				Goal:    "read files",
+				Goal:     "read files",
 				RepoRoot: "/repo",
 				MaxSteps: 0,
 			},

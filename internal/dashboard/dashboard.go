@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
 )
 
 // Store is the subset of EventStore that the dashboard needs.

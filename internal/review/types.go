@@ -18,8 +18,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/patch"
-	"github.com/mimoneko/mimoneko/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/patch"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
 )
 
 // ReviewRecommendation is the final recommendation of a patch review.

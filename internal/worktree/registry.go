@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // Registry stores worktree metadata as append-only JSONL.

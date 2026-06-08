@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 func cacheRegistryPath(root string, cfg *config.Root) string {

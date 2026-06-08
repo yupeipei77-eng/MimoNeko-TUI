@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 // ReportStore manages persistence of AgentDryRunReport.

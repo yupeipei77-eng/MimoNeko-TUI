@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 type SandboxCommand struct{}

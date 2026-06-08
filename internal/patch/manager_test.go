@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/security"
-	"github.com/mimoneko/mimoneko/internal/task"
-	"github.com/mimoneko/mimoneko/internal/worktree"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/task"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/worktree"
 )
 
 // setupPatchTest creates a git repo with a worktree that has modifications.

@@ -3,7 +3,7 @@ package neko
 import (
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 // AgentMode describes an operator-facing TUI mode. New modes can be wired to a

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/auth"
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/modelprofile"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/auth"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelprofile"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
 )
 
 type AuthCommand struct{}

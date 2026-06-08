@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/agent"
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/review"
-	"github.com/mimoneko/mimoneko/internal/worktree"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/agent"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/worktree"
 )
 
 // Dependencies holds the external dependencies for the Multi-Agent Runtime.

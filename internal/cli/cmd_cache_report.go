@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 type CacheReportCommand struct{}

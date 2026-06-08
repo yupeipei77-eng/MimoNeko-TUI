@@ -13,10 +13,10 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/neko/branding"
-	"github.com/mimoneko/mimoneko/internal/neko/layout"
-	"github.com/mimoneko/mimoneko/internal/security"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/branding"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/layout"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/security"
 )
 
 func allowAutoSaveForTest(t *testing.T) {

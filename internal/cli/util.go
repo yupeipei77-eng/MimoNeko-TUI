@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/auth"
-	"github.com/mimoneko/mimoneko/internal/config"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/modelprofile"
-	"github.com/mimoneko/mimoneko/internal/pathutil"
-	"github.com/mimoneko/mimoneko/internal/review"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/auth"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelprofile"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/pathutil"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/review"
 )
 
 func resolveRoot(dir string, env Env) (string, error) {

@@ -4,7 +4,7 @@ set -e
 VERSION=${1:-"v0.1.4-beta"}
 VERSION_NAME=${VERSION#v}
 OUTPUT_DIR="dist"
-LDFLAGS="-X github.com/mimoneko/mimoneko/internal/version.Version=${VERSION_NAME}"
+LDFLAGS="-X github.com/yupeipei77-eng/MimoNeko-TUI/internal/version.Version=${VERSION_NAME}"
 
 echo "Building MimoNeko ${VERSION}..."
 

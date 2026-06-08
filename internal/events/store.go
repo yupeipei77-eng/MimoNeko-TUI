@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // JSONLRunEventStore implements EventStore with append-only JSONL persistence.

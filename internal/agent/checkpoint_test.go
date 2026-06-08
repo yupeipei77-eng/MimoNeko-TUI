@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
 )
 
 // --- SanitizeCheckpoint tests ---

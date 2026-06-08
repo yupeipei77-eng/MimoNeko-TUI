@@ -6,13 +6,13 @@ import (
 	"io"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/events"
-	"github.com/mimoneko/mimoneko/internal/modelrouter"
-	"github.com/mimoneko/mimoneko/internal/patch"
-	"github.com/mimoneko/mimoneko/internal/scratchpad"
-	"github.com/mimoneko/mimoneko/internal/tools"
-	"github.com/mimoneko/mimoneko/internal/worktree"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelrouter"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/patch"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/scratchpad"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/tools"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/worktree"
 )
 
 // SingleAgentRuntime implements AgentRuntime with a single-agent loop.

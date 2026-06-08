@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/cache"
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/cache"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // cacheRegistryBridge wraps JSONLCacheRegistry to expose Report for CLI use.

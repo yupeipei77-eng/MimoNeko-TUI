@@ -23,10 +23,10 @@ type streamRequest struct {
 
 // streamChunk is a single SSE chunk from the OpenAI streaming API.
 type streamChunk struct {
-	ID      string             `json:"id"`
-	Model   string             `json:"model"`
-	Choices []streamChoice     `json:"choices"`
-	Usage   *openAIUsage       `json:"usage,omitempty"`
+	ID      string         `json:"id"`
+	Model   string         `json:"model"`
+	Choices []streamChoice `json:"choices"`
+	Usage   *openAIUsage   `json:"usage,omitempty"`
 }
 
 type streamChoice struct {
@@ -258,10 +258,10 @@ func StreamToCallback(ctx context.Context, resp StreamResponse, onChunk func(chu
 
 // MockStreamProvider creates a mock streaming provider for testing.
 type MockStreamProvider struct {
-	name      string
-	chunks    []StreamChunk
-	err       error
-	models    map[string]bool
+	name   string
+	chunks []StreamChunk
+	err    error
+	models map[string]bool
 }
 
 // NewMockStreamProvider creates a new mock streaming provider.

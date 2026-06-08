@@ -1,24 +1,24 @@
 package layout
 
 const (
-	ansiReset    = "\x1b[0m"
-	ansiBold     = "\x1b[1m"
-	ansiDim      = "\x1b[2m"
-	ansiItalic   = "\x1b[3m"
-	ansiWarm     = "\x1b[38;5;214m" // Bright orange-gold - primary accent
-	ansiBeige    = "\x1b[38;5;180m" // Soft gold - labels
-	ansiCream    = "\x1b[38;5;230m" // Cream white - titles
-	ansiWarmDim  = "\x1b[38;5;138m" // Muted gold - values
-	ansiGreen    = "\x1b[38;5;114m" // Soft green - success
-	ansiErrorRed = "\x1b[38;5;203m" // Soft red - errors
-	ansiWarning  = "\x1b[38;5;221m" // Warm yellow - warnings
-	ansiInfo     = "\x1b[38;5;180m" // Muted warm info
-	ansiCyan     = "\x1b[38;5;215m" // Warm peach user accent
-	ansiPurple   = "\x1b[38;5;216m" // Warm peach highlights
-	ansiPanel    = "\x1b[48;5;236m" // Dark panel background
+	ansiReset      = "\x1b[0m"
+	ansiBold       = "\x1b[1m"
+	ansiDim        = "\x1b[2m"
+	ansiItalic     = "\x1b[3m"
+	ansiWarm       = "\x1b[38;5;214m" // Bright orange-gold - primary accent
+	ansiBeige      = "\x1b[38;5;180m" // Soft gold - labels
+	ansiCream      = "\x1b[38;5;230m" // Cream white - titles
+	ansiWarmDim    = "\x1b[38;5;138m" // Muted gold - values
+	ansiGreen      = "\x1b[38;5;114m" // Soft green - success
+	ansiErrorRed   = "\x1b[38;5;203m" // Soft red - errors
+	ansiWarning    = "\x1b[38;5;221m" // Warm yellow - warnings
+	ansiInfo       = "\x1b[38;5;180m" // Muted warm info
+	ansiCyan       = "\x1b[38;5;215m" // Warm peach user accent
+	ansiPurple     = "\x1b[38;5;216m" // Warm peach highlights
+	ansiPanel      = "\x1b[48;5;236m" // Dark panel background
 	ansiPanelLight = "\x1b[48;5;238m" // Lighter panel for user messages
-	ansiBorder   = "\x1b[38;5;240m" // Dark gray for borders
-	ansiMuted    = "\x1b[38;5;245m" // Medium gray text
+	ansiBorder     = "\x1b[38;5;240m" // Dark gray for borders
+	ansiMuted      = "\x1b[38;5;245m" // Medium gray text
 )
 
 func paint(code, text string, noColor bool) string {

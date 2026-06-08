@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/modelprofile"
-	"github.com/mimoneko/mimoneko/internal/neko/animation"
-	"github.com/mimoneko/mimoneko/internal/neko/branding"
-	"github.com/mimoneko/mimoneko/internal/neko/layout"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/modelprofile"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/animation"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/branding"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/layout"
 )
 
 type Options struct {

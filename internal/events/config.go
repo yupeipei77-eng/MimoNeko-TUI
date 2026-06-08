@@ -3,7 +3,7 @@ package events
 import (
 	"path/filepath"
 
-	"github.com/mimoneko/mimoneko/internal/config"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/config"
 )
 
 // EventsConfig configures the event system behavior.

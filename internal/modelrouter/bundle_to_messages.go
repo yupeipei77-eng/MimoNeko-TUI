@@ -3,7 +3,7 @@ package modelrouter
 import (
 	"fmt"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
 )
 
 // OpenAI Message types for conversion output.

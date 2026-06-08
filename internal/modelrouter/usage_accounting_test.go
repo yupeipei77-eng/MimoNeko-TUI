@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mimoneko/mimoneko/internal/contextengine"
-	"github.com/mimoneko/mimoneko/internal/prefix"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/contextengine"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/prefix"
 )
 
 func TestUsageToObservationMapsFields(t *testing.T) {

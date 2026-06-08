@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mimoneko/mimoneko/internal/events"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/events"
 )
 
 // mockEventEmitter captures emitted events for testing.

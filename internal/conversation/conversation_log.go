@@ -30,10 +30,10 @@ type Event struct {
 }
 
 type Query struct {
-	ConversationID string
-	TaskID         string
-	AfterID        string
-	Limit          int
+	ConversationID  string
+	TaskID          string
+	AfterID         string
+	Limit           int
 	IncludeArchived bool
 }
 

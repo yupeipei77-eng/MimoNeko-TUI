@@ -225,9 +225,9 @@ func TestFileWriteCreateDirs(t *testing.T) {
 	resp, _ := tool.Run(context.Background(), ToolRequest{
 		RepoRoot: root,
 		Args: map[string]string{
-			"path":         "sub/dir/output.txt",
-			"content":      "nested",
-			"create_dirs":  "true",
+			"path":        "sub/dir/output.txt",
+			"content":     "nested",
+			"create_dirs": "true",
 		},
 	})
 	if !resp.Success {
@@ -541,9 +541,9 @@ func TestTestRunMissingCommandName(t *testing.T) {
 
 func TestToolResponseOutputTruncation(t *testing.T) {
 	resp := ToolResponse{
-		Success:   true,
-		Stdout:    strings.Repeat("x", 100),
-		Stderr:    strings.Repeat("y", 100),
+		Success: true,
+		Stdout:  strings.Repeat("x", 100),
+		Stderr:  strings.Repeat("y", 100),
 	}
 	truncated := truncateResponse(resp, 50)
 	if !truncated.Truncated {

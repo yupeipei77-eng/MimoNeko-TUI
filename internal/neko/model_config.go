@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/mimoneko/mimoneko/internal/neko/branding"
+	"github.com/yupeipei77-eng/MimoNeko-TUI/internal/neko/branding"
 )
 
 // ModelConfig represents the model configuration display.
