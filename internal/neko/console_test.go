@@ -1326,6 +1326,22 @@ func TestNekoShowsPatchNextSteps(t *testing.T) {
 	}
 }
 
+func TestNekoReadOnlyRunHidesPatchNextSteps(t *testing.T) {
+	output := runTestConsole(t, "inspect project files\n/exit\n", Options{
+		Runner: func(ctx context.Context, req RunRequest) (RunResult, error) {
+			return RunResult{WorktreeID: "wt_readonly", State: "succeeded", Output: "checked project files", ReadOnly: true}, nil
+		},
+	})
+	for _, forbidden := range []string{"worktree_id=wt_readonly", "/preview wt_readonly", "/review wt_readonly", "/discard wt_readonly", "CLI apply:", "patch apply wt_readonly"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("output = %q, should hide read-only patch hint %q", output, forbidden)
+		}
+	}
+	if !strings.Contains(output, "checked project files") {
+		t.Fatalf("output = %q, want read-only result", output)
+	}
+}
+
 func TestNekoSanitizesModelOutput(t *testing.T) {
 	secret := "sk-neko-model-output"
 	output := runTestConsole(t, "/run hello\n/exit\n", Options{

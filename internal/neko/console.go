@@ -78,6 +78,7 @@ type RunResult struct {
 	Output         string
 	Usage          Usage
 	ExitCode       int
+	ReadOnly       bool
 }
 
 type RunHandler func(context.Context, RunRequest) (RunResult, error)
@@ -795,7 +796,7 @@ func (c *Console) runGoal(ctx context.Context, goal string) {
 		fmt.Fprintf(&msg, "run_id=%s\n", result.RunID)
 	}
 	fmt.Fprintf(&msg, "state=%s\n", state)
-	if result.WorktreeID != "" {
+	if result.WorktreeID != "" && !result.ReadOnly {
 		fmt.Fprintf(&msg, "worktree_id=%s\n", result.WorktreeID)
 	}
 	if result.Recommendation != "" {
@@ -806,7 +807,7 @@ func (c *Console) runGoal(ctx context.Context, goal string) {
 	if result.Output != "" {
 		fmt.Fprintln(&msg, SanitizeOutput(result.Output))
 	}
-	if result.WorktreeID != "" {
+	if result.WorktreeID != "" && !result.ReadOnly {
 		fmt.Fprintln(&msg, "Next:")
 		fmt.Fprintf(&msg, "/preview %s\n", result.WorktreeID)
 		fmt.Fprintf(&msg, "/review %s\n", result.WorktreeID)

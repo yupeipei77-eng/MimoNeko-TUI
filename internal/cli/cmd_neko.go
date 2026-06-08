@@ -333,19 +333,21 @@ func runNekoGoal(req neko.RunRequest) (neko.RunResult, error) {
 	} else {
 		args = append(args, "--dry-run=false")
 	}
-	if req.Mode == "single" {
-		if req.Worktree {
+	readOnly := isReadOnlyNekoGoal(req.Goal)
+	if req.Mode == "single" || readOnly {
+		if req.Worktree && !readOnly {
 			args = append(args, "--worktree")
 		}
 		output, err := captureCLI(func(stdout, stderr io.Writer) int {
 			return runAgent(args, Env{Stdout: stdout, Stderr: stderr, Stdin: strings.NewReader("")})
 		})
 		return neko.RunResult{
-			RunID:      extractCLIValue(output, "run_id"),
-			State:      extractCLIValue(output, "state"),
-			WorktreeID: extractCLIValue(output, "worktree_id"),
-			Output:     output,
+			RunID:      firstNonEmpty(extractCLIValue(output, "run_id"), extractRunCommandID(output)),
+			State:      firstNonEmpty(extractCLIValue(output, "state"), extractRunCommandState(output)),
+			WorktreeID: firstNonEmpty(extractCLIValue(output, "worktree_id"), extractRunCommandWorktreeID(output)),
+			Output:     extractRunCommandResult(output),
 			Usage:      neko.Usage{Estimated: true},
+			ReadOnly:   readOnly,
 		}, err
 	}
 	if req.Model != "" {
@@ -359,7 +361,7 @@ func runNekoGoal(req neko.RunRequest) (neko.RunResult, error) {
 		State:          extractCLIValue(output, "state"),
 		WorktreeID:     extractCLIValue(output, "worktree_id"),
 		Recommendation: firstNonEmpty(extractCLIValue(output, "final_recommendation"), extractCLIValue(output, "recommendation")),
-		Output:         output,
+		Output:         summarizeMultiRunOutputForTUI(output),
 		Usage:          neko.Usage{Estimated: true},
 	}, err
 }
