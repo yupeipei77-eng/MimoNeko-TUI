@@ -146,6 +146,65 @@ func TestExtractModelText_NoToolCall(t *testing.T) {
 	}
 }
 
+func TestParseToolCall_MimoXMLBashListFiles(t *testing.T) {
+	text := `好的，让我检查一下当前的项目文件结构。 <tool_call>
+<function=bash>
+<parameter=command>ls -la</parameter>
+<parameter=description>List files in current directory</parameter>
+</function>
+</tool_call>`
+
+	tc, err := ParseToolCall(text)
+	if err != nil {
+		t.Fatalf("ParseToolCall() error = %v", err)
+	}
+	if tc == nil {
+		t.Fatal("ParseToolCall() returned nil")
+	}
+	if tc.Name != "list_files" {
+		t.Fatalf("Name = %q, want list_files", tc.Name)
+	}
+	if tc.Args["path"] != "." {
+		t.Fatalf("Args[path] = %q, want .", tc.Args["path"])
+	}
+}
+
+func TestParseToolCall_MimoXMLBashPWD(t *testing.T) {
+	text := `<tool_call><function=bash><parameter=command>pwd</parameter></function></tool_call>`
+
+	tc, err := ParseToolCall(text)
+	if err != nil {
+		t.Fatalf("ParseToolCall() error = %v", err)
+	}
+	if tc == nil || tc.Name != "list_files" || tc.Args["path"] != "." {
+		t.Fatalf("ParseToolCall() = %+v, want list_files path=.", tc)
+	}
+}
+
+func TestParseToolCall_MimoXMLUnsupportedShell(t *testing.T) {
+	text := `<tool_call><function=bash><parameter=command>rm -rf .</parameter></function></tool_call>`
+
+	tc, err := ParseToolCall(text)
+	if err != nil {
+		t.Fatalf("ParseToolCall() error = %v", err)
+	}
+	if tc == nil || tc.Name != "unsupported_shell" {
+		t.Fatalf("ParseToolCall() = %+v, want unsupported_shell", tc)
+	}
+}
+
+func TestExtractModelText_MimoXMLToolCall(t *testing.T) {
+	text := `好的，让我检查一下。 <tool_call><function=bash><parameter=command>ls -la</parameter></function></tool_call>`
+
+	modelText := ExtractModelText(text)
+	if strings.Contains(modelText, "tool_call") || strings.Contains(modelText, "function=bash") {
+		t.Fatalf("ExtractModelText() = %q, should remove XML tool call", modelText)
+	}
+	if !strings.Contains(modelText, "好的，让我检查一下。") {
+		t.Fatalf("ExtractModelText() = %q, want surrounding text", modelText)
+	}
+}
+
 func TestAgentStateIsTerminal(t *testing.T) {
 	tests := []struct {
 		state AgentState

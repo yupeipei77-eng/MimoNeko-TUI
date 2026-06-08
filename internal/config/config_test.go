@@ -120,8 +120,10 @@ func TestInitCreatesToolsSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(content)) != "[]" {
-		t.Fatalf("tools schema = %q, want []", string(content))
+	for _, want := range []string{"list_files", "file_read", "git_diff", "test_run"} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("tools schema = %q, want %q", string(content), want)
+		}
 	}
 }
 

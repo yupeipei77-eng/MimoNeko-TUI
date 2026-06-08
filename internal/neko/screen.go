@@ -861,6 +861,8 @@ func agentPickerToolLabels(tools []string) []string {
 		switch tool {
 		case "file_read":
 			labels = append(labels, "read")
+		case "list_files":
+			labels = append(labels, "list")
 		case "git_diff":
 			labels = append(labels, "diff")
 		case "test_run":

@@ -172,6 +172,98 @@ func TestFileReadMissingPath(t *testing.T) {
 	}
 }
 
+func TestListFilesNormal(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "internal", "tools"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "tools", "tool.go"), []byte("package tools"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &ListFilesTool{}
+	resp, err := tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".", "max_depth": "2"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("Run() success=false, error=%q", resp.Error)
+	}
+	for _, want := range []string{"README.md", "internal/"} {
+		if !strings.Contains(resp.Stdout, want) {
+			t.Fatalf("list_files output = %q, want %q", resp.Stdout, want)
+		}
+	}
+}
+
+func TestListFilesSkipsSensitiveAndProtectedEntries(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{".git", ".mimoneko/logs"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, body := range map[string]string{
+		"visible.txt":                "ok",
+		".env":                       "secret",
+		"id_rsa":                     "secret",
+		".git/config":                "secret",
+		".mimoneko/logs/tools.jsonl": "secret",
+		"nested/visible_child.txt":   "ok",
+		"nested/.env.local":          "secret",
+		"nested/id_ed25519":          "secret",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tool := &ListFilesTool{}
+	resp, _ := tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".", "max_depth": "3"},
+	})
+	if !resp.Success {
+		t.Fatalf("Run() success=false, error=%q", resp.Error)
+	}
+	for _, want := range []string{"visible.txt", "nested/"} {
+		if !strings.Contains(resp.Stdout, want) {
+			t.Fatalf("list_files output = %q, want %q", resp.Stdout, want)
+		}
+	}
+	for _, forbidden := range []string{".env", "id_rsa", ".git", ".mimoneko", "id_ed25519"} {
+		if strings.Contains(resp.Stdout, forbidden) {
+			t.Fatalf("list_files output = %q, should not contain %q", resp.Stdout, forbidden)
+		}
+	}
+}
+
+func TestListFilesRejectsProtectedTarget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &ListFilesTool{}
+	resp, _ := tool.Run(context.Background(), ToolRequest{
+		RepoRoot: root,
+		Args:     map[string]string{"path": ".git"},
+	})
+	if resp.Success {
+		t.Fatal("list_files should reject protected target")
+	}
+}
+
 func TestFileWriteNormal(t *testing.T) {
 	root := t.TempDir()
 	tool := &FileWriteTool{}

@@ -3,7 +3,7 @@
 ## Responsibilities
 
 - Define and implement the Tool Runtime: `ToolRuntime`, `Tool`, `ToolRegistry`, `SafetyGuard`, `AuditLog`.
-- Provide built-in tools: `file_read`, `file_write`, `file_patch`, `git_diff`, `test_run`.
+- Provide built-in tools: `list_files`, `file_read`, `file_write`, `file_patch`, `git_diff`, `test_run`.
 - Enforce workspace root confinement, sensitive path protection, output truncation, and timeout.
 - Write JSONL audit logs for every tool execution.
 

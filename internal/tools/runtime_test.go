@@ -316,6 +316,7 @@ func newTestRuntime(t *testing.T, root string) *DefaultToolRuntime {
 
 	enabled := map[string]bool{
 		"file_read":  true,
+		"list_files": true,
 		"file_write": true,
 		"file_patch": true,
 		"git_diff":   true,
@@ -369,6 +370,7 @@ func newTestToolRuntimeWithEmitter(t *testing.T, emitter events.EventEmitter) *D
 
 	enabled := map[string]bool{
 		"file_read":  true,
+		"list_files": true,
 		"file_write": true,
 		"file_patch": true,
 		"git_diff":   true,

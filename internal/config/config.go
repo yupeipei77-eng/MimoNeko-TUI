@@ -716,6 +716,9 @@ var defaultScaffoldFiles = []scaffoldFile{
 		Body: `You are MimoNeko, a safe local coding agent.
 Follow the user goal, keep changes minimal, and never expose secrets.
 Do not automatically commit, push, or apply patches.
+When you need a tool, output exactly one JSON tool call and no XML tool syntax.
+Use only these tool names: list_files, file_read, git_diff, test_run.
+Example: {"tool_call":{"name":"list_files","args":{"path":"."}}}
 `,
 		Mode: 0o644,
 	},
@@ -733,7 +736,38 @@ Do not automatically commit, push, or apply patches.
 	},
 	{
 		Path: "schemas/tools.json",
-		Body: "[]\n",
+		Body: `[
+  {
+    "name": "list_files",
+    "description": "List non-sensitive files and directories under the workspace root.",
+    "args": {
+      "path": "Relative directory path. Default: .",
+      "max_depth": "Optional positive integer. Default: 2."
+    }
+  },
+  {
+    "name": "file_read",
+    "description": "Read a non-sensitive file under the workspace root.",
+    "args": {
+      "path": "Relative file path."
+    }
+  },
+  {
+    "name": "git_diff",
+    "description": "Show git diff for the workspace or a relative path.",
+    "args": {
+      "path": "Optional relative path."
+    }
+  },
+  {
+    "name": "test_run",
+    "description": "Run a preconfigured test command only.",
+    "args": {
+      "command_name": "Configured command name, for example go-test."
+    }
+  }
+]
+`,
 		Mode: 0o644,
 	},
 }
@@ -901,6 +935,10 @@ routing:
 			Name: "tools.yaml",
 			Body: fmt.Sprintf(`tools:
   - name: file_read
+    kind: builtin
+    enabled: true
+    risk_level: low
+  - name: list_files
     kind: builtin
     enabled: true
     risk_level: low

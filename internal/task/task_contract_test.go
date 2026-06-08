@@ -34,9 +34,10 @@ func TestDefaultContract(t *testing.T) {
 
 	// Default allowed tools
 	allowedTools := map[string]bool{
-		"file_read": true,
-		"git_diff":  true,
-		"test_run":  true,
+		"file_read":  true,
+		"list_files": true,
+		"git_diff":   true,
+		"test_run":   true,
 	}
 	for _, tool := range c.AllowedTools {
 		if !allowedTools[tool] {

@@ -1,1 +1,31 @@
-﻿[]
+[
+  {
+    "name": "list_files",
+    "description": "List non-sensitive files and directories under the workspace root.",
+    "args": {
+      "path": "Relative directory path. Default: .",
+      "max_depth": "Optional positive integer. Default: 2."
+    }
+  },
+  {
+    "name": "file_read",
+    "description": "Read a non-sensitive file under the workspace root.",
+    "args": {
+      "path": "Relative file path."
+    }
+  },
+  {
+    "name": "git_diff",
+    "description": "Show git diff for the workspace or a relative path.",
+    "args": {
+      "path": "Optional relative path."
+    }
+  },
+  {
+    "name": "test_run",
+    "description": "Run a preconfigured test command only.",
+    "args": {
+      "command_name": "Configured command name, for example go-test."
+    }
+  }
+]

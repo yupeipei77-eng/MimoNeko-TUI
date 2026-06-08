@@ -3,7 +3,16 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"html"
+	"regexp"
 	"strings"
+)
+
+var (
+	xmlToolCallBlockPattern = regexp.MustCompile(`(?is)<tool_call>(.*?)</tool_call>`)
+	xmlFunctionTagPattern   = regexp.MustCompile(`(?is)<function=([^>\s]+)>`)
+	xmlFunctionBodyPattern  = regexp.MustCompile(`(?is)<function>(.*?)</function>`)
+	xmlParameterPattern     = regexp.MustCompile(`(?is)<parameter=([^>\s]+)>(.*?)</parameter>`)
 )
 
 // ParseToolCall attempts to extract a ToolCall from model output text.
@@ -43,7 +52,7 @@ func ParseToolCall(text string) (*ToolCall, error) {
 
 	switch len(found) {
 	case 0:
-		return nil, nil
+		return parseXMLToolCall(text)
 	case 1:
 		return found[0], nil
 	default:
@@ -75,10 +84,129 @@ func tryParseToolCall(candidate string) (*ToolCall, error) {
 		args = make(map[string]string)
 	}
 
-	return &ToolCall{
+	return normalizeToolCall(&ToolCall{
 		Name: name,
 		Args: args,
-	}, nil
+	}), nil
+}
+
+func parseXMLToolCall(text string) (*ToolCall, error) {
+	matches := xmlToolCallBlockPattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	for _, match := range matches {
+		tc := tryParseXMLToolCallBlock(match[1])
+		if tc != nil {
+			return tc, nil
+		}
+	}
+	return &ToolCall{Name: "unsupported_tool_call", Args: map[string]string{"format": "xml"}}, nil
+}
+
+func tryParseXMLToolCallBlock(block string) *ToolCall {
+	name := ""
+	if match := xmlFunctionTagPattern.FindStringSubmatch(block); len(match) == 2 {
+		name = strings.TrimSpace(match[1])
+	} else if match := xmlFunctionBodyPattern.FindStringSubmatch(block); len(match) == 2 {
+		name = strings.TrimSpace(match[1])
+	}
+	if name == "" {
+		return nil
+	}
+	args := make(map[string]string)
+	for _, match := range xmlParameterPattern.FindAllStringSubmatch(block, -1) {
+		if len(match) != 3 {
+			continue
+		}
+		key := strings.TrimSpace(match[1])
+		value := strings.TrimSpace(html.UnescapeString(match[2]))
+		if key != "" {
+			args[key] = value
+		}
+	}
+	return normalizeToolCall(&ToolCall{Name: name, Args: args})
+}
+
+func normalizeToolCall(tc *ToolCall) *ToolCall {
+	if tc == nil {
+		return nil
+	}
+	name := strings.ToLower(strings.TrimSpace(tc.Name))
+	args := tc.Args
+	if args == nil {
+		args = make(map[string]string)
+	}
+	switch name {
+	case "read_file":
+		return &ToolCall{Name: "file_read", Args: args}
+	case "diff", "gitdiff":
+		return &ToolCall{Name: "git_diff", Args: args}
+	case "bash", "shell", "sh":
+		return normalizeShellLikeToolCall(args)
+	default:
+		return &ToolCall{Name: name, Args: args}
+	}
+}
+
+func normalizeShellLikeToolCall(args map[string]string) *ToolCall {
+	command := strings.TrimSpace(firstNonEmptyArg(args, "command", "cmd", "shell"))
+	if command == "" {
+		return &ToolCall{Name: "unsupported_shell", Args: map[string]string{"reason": "missing command"}}
+	}
+	lower := strings.ToLower(command)
+	if shellCommandLooksUnsafe(lower) {
+		return &ToolCall{Name: "unsupported_shell", Args: map[string]string{"command": command}}
+	}
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return &ToolCall{Name: "unsupported_shell", Args: map[string]string{"reason": "empty command"}}
+	}
+	switch strings.ToLower(fields[0]) {
+	case "pwd", "cd":
+		return &ToolCall{Name: "list_files", Args: map[string]string{"path": "."}}
+	case "ls", "dir":
+		mapped := map[string]string{"path": "."}
+		if path := listFilesPathFromShellFields(fields[1:]); path != "" {
+			mapped["path"] = path
+		}
+		if strings.Contains(lower, "-r") || strings.Contains(lower, "/s") {
+			mapped["max_depth"] = "3"
+		}
+		return &ToolCall{Name: "list_files", Args: mapped}
+	default:
+		return &ToolCall{Name: "unsupported_shell", Args: map[string]string{"command": command}}
+	}
+}
+
+func shellCommandLooksUnsafe(command string) bool {
+	for _, token := range []string{";", "&&", "||", "|", ">", "<", "`", "$(", "\n"} {
+		if strings.Contains(command, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func listFilesPathFromShellFields(fields []string) string {
+	path := ""
+	for _, field := range fields {
+		trimmed := strings.Trim(strings.TrimSpace(field), `"'`)
+		if trimmed == "" || strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "/") {
+			continue
+		}
+		path = trimmed
+	}
+	return path
+}
+
+func firstNonEmptyArg(args map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(args[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // HasToolCall checks whether the model output text contains a tool_call block.
@@ -118,7 +246,7 @@ func ExtractModelText(text string) string {
 			}
 		}
 	}
-	return strings.TrimSpace(text)
+	return strings.TrimSpace(xmlToolCallBlockPattern.ReplaceAllString(text, ""))
 }
 
 // FormatToolCall formats a ToolCall as the expected JSON string.

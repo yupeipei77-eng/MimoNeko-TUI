@@ -215,7 +215,7 @@ func TestNekoAgentsCommandShowsModeMetadata(t *testing.T) {
 		"Agents",
 		"Build",
 		"multi-agent worktree build",
-		"tools=file_read,git_diff,test_run,patch_preview",
+		"tools=file_read,list_files,git_diff,test_run,patch_preview",
 		"permission=patch-preview",
 		"worktree=true",
 		"Reviewer",
@@ -243,7 +243,7 @@ func TestNekoAgentsCommandOpensPickerInScreenMode(t *testing.T) {
 		t.Fatal("agentPickerOpen = false after /agents, want true")
 	}
 	text := out.String()
-	for _, want := range []string{"Switch agent", "Build", "Single", "tools=read,diff,test,patch", "permission=patch-preview", "worktree=true"} {
+	for _, want := range []string{"Switch agent", "Build", "Single", "tools=read,list,diff,test,patch", "permission=patch-preview", "worktree=true"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("screen = %q, want %q", text, want)
 		}

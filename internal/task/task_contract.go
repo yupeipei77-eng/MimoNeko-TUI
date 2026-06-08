@@ -63,7 +63,7 @@ type TaskContract struct {
 // DefaultContract returns a safe default TaskContract.
 //
 // Default contract:
-//   - AllowedTools: file_read, git_diff, test_run
+//   - AllowedTools: file_read, list_files, git_diff, test_run
 //   - DeniedTools: file_write, file_patch
 //   - RequireApprovalForRisk: medium
 //   - MaxSteps: 5
@@ -74,7 +74,7 @@ func DefaultContract(repoRoot, goal string) TaskContract {
 		ID:                     id,
 		Goal:                   goal,
 		RepoRoot:               repoRoot,
-		AllowedTools:           []string{"file_read", "git_diff", "test_run"},
+		AllowedTools:           []string{"file_read", "list_files", "git_diff", "test_run"},
 		DeniedTools:            []string{"file_write", "file_patch"},
 		MaxSteps:               5,
 		MaxToolCalls:           10,

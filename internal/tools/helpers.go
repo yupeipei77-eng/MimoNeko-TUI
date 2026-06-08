@@ -76,6 +76,7 @@ func EnabledToolsFromConfig(cfg *config.Root) map[string]bool {
 func RegisterBuiltinTools(registry ToolRegistry, testCommands map[string]TestCommandDef) error {
 	tools := []Tool{
 		&FileReadTool{},
+		&ListFilesTool{},
 		&FileWriteTool{},
 		&FilePatchTool{},
 		&GitDiffTool{},
