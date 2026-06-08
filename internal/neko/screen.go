@@ -282,10 +282,7 @@ func (c *Console) renderScreenWorkbenchComposerV2(w io.Writer, renderer branding
 	if contentWidth < 20 {
 		contentWidth = 20
 	}
-	modeLabel := renderer.Paint(branding.BrightCyan, "Build")
-	if c.uiMode == "plan" {
-		modeLabel = renderer.Paint(branding.BrightCyan, "Plan")
-	}
+	modeLabel := renderer.Paint(branding.BrightCyan, displayMode(c.Session.Mode))
 	statusParts := []string{modeLabel}
 	if strings.TrimSpace(c.Session.Model) != "" {
 		statusParts = append(statusParts, renderer.Title(c.Session.Model))

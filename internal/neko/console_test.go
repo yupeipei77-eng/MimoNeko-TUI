@@ -523,6 +523,28 @@ func TestNekoCommandPaletteSelectionOpensAgentPicker(t *testing.T) {
 	}
 }
 
+func TestNekoTabOpensAgentPickerInScreenMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	if exit := console.handleRawRune(context.Background(), bufio.NewReader(strings.NewReader("")), '\t'); exit {
+		t.Fatal("tab should open agent picker, not exit")
+	}
+	if !console.agentPickerOpen {
+		t.Fatal("agentPickerOpen = false after tab, want true")
+	}
+	text := out.String()
+	if !strings.Contains(text, "Switch agent") || !strings.Contains(text, "Single") {
+		t.Fatalf("screen = %q, want agent picker", text)
+	}
+}
+
 func TestNekoAgentPickerSelectionSwitchesMode(t *testing.T) {
 	session := newTestSession(t, nil, Options{})
 	var out bytes.Buffer
@@ -545,6 +567,30 @@ func TestNekoAgentPickerSelectionSwitchesMode(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Agent switched to Single") {
 		t.Fatalf("screen = %q, want agent switch status", out.String())
+	}
+}
+
+func TestNekoComposerModeLabelFollowsAgentMode(t *testing.T) {
+	session := newTestSession(t, nil, Options{})
+	if !session.SetMode("single") {
+		t.Fatal("failed to set single mode")
+	}
+	var out bytes.Buffer
+	console := Console{
+		Session:      session,
+		Options:      Options{Out: &out},
+		screenActive: true,
+		screenCols:   120,
+		screenRows:   30,
+	}
+	console.refreshInput()
+	console.renderScreenWorkbenchComposerV2(&out, branding.Renderer{NoColor: true}, 1, 120, 25)
+	text := out.String()
+	if !strings.Contains(text, "Single") {
+		t.Fatalf("composer = %q, want Single mode label", text)
+	}
+	if strings.Contains(text, "Build |") {
+		t.Fatalf("composer = %q, should not keep stale Build label after agent switch", text)
 	}
 }
 

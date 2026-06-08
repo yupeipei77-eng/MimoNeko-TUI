@@ -104,9 +104,9 @@ func (c *Console) handleRawRune(ctx context.Context, reader *bufio.Reader, r run
 	case '\x05':
 		c.setPanel("editor", "Editor", "Draft buffer")
 	case '\t':
-		// Tab: cycle mode only when no modal is open
+		// Tab follows the footer hint: open the agent picker when no modal is open.
 		if !c.agentPickerOpen && !c.providerPickerOpen && !c.modelPickerOpen && !c.paletteOpen {
-			c.cycleUIMode()
+			c.openAgentPicker()
 		}
 	case '\x1b':
 		c.handleEscapeSequence(reader)
