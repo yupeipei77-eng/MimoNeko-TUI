@@ -322,7 +322,7 @@ func (c *Console) handleInputLine(ctx context.Context, rawLine string) bool {
 		c.renderPrompt()
 		return false
 	}
-	if c.shouldRunBareInputAsAgent() {
+	if c.shouldRunBareInputAsAgent(line) {
 		c.runGoal(ctx, line)
 	} else {
 		c.chatMessage(ctx, line)
@@ -331,8 +331,50 @@ func (c *Console) handleInputLine(ctx context.Context, rawLine string) bool {
 	return false
 }
 
-func (c *Console) shouldRunBareInputAsAgent() bool {
-	return strings.ToLower(strings.TrimSpace(c.Session.Mode)) != "single"
+func (c *Console) shouldRunBareInputAsAgent(line string) bool {
+	if strings.ToLower(strings.TrimSpace(c.Session.Mode)) == "single" {
+		return false
+	}
+	return looksLikeAgentGoal(line)
+}
+
+func looksLikeAgentGoal(line string) bool {
+	text := strings.ToLower(strings.TrimSpace(line))
+	if text == "" {
+		return false
+	}
+	if isConversationalBareInput(text) {
+		return false
+	}
+	engineeringMarkers := []string{
+		"agent", "api", "bug", "build", "cache", "cli", "cmd", "code", "command",
+		"commit", "compile", "config", "diff", "error", "exe", "file", "fix",
+		"go test", "git", "github", "implement", "inspect", "model", "patch",
+		"project", "push", "readme", "refactor", "repo", "review", "run",
+		"shell", "test", "tool", "tui", "ui", "update", "worktree",
+		"\u4fee\u590d", "\u4fee\u6539", "\u66f4\u65b0", "\u4f18\u5316", "\u5b9e\u73b0",
+		"\u68c0\u67e5", "\u67e5\u770b", "\u5206\u6790", "\u5ba1\u67e5", "\u89e3\u91ca",
+		"\u751f\u6210", "\u6dfb\u52a0", "\u65b0\u589e", "\u5220\u9664", "\u91cd\u6784",
+		"\u9879\u76ee", "\u6587\u4ef6", "\u4ee3\u7801", "\u6d4b\u8bd5", "\u62a5\u9519",
+		"\u9519\u8bef", "\u547d\u4ee4", "\u7ec8\u7aef", "\u6a21\u578b", "\u754c\u9762",
+		"\u63d0\u4ea4", "\u63a8\u9001", "\u5de5\u5177", "\u914d\u7f6e",
+	}
+	for _, marker := range engineeringMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isConversationalBareInput(text string) bool {
+	trimmed := strings.Trim(text, " \t\r\n.!?\uff01\uff1f\u3002\uff5e~")
+	switch trimmed {
+	case "hi", "hello", "hey", "yo", "\u4f60\u597d", "\u55e8", "\u54c8\u55bd",
+		"\u65e9\u4e0a\u597d", "\u4e0b\u5348\u597d", "\u665a\u4e0a\u597d":
+		return true
+	}
+	return len([]rune(trimmed)) <= 2
 }
 
 func (c *Console) handleControlInput(ctx context.Context, rawLine string) bool {

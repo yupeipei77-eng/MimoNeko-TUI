@@ -129,6 +129,58 @@ func TestNekoBuildBareInputUsesAgentRuntime(t *testing.T) {
 	}
 }
 
+func TestNekoBuildGreetingUsesChatNotAgent(t *testing.T) {
+	agentCalled := false
+	chatCalled := false
+	output := runTestConsole(t, "\u4f60\u597d\n/exit\n", Options{
+		Runner: func(ctx context.Context, req RunRequest) (RunResult, error) {
+			agentCalled = true
+			return RunResult{}, nil
+		},
+		Chatter: func(ctx context.Context, req ChatRequest) (ChatResult, error) {
+			chatCalled = true
+			if req.Message != "\u4f60\u597d" {
+				t.Fatalf("chat message = %q, want \u4f60\u597d", req.Message)
+			}
+			return ChatResult{Response: "\u4f60\u597d\uff0c\u6211\u5728\u3002"}, nil
+		},
+	})
+	if agentCalled {
+		t.Fatal("Build greeting should not execute agent runtime")
+	}
+	if !chatCalled {
+		t.Fatal("Build greeting should call chat")
+	}
+	if strings.Contains(output, "executing agent runtime") || strings.Contains(output, "Run completed:") {
+		t.Fatalf("output = %q, should not show agent runtime for greeting", output)
+	}
+	if !strings.Contains(output, "MimoNeko") {
+		t.Fatalf("output = %q, want chat response", output)
+	}
+}
+
+func TestLooksLikeAgentGoal(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "chinese greeting", line: "\u4f60\u597d", want: false},
+		{name: "english greeting", line: "hello", want: false},
+		{name: "short cjk chat", line: "\u55ef\u55ef", want: false},
+		{name: "english inspect", line: "inspect project files", want: true},
+		{name: "chinese project check", line: "\u68c0\u67e5\u9879\u76ee\u6587\u4ef6", want: true},
+		{name: "chinese fix tests", line: "\u4fee\u590d\u6d4b\u8bd5\u62a5\u9519", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := looksLikeAgentGoal(tt.line); got != tt.want {
+				t.Fatalf("looksLikeAgentGoal(%q) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNekoRuntimeEventStreamForChat(t *testing.T) {
 	output := runTestConsole(t, "hello\n/exit\n", Options{
 		Mode: "single",
